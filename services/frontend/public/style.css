@@ -3087,3 +3087,18 @@ body {
 .an-master-list { display: flex; flex-direction: column; gap: 8px; }
 .an-master-row { display: grid; grid-template-columns: 130px 1fr 90px; align-items: center; gap: 8px; font-size: 12px; }
 .an-master-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Payment badge in journal */
+.pay-badge {
+  display: inline-block; margin-left: 4px;
+  padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  vertical-align: middle;
+}
+.pay-cash   { background: #dcfce7; color: #15803d; }
+.pay-card   { background: #dbeafe; color: #1d4ed8; }
+.pay-online { background: #ede9fe; color: #6d28d9; }
+
+/* Status-specific row tinting */
+.booking-row.status-completed { opacity: 0.8; }
+.booking-row.status-canceled  { opacity: 0.5; }
+.booking-row.status-no_show   { opacity: 0.5; }

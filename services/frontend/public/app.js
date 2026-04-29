@@ -38,11 +38,11 @@
   const WEEKDAYS_SHORT = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
   const STATUS_LABEL = {
-    pending: { ru: 'ожидает', cls: 'pill-warn' },
-    confirmed: { ru: 'подтверждена', cls: 'pill-ok' },
-    completed: { ru: 'завершена', cls: 'pill-mute' },
-    canceled: { ru: 'отменена', cls: 'pill-mute' },
-    no_show: { ru: 'не пришёл', cls: 'pill-danger' },
+    pending:   { ru: 'ожидает',      cls: 'pill-warn',   icon: '⏳' },
+    confirmed: { ru: 'подтверждена', cls: 'pill-ok',     icon: '✓'  },
+    completed: { ru: 'оплачено',     cls: 'pill-info',   icon: '💳' },
+    canceled:  { ru: 'отменена',     cls: 'pill-mute',   icon: '✕'  },
+    no_show:   { ru: 'не пришёл',   cls: 'pill-danger', icon: '!'  },
   };
 
   const els = {
@@ -1294,8 +1294,11 @@
     els.journalList.innerHTML = filtered.map((b) => {
       const master = masterMap.get(b.master_id) || '?';
       const services = (b.services || []).map((s) => escapeHtml(s.service_name)).join(', ');
-      const status = STATUS_LABEL[b.status] || { ru: b.status, cls: 'pill-mute' };
+      const status = STATUS_LABEL[b.status] || { ru: b.status, cls: 'pill-mute', icon: '' };
       const isActive = b.status === 'pending' || b.status === 'confirmed';
+      const payBadge = b.status === 'completed' && b.payment_method
+        ? `<span class="pay-badge pay-${b.payment_method}">${{ cash: 'Нал', card: 'Карта', online: 'Онлайн' }[b.payment_method] || ''}</span>`
+        : '';
       const actions = isActive
         ? `<button class="btn-ghost btn-xs" data-action="cancel" data-id="${b.id}">Отменить</button>
            <button class="btn-secondary btn-xs" data-action="complete" data-id="${b.id}">Завершить</button>`
@@ -1305,14 +1308,14 @@
         ? `<span class="booking-date">${startD.getDate()} ${MONTHS_RU_GENITIVE[startD.getMonth()]}</span> `
         : '';
       return `
-        <div class="row-item booking-row ${isActive ? '' : 'inactive'}" data-booking-id="${b.id}">
+        <div class="row-item booking-row ${isActive ? '' : 'inactive'} status-${b.status}" data-booking-id="${b.id}">
           <div class="booking-time">${datePrefix}${formatTimeRange(b.starts_at, b.ends_at)}</div>
           <div class="row-main">
             <div class="row-name">${escapeHtml(b.client_name || '—')} · ${escapeHtml(b.client_phone || '')}</div>
             <div class="row-meta">${escapeHtml(master)} · ${services}</div>
           </div>
           <div class="booking-right">
-            <div class="row-stat">${formatPrice(b.total_price)}</div>
+            <div class="row-stat">${formatPrice(b.total_price)}${payBadge}</div>
             <span class="status-pill ${status.cls}">${escapeHtml(status.ru)}</span>
           </div>
           ${actions ? `<div class="booking-actions">${actions}</div>` : ''}
@@ -1508,7 +1511,8 @@
         ${b.notes ? `<span class="bk-meta-label">Заметка</span><span class="bk-meta-val">${escapeHtml(b.notes)}</span>` : ''}
         <span class="bk-meta-label">Источник</span>
         <span class="bk-meta-val">${escapeHtml(SOURCE_LABEL[b.source] || b.source || 'Вручную')}</span>
-        ${b.paid_at ? `<span class="bk-meta-label">Оплата</span><span class="bk-meta-val">✓ ${b.payment_method === 'cash' ? 'Наличные' : 'Безнал'}</span>` : ''}
+        ${b.payment_method ? `<span class="bk-meta-label">Оплата</span><span class="bk-meta-val">${{ cash: '✓ Наличные', card: '✓ Карта', online: '✓ Онлайн' }[b.payment_method] || b.payment_method}</span>` : ''}
+        ${b.discount_pct > 0 ? `<span class="bk-meta-label">Скидка</span><span class="bk-meta-val">${b.discount_pct}%</span>` : ''}
       </div>
       ${svcRows ? `
         <table class="bk-svc-table">
