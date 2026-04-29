@@ -4,6 +4,7 @@ import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
 import { toCompanyTime } from '../services';
+import { generateSlots } from '../slots.service';
 
 const router = Router();
 
@@ -68,22 +69,7 @@ router.get('/', async (req, res, next) => {
 
     const stepMs = config.SLOT_STEP_MINUTES * 60_000;
     const durMs = totalMinutes * 60_000;
-    const slots: Array<{ starts_at: string; ends_at: string }> = [];
-
-    for (let t = dayStart.getTime(); t + durMs <= dayEnd.getTime(); t += stepMs) {
-      const slotEnd = t + durMs;
-      const overlaps = bookRes.rows.some((b: { starts_at: string; ends_at: string }) => {
-        const bs = new Date(b.starts_at).getTime();
-        const be = new Date(b.ends_at).getTime();
-        return t < be && slotEnd > bs;
-      });
-      if (!overlaps) {
-        slots.push({
-          starts_at: new Date(t).toISOString(),
-          ends_at: new Date(slotEnd).toISOString(),
-        });
-      }
-    }
+    const slots = generateSlots(dayStart, dayEnd, durMs, stepMs, bookRes.rows);
 
     return res.json({
       items: slots,
