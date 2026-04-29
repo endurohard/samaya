@@ -2654,6 +2654,7 @@
       els.clientFormError.textContent = msg;
       return;
     }
+    clientsState.page = 0;
     closeClientModal();
     await loadClientsAll();
   }

@@ -38,7 +38,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.auth) return res.status(401).json({ error: 'unauthenticated' });
-    if (!roles.includes(req.auth.role)) {
+    if (req.auth.role !== 'owner' && !roles.includes(req.auth.role)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     return next();
