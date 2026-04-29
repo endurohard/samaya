@@ -334,6 +334,7 @@
 
   let cachedServices = [];
   let cachedMasters = [];
+  let mastersLoadedAt = 0;
   let cachedBookings = [];
   let cachedProducts = [];
   let cachedSuppliers = [];
@@ -498,7 +499,7 @@
       // нарисовать шелл сразу — мастеров/записей может не быть, но дата/мини-календарь/финансы должны быть видны
       renderJournal();
       // если мастеров нет — подгрузить (тогда шелл уже виден)
-      if (cachedMasters.length === 0) void loadMasters().then(renderJournal);
+      void loadMasters().then(renderJournal);
       void loadBookings();
       populateBookingForm();
     }
@@ -527,8 +528,8 @@
       void activatePromotionView();
     }
     if (view === 'analytics') {
-      if (cachedMasters.length === 0) void loadMasters();
-      void activateAnalyticsView();
+      void loadMasters().then(() => activateAnalyticsView());
+      return;
     }
   }
 
@@ -631,11 +632,13 @@
   }
 
   // ===== Masters =====
-  async function loadMasters() {
+  async function loadMasters({ force = false } = {}) {
     if (!store.access) return;
+    if (!force && cachedMasters.length > 0 && Date.now() - mastersLoadedAt < 5 * 60_000) return;
     const { ok, data } = await apiCall('GET', '/api/salons/masters', null);
     if (!ok) return;
     cachedMasters = data?.items || [];
+    mastersLoadedAt = Date.now();
     renderMasters();
   }
 

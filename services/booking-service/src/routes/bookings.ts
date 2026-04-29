@@ -398,7 +398,8 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
          WHERE company_id = $1 AND code = $2 AND is_active = TRUE
            AND (valid_from IS NULL OR valid_from <= $3)
            AND (valid_to   IS NULL OR valid_to   >= $3)
-           AND (max_uses   IS NULL OR used_count < max_uses)`,
+           AND (max_uses   IS NULL OR used_count < max_uses)
+         FOR UPDATE`,
         [req.auth!.company_id, input.promo_code.toUpperCase(), today],
       );
       if (pr.rows[0]) {
