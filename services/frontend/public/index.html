@@ -74,6 +74,10 @@
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.11c0-1.13-.85-2.1-1.98-2.19-.37-.03-.75-.06-1.12-.08m-5.8 0c-.07.21-.1.43-.1.66 0 .41.34.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.66m-5.8 0c.13-.42.34-.79.62-1.08A2.25 2.25 0 0113.5 2.25H15c1 0 1.87.67 2.15 1.59m-5.8 0c-.38.02-.75.05-1.13.08C9.1 4.01 8.25 4.97 8.25 6.11v2.14m0 0H4.88c-.62 0-1.13.5-1.13 1.13v11.25c0 .62.51 1.12 1.13 1.12h9.75c.62 0 1.12-.5 1.12-1.13V9.38c0-.62-.5-1.13-1.12-1.13H8.25z"/></svg>
           <span>Продажи</span>
         </a>
+        <a class="nav-item" data-view="analytics" href="#analytics">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+          <span>Аналитика</span>
+        </a>
         <a class="nav-item" data-view="finance" href="#finance">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
           <span>Финансы</span>
@@ -1369,6 +1373,62 @@
           </div>
         </section>
 
+        <!-- ===== VIEW: ANALYTICS ===== -->
+        <section class="view" data-view="analytics" hidden>
+          <div class="page-toolbar">
+            <h1 class="page-title">Аналитика</h1>
+            <div class="toolbar-actions">
+              <div class="period-pills" id="analyticsPeriodPills">
+                <button class="period-pill" data-period="today">Сегодня</button>
+                <button class="period-pill" data-period="week">Неделя</button>
+                <button class="period-pill active" data-period="month">Месяц</button>
+                <button class="period-pill" data-period="year">Год</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPI row -->
+          <div class="kpi-row" id="analyticsKpiRow">
+            <div class="kpi-card">
+              <div class="kpi-label">Выручка</div>
+              <div class="kpi-value" id="anKpiRevenue">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Продаж</div>
+              <div class="kpi-value" id="anKpiSales">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Средний чек</div>
+              <div class="kpi-value" id="anKpiAvg">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Активных / Отменено</div>
+              <div class="kpi-value kpi-value--sm" id="anKpiStatus">—</div>
+            </div>
+          </div>
+
+          <!-- Revenue by day (sparkline-table) + Top services/masters side by side -->
+          <div class="analytics-grid">
+            <!-- By day -->
+            <div class="card analytics-card">
+              <div class="analytics-card-title">Выручка по дням</div>
+              <div id="anByDay" class="an-bars"></div>
+            </div>
+            <!-- Top services -->
+            <div class="card analytics-card">
+              <div class="analytics-card-title">Топ услуг</div>
+              <table class="data-table" id="anTopServices">
+                <tbody><tr><td colspan="3" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+            <!-- Top masters -->
+            <div class="card analytics-card">
+              <div class="analytics-card-title">Выручка по сотрудникам</div>
+              <div id="anByMaster" class="an-master-list"></div>
+            </div>
+          </div>
+        </section>
+
         <!-- ===== VIEW: SALES ===== -->
         <section class="view" data-view="sales" hidden>
           <!-- Toolbar -->
@@ -1437,7 +1497,9 @@
         <div class="modal-body bk-modal-body" id="bkModalBody"></div>
         <div class="modal-foot bk-modal-foot" id="bkModalFoot">
           <button type="button" class="btn-success btn-sm" id="bkModalComplete" hidden>Оформить продажу</button>
-          <button type="button" class="btn-secondary btn-sm" id="bkModalRepeat">Повторить запись</button>
+          <button type="button" class="btn-primary btn-sm" id="bkModalConfirm" hidden>Подтвердить</button>
+          <button type="button" class="btn-danger-outline btn-sm" id="bkModalCancel2" hidden>Отменить запись</button>
+          <button type="button" class="btn-secondary btn-sm" id="bkModalRepeat" hidden>Повторить запись</button>
           <button type="button" class="btn-ghost btn-sm" id="bkModalClose2">Закрыть</button>
         </div>
       </div>

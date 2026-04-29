@@ -106,6 +106,76 @@ router.get('/sales', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Analytics =====
+const analyticsSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+router.get('/analytics', async (req, res, next) => {
+  try {
+    const q = analyticsSchema.parse(req.query);
+    const companyId = req.auth!.company_id;
+
+    const [kpiRes, byDayRes, byMasterRes, byServiceRes] = await Promise.all([
+      // Overall KPIs
+      pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'completed') AS sales_count,
+           COALESCE(SUM(total_price - discount_amount) FILTER (WHERE status = 'completed'), 0)::float8 AS revenue,
+           COUNT(*) FILTER (WHERE status IN ('pending','confirmed')) AS active_count,
+           COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_count,
+           COUNT(*) FILTER (WHERE status = 'no_show') AS no_show_count
+         FROM bookings.bookings
+         WHERE company_id = $1 AND starts_at::date BETWEEN $2::date AND $3::date`,
+        [companyId, q.from, q.to],
+      ),
+      // Revenue by day
+      pool.query(
+        `SELECT starts_at::date AS day,
+                COUNT(*) FILTER (WHERE status = 'completed') AS sales,
+                COALESCE(SUM(total_price - discount_amount) FILTER (WHERE status = 'completed'), 0)::float8 AS revenue
+         FROM bookings.bookings
+         WHERE company_id = $1 AND starts_at::date BETWEEN $2::date AND $3::date
+         GROUP BY day ORDER BY day`,
+        [companyId, q.from, q.to],
+      ),
+      // Revenue by master
+      pool.query(
+        `SELECT b.master_id,
+                COUNT(*) FILTER (WHERE b.status = 'completed') AS sales,
+                COALESCE(SUM(b.total_price - b.discount_amount) FILTER (WHERE b.status = 'completed'), 0)::float8 AS revenue
+         FROM bookings.bookings b
+         WHERE b.company_id = $1 AND b.starts_at::date BETWEEN $2::date AND $3::date
+         GROUP BY b.master_id
+         ORDER BY revenue DESC LIMIT 20`,
+        [companyId, q.from, q.to],
+      ),
+      // Top services
+      pool.query(
+        `SELECT bs.service_name,
+                COUNT(*) AS bookings_count,
+                COALESCE(SUM(bs.price), 0)::float8 AS revenue
+         FROM bookings.booking_services bs
+         JOIN bookings.bookings b ON b.id = bs.booking_id
+         WHERE b.company_id = $1
+           AND b.starts_at::date BETWEEN $2::date AND $3::date
+           AND b.status = 'completed'
+         GROUP BY bs.service_name
+         ORDER BY revenue DESC LIMIT 10`,
+        [companyId, q.from, q.to],
+      ),
+    ]);
+
+    return res.json({
+      kpi: kpiRes.rows[0],
+      by_day: byDayRes.rows,
+      by_master: byMasterRes.rows,
+      top_services: byServiceRes.rows,
+    });
+  } catch (e) { return next(e); }
+});
+
 // ===== Get one =====
 router.get('/:id', async (req, res, next) => {
   try {

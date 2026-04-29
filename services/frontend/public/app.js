@@ -9,6 +9,7 @@
     services: 'Услуги',
     masters: 'Сотрудники',
     inventory: 'Склад / Расходники',
+    analytics: 'Аналитика',
     sales: 'Продажи',
     finance: 'Финансы',
     salary: 'Зарплата',
@@ -295,6 +296,7 @@
     'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
   ];
+  const MONTHS_RU_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   const WEEKDAYS_RU = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
   const WEEKDAYS_FULL = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 
@@ -491,6 +493,10 @@
     }
     if (view === 'sales') {
       void activateSalesView();
+    }
+    if (view === 'analytics') {
+      if (cachedMasters.length === 0) void loadMasters();
+      void activateAnalyticsView();
     }
   }
 
@@ -1513,9 +1519,14 @@
       ` : ''}
     `;
 
+    const isActive = ['pending', 'confirmed'].includes(b.status);
     if (els.bkModalRepeat) els.bkModalRepeat.hidden = !isCanceled;
     const completeBtn = document.getElementById('bkModalComplete');
-    if (completeBtn) completeBtn.hidden = !['pending', 'confirmed'].includes(b.status);
+    if (completeBtn) completeBtn.hidden = !isActive;
+    const confirmBtn = document.getElementById('bkModalConfirm');
+    if (confirmBtn) confirmBtn.hidden = b.status !== 'pending';
+    const cancelBtn2 = document.getElementById('bkModalCancel2');
+    if (cancelBtn2) cancelBtn2.hidden = !isActive;
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = false;
     els.bkModal.hidden = false;
   }
@@ -1581,6 +1592,22 @@
   els.bkModalBackdrop?.addEventListener('click', closeBookingModal);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !els.bkModal?.hidden) closeBookingModal(); });
   els.bkModalRepeat?.addEventListener('click', () => { if (_bkModalCurrent) repeatBooking(_bkModalCurrent); });
+
+  document.getElementById('bkModalConfirm')?.addEventListener('click', async () => {
+    if (!_bkModalCurrent) return;
+    const btn = document.getElementById('bkModalConfirm');
+    btn.disabled = true; btn.textContent = 'Подтверждаем…';
+    const { ok } = await apiCall('PATCH', `/api/bookings/${_bkModalCurrent.id}`, { status: 'confirmed' });
+    btn.disabled = false; btn.textContent = 'Подтвердить';
+    if (ok) { closeBookingModal(); void loadBookings(); }
+  });
+
+  document.getElementById('bkModalCancel2')?.addEventListener('click', async () => {
+    if (!_bkModalCurrent) return;
+    if (!confirm('Отменить эту запись?')) return;
+    const { ok } = await apiCall('POST', `/api/bookings/${_bkModalCurrent.id}/cancel`, {});
+    if (ok) { closeBookingModal(); void loadBookings(); }
+  });
 
   els.journalPeriodBtns?.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -4770,6 +4797,105 @@
     if (e.key !== 'Escape') return;
     const sm = document.getElementById('invShiftModal'); if (sm && !sm.hidden) closeInvShiftModal();
     const cm = document.getElementById('invCheckModal'); if (cm && !cm.hidden) closeInvCheckModal();
+  });
+
+  // ===== ANALYTICS =====
+
+  let analyticsPeriod = 'month';
+
+  function getAnalyticsRange(period) {
+    const today = todayLocalISO();
+    if (period === 'today')  return { from: today, to: today };
+    if (period === 'week')  {
+      const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 6);
+      return { from: d.toISOString().slice(0, 10), to: today };
+    }
+    if (period === 'month') {
+      const d = new Date(today + 'T00:00:00');
+      return { from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, to: today };
+    }
+    if (period === 'year') {
+      return { from: `${new Date(today + 'T00:00:00').getFullYear()}-01-01`, to: today };
+    }
+    return { from: today, to: today };
+  }
+
+  async function activateAnalyticsView() {
+    await loadAnalytics();
+  }
+
+  async function loadAnalytics() {
+    const { from, to } = getAnalyticsRange(analyticsPeriod);
+    const { ok, data } = await apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`);
+    if (!ok) return;
+    renderAnalyticsKpi(data.kpi);
+    renderAnalyticsByDay(data.by_day);
+    renderAnalyticsTopServices(data.top_services);
+    renderAnalyticsByMaster(data.by_master);
+  }
+
+  function renderAnalyticsKpi(kpi) {
+    if (!kpi) return;
+    const revenue = Number(kpi.revenue) || 0;
+    const sales = Number(kpi.sales_count) || 0;
+    document.getElementById('anKpiRevenue').textContent = formatPrice(revenue);
+    document.getElementById('anKpiSales').textContent = sales;
+    document.getElementById('anKpiAvg').textContent = sales ? formatPrice(revenue / sales) : '—';
+    document.getElementById('anKpiStatus').textContent =
+      `${kpi.active_count} / ${kpi.canceled_count} отмен`;
+  }
+
+  function renderAnalyticsByDay(rows) {
+    const el = document.getElementById('anByDay');
+    if (!rows || !rows.length) { el.innerHTML = '<div class="an-empty">Нет данных</div>'; return; }
+    const maxRev = Math.max(...rows.map((r) => r.revenue), 1);
+    el.innerHTML = rows.map((r) => {
+      const pct = Math.round((r.revenue / maxRev) * 100);
+      const d = new Date(r.day + 'T00:00:00');
+      const label = `${d.getDate()} ${MONTHS_RU_SHORT[d.getMonth()]}`;
+      return `<div class="an-bar-row" title="${label}: ${formatPrice(r.revenue)} (${r.sales} продаж)">
+        <div class="an-bar-label">${label}</div>
+        <div class="an-bar-track"><div class="an-bar-fill" style="width:${pct}%"></div></div>
+        <div class="an-bar-val">${formatPrice(r.revenue)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderAnalyticsTopServices(rows) {
+    const tbody = document.querySelector('#anTopServices tbody');
+    if (!rows || !rows.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="table-empty">Нет данных</td></tr>'; return;
+    }
+    tbody.innerHTML = rows.map((r) => `<tr>
+      <td>${escapeHtml(r.service_name)}</td>
+      <td class="text-right" style="color:var(--text-dim)">${r.bookings_count}×</td>
+      <td class="text-right"><strong>${formatPrice(r.revenue)}</strong></td>
+    </tr>`).join('');
+  }
+
+  function renderAnalyticsByMaster(rows) {
+    const el = document.getElementById('anByMaster');
+    if (!rows || !rows.length) { el.innerHTML = '<div class="an-empty">Нет данных</div>'; return; }
+    const maxRev = Math.max(...rows.map((r) => r.revenue), 1);
+    const masterMap = new Map(cachedMasters.map((m) => [m.id, m.display_name]));
+    el.innerHTML = rows.map((r) => {
+      const pct = Math.round((r.revenue / maxRev) * 100);
+      const name = masterMap.get(r.master_id) || 'Неизвестный';
+      return `<div class="an-master-row" title="${name}: ${formatPrice(r.revenue)}">
+        <div class="an-master-name">${escapeHtml(name)}</div>
+        <div class="an-bar-track" style="flex:1"><div class="an-bar-fill" style="width:${pct}%"></div></div>
+        <div class="an-bar-val">${formatPrice(r.revenue)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('analyticsPeriodPills')?.addEventListener('click', (e) => {
+    const pill = e.target.closest('.period-pill');
+    if (!pill) return;
+    analyticsPeriod = pill.dataset.period;
+    document.querySelectorAll('#analyticsPeriodPills .period-pill').forEach((p) =>
+      p.classList.toggle('active', p === pill));
+    void loadAnalytics();
   });
 
   // ===== SALES =====
