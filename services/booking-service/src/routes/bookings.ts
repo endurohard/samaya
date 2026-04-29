@@ -12,7 +12,10 @@ const listSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   master_id: z.string().uuid().optional(),
+  client_phone: z.string().min(5).optional(),
+  client_id: z.string().uuid().optional(),
   status: z.enum(['pending', 'confirmed', 'completed', 'canceled', 'no_show']).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 router.get('/', async (req, res, next) => {
@@ -26,10 +29,19 @@ router.get('/', async (req, res, next) => {
       params.push(q.master_id);
       where += ` AND master_id = $${params.length}`;
     }
+    if (q.client_phone) {
+      params.push(q.client_phone);
+      where += ` AND client_phone = $${params.length}`;
+    }
+    if (q.client_id) {
+      params.push(q.client_id);
+      where += ` AND client_id = $${params.length}`;
+    }
     if (q.status) {
       params.push(q.status);
       where += ` AND status = $${params.length}`;
     }
+    const limitClause = q.limit ? ` LIMIT ${q.limit}` : '';
 
     const { rows } = await pool.query(
       `SELECT b.id, b.master_id, b.client_id, b.client_phone, b.client_name,
@@ -47,7 +59,7 @@ router.get('/', async (req, res, next) => {
               ) AS services
        FROM bookings.bookings b
        WHERE ${where}
-       ORDER BY b.starts_at`,
+       ORDER BY b.starts_at${limitClause}`,
       params,
     );
     return res.json({ items: rows });

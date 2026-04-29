@@ -206,6 +206,10 @@
     clientCancel: document.getElementById('clientCancel'),
     clientDelete: document.getElementById('clientDelete'),
     clientFormError: document.getElementById('clientFormError'),
+    clientTabBar: document.getElementById('clientTabBar'),
+    clientTabHistory: document.getElementById('clientTabHistory'),
+    clientHistoryTab: document.getElementById('clientHistoryTab'),
+    clientHistoryList: document.getElementById('clientHistoryList'),
 
     // api log
     apiLog: document.getElementById('apiLog'),
@@ -2510,10 +2514,57 @@
   }
 
   // ===== Client modal =====
+  function switchClientTab(tab) {
+    els.clientTabBar.querySelectorAll('.tab-btn').forEach((b) => {
+      b.classList.toggle('tab-btn--active', b.dataset.tab === tab);
+    });
+    els.clientForm.hidden = tab !== 'info';
+    els.clientHistoryTab.hidden = tab !== 'history';
+    if (tab === 'history') loadClientHistory();
+  }
+
+  async function loadClientHistory() {
+    const phone = els.clPhone.value.trim();
+    if (!phone) return;
+    els.clientHistoryList.innerHTML = '<div class="table-empty">Загрузка…</div>';
+    const res = await apiCall('GET', `/api/bookings?client_phone=${encodeURIComponent(phone)}&from=2000-01-01&to=2099-12-31&limit=100`);
+    if (!res.ok || !res.data?.items?.length) {
+      els.clientHistoryList.innerHTML = '<div class="table-empty">Визитов не найдено</div>';
+      return;
+    }
+    const items = res.data.items;
+    items.sort((a, b) => (b.starts_at || '').localeCompare(a.starts_at || ''));
+    const masterMap = new Map(cachedMasters.map((m) => [m.id, m.display_name]));
+    els.clientHistoryList.innerHTML = items.map((b) => {
+      const d = new Date(b.starts_at);
+      const dateStr = isNaN(d.getTime()) ? '—' : `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+      const services = (b.services || []).map((s) => s.service_name).join(', ') || '—';
+      const master = masterMap.get(b.master_id) || '—';
+      const amount = b.total_price != null ? formatPrice(b.total_price) : '—';
+      const st = STATUS_LABEL[b.status] || { ru: b.status, cls: '' };
+      return `<div class="cl-history-item" data-id="${b.id}">
+        <span class="cl-history-date">${dateStr}</span>
+        <span class="cl-history-master">${escapeHtml(master)}</span>
+        <span class="cl-history-services">${escapeHtml(services)}</span>
+        <span class="cl-history-amount">
+          <span class="cl-history-status pill ${st.cls}">${st.ru}</span>
+          ${amount}
+        </span>
+      </div>`;
+    }).join('');
+    els.clientHistoryList.querySelectorAll('.cl-history-item').forEach((row) => {
+      row.addEventListener('click', () => {
+        const bk = items.find((b) => b.id === row.dataset.id);
+        if (bk) { closeClientModal(); openBookingModal(bk); }
+      });
+    });
+  }
+
   function openClientModal(id) {
     els.clientFormError.hidden = true;
     els.clientFormError.textContent = '';
     els.clientForm.reset();
+    switchClientTab('info');
     if (id) {
       const c = clientsState.items.find((x) => x.id === id);
       if (!c) return;
@@ -2526,10 +2577,12 @@
       els.clEmail.value = c.email || '';
       els.clComment.value = c.comment || '';
       els.clientDelete.hidden = false;
+      els.clientTabHistory.disabled = false;
     } else {
       els.clientModalTitle.textContent = 'Новый клиент';
       els.clientId.value = '';
       els.clientDelete.hidden = true;
+      els.clientTabHistory.disabled = true;
     }
     els.clientModalBackdrop.hidden = false;
     els.clientModal.hidden = false;
@@ -2639,6 +2692,12 @@
   if (els.clientModalClose) els.clientModalClose.addEventListener('click', closeClientModal);
   if (els.clientModalBackdrop) els.clientModalBackdrop.addEventListener('click', closeClientModal);
   if (els.clientDelete) els.clientDelete.addEventListener('click', deleteClient);
+  if (els.clientTabBar) {
+    els.clientTabBar.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tab-btn');
+      if (btn && !btn.disabled) switchClientTab(btn.dataset.tab);
+    });
+  }
   if (els.clientsMoreBtn) {
     els.clientsMoreBtn.addEventListener('click', (e) => {
       e.stopPropagation();

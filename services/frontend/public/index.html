@@ -267,12 +267,17 @@
 
           <!-- Modal: add/edit client -->
           <div class="modal-backdrop" id="clientModalBackdrop" hidden></div>
-          <div class="modal" id="clientModal" hidden role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
+          <div class="modal modal--wide" id="clientModal" hidden role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
             <div class="modal-head">
               <h3 id="clientModalTitle">Новый клиент</h3>
               <button type="button" class="modal-close" id="clientModalClose" aria-label="Закрыть">×</button>
             </div>
-            <form id="clientForm" class="form modal-body">
+            <div class="tab-bar" id="clientTabBar">
+              <button class="tab-btn tab-btn--active" data-tab="info">Данные</button>
+              <button class="tab-btn" data-tab="history" id="clientTabHistory" disabled>История</button>
+            </div>
+            <!-- Tab: info -->
+            <form id="clientForm" class="form modal-body" data-client-tab="info">
               <input type="hidden" id="clientId" name="id" />
               <div class="form-grid">
                 <div>
@@ -313,6 +318,12 @@
               </div>
               <div class="error" id="clientFormError" hidden></div>
             </form>
+            <!-- Tab: history -->
+            <div class="modal-body" id="clientHistoryTab" data-client-tab="history" hidden>
+              <div id="clientHistoryList" class="cl-history-list">
+                <div class="table-empty">Загрузка…</div>
+              </div>
+            </div>
           </div>
         </section>
 

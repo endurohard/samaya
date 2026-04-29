@@ -3102,3 +3102,51 @@ body {
 .booking-row.status-completed { opacity: 0.8; }
 .booking-row.status-canceled  { opacity: 0.5; }
 .booking-row.status-no_show   { opacity: 0.5; }
+
+/* Modal wider variant */
+.modal--wide { width: min(700px, 96vw); }
+
+/* Tab bar inside modal */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  background: var(--bg);
+}
+.tab-btn {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover:not(:disabled) { color: var(--text); }
+.tab-btn--active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Client visit history */
+.cl-history-list { display: flex; flex-direction: column; gap: 4px; min-height: 120px; }
+.cl-history-item {
+  display: grid;
+  grid-template-columns: 90px 1fr auto 90px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.cl-history-item:hover { background: var(--border); }
+.cl-history-date { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+.cl-history-master { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-history-services { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-history-amount { text-align: right; font-weight: 600; color: var(--text); white-space: nowrap; }
+.cl-history-status { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; }
