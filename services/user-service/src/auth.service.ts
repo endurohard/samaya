@@ -53,7 +53,7 @@ interface RequestMeta {
 
 const REFRESH_TTL_MS = parseTtlMs(config.JWT_REFRESH_TTL);
 
-function parseTtlMs(s: string): number {
+export function parseTtlMs(s: string): number {
   const m = /^(\d+)([smhd])$/.exec(s.trim());
   if (!m) throw new Error(`invalid TTL: ${s}`);
   const n = Number(m[1]);
