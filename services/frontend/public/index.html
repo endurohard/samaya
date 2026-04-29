@@ -1,0 +1,1655 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>samaya — admin</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+    // Выгоняем service workers, оставшиеся от food-flow или прежних версий — они могут
+    // перехватывать /api/* запросы и возвращать пустые/устаревшие ответы.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => { try { r.unregister(); } catch {} });
+      });
+    }
+  </script>
+</head>
+<body>
+  <div class="app">
+    <!-- ===== Sidebar ===== -->
+    <aside class="sidebar">
+      <div class="sidebar-head" hidden>
+        <div class="brand">
+          <span class="brand-mark">s</span>
+          <div>
+            <div class="brand-name">samaya</div>
+            <div class="brand-sub">Phase 0a · admin</div>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item" data-view="profile" href="#profile">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.1a7.5 7.5 0 0115 0A18 18 0 0112 21.75 18 18 0 014.5 20.1z"/></svg>
+          <span>Профиль</span>
+        </a>
+        <a class="nav-item" data-view="journal" href="#journal">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v11.25M3 18.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75M3 18.75V11.25A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>
+          <span>Журнал записей</span>
+        </a>
+        <a class="nav-item" data-view="schedule" href="#schedule">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>График работы</span>
+        </a>
+        <a class="nav-item" data-view="clients" href="#clients">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.13a9.38 9.38 0 002.63.37 9.34 9.34 0 004.12-.95 4.13 4.13 0 00-7.53-2.49M15 19.13v-.11c0-1.11-.29-2.16-.79-3.07M15 19.13A12.32 12.32 0 018.62 21a12.27 12.27 0 01-6.37-1.77v-.11a6.38 6.38 0 0111.96-3.07M12 6.38a3.38 3.38 0 11-6.75 0 3.38 3.38 0 016.75 0zm8.25 2.25a2.63 2.63 0 11-5.25 0 2.63 2.63 0 015.25 0z"/></svg>
+          <span>Клиенты</span>
+        </a>
+        <a class="nav-item" data-view="services" href="#services">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.81 15.9L9 18.75l-.81-2.85a4.5 4.5 0 00-3.09-3.09L2.25 12l2.85-.81a4.5 4.5 0 003.09-3.09L9 5.25l.81 2.85a4.5 4.5 0 003.09 3.09L15.75 12l-2.85.81a4.5 4.5 0 00-3.09 3.09zM18.26 9.75l.39 1.36 1.35.4-1.35.39-.39 1.35-.39-1.35-1.36-.39 1.36-.4.39-1.35z"/></svg>
+          <span>Услуги</span>
+        </a>
+        <a class="nav-item" data-view="masters" href="#masters">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM4 21v-1a7 7 0 0114 0v1"/></svg>
+          <span>Сотрудники</span>
+        </a>
+        <div class="nav-section">Скоро</div>
+        <a class="nav-item disabled" data-pending="P1" title="Phase 1 — акции, промокоды" href="#promotion">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5A2.25 2.25 0 008.25 22.5h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></svg>
+          <span>Продвижение</span>
+        </a>
+        <a class="nav-item disabled" data-pending="P1" title="Phase 1 — WhatsApp Business API" href="#messages">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.12 2.99 2.71 3.23a48.4 48.4 0 003.29.37V21l4.18-4.18a1.14 1.14 0 01.78-.33 48.3 48.3 0 005.83-.5c1.59-.23 2.71-1.62 2.71-3.23V6.74c0-1.6-1.12-3-2.71-3.23A48.4 48.4 0 0012 3c-2.39 0-4.74.18-7.04.51-1.59.24-2.71 1.63-2.71 3.23v6.02z"/></svg>
+          <span>Сообщения</span>
+        </a>
+        <a class="nav-item" data-view="salary" href="#salary">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3"/></svg>
+          <span>Зарплата</span>
+        </a>
+        <a class="nav-item disabled" data-pending="P1" title="Phase 1 — продажи и чеки" href="#sales">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.11c0-1.13-.85-2.1-1.98-2.19-.37-.03-.75-.06-1.12-.08m-5.8 0c-.07.21-.1.43-.1.66 0 .41.34.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.66m-5.8 0c.13-.42.34-.79.62-1.08A2.25 2.25 0 0113.5 2.25H15c1 0 1.87.67 2.15 1.59m-5.8 0c-.38.02-.75.05-1.13.08C9.1 4.01 8.25 4.97 8.25 6.11v2.14m0 0H4.88c-.62 0-1.13.5-1.13 1.13v11.25c0 .62.51 1.12 1.13 1.12h9.75c.62 0 1.12-.5 1.12-1.13V9.38c0-.62-.5-1.13-1.12-1.13H8.25z"/></svg>
+          <span>Продажи</span>
+        </a>
+        <a class="nav-item" data-view="finance" href="#finance">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
+          <span>Финансы</span>
+        </a>
+        <a class="nav-item" data-view="inventory" href="#inventory">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.62 10.63a2.25 2.25 0 01-2.25 2.12H6.62a2.25 2.25 0 01-2.25-2.12L3.75 7.5M10 11.25h4M3.38 7.5h17.25c.62 0 1.13-.5 1.13-1.13v-1.5c0-.62-.5-1.12-1.13-1.12H3.38c-.62 0-1.13.5-1.13 1.12v1.5c0 .63.5 1.13 1.13 1.13z"/></svg>
+          <span>Склад</span>
+        </a>
+        <a class="nav-item" data-view="settings" href="#settings">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.59 3.94c.09-.54.56-.94 1.11-.94h2.6c.55 0 1.02.4 1.1.94l.22 1.28c.06.37.31.69.64.87.07.04.15.08.22.13.32.2.72.26 1.08.12l1.21-.45a1.13 1.13 0 011.37.49l1.3 2.25a1.12 1.12 0 01-.27 1.43l-1 .83c-.3.24-.44.61-.43.99v.26c-.01.38.13.75.43.99l1 .83c.43.35.54.95.26 1.43l-1.3 2.25a1.13 1.13 0 01-1.37.49l-1.21-.46c-.36-.13-.76-.07-1.08.13l-.22.12c-.33.18-.58.5-.64.87l-.22 1.28c-.08.54-.55.94-1.1.94h-2.6c-.55 0-1.02-.4-1.1-.94l-.22-1.28c-.06-.37-.31-.69-.64-.87-.07-.04-.15-.08-.22-.13a1.18 1.18 0 00-1.08-.12l-1.21.45a1.13 1.13 0 01-1.37-.49l-1.3-2.25a1.13 1.13 0 01.27-1.43l1-.83c.29-.24.43-.61.43-.99v-.26c0-.38-.14-.75-.43-.99l-1-.83a1.12 1.12 0 01-.27-1.43l1.3-2.25a1.13 1.13 0 011.37-.49l1.21.45c.36.13.76.07 1.08-.12.07-.05.15-.09.22-.13.33-.18.58-.5.64-.87l.22-1.28zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span>Настройки</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="user-mini" id="userMini" hidden>
+          <div class="user-mini-avatar" id="userMiniAvatar">?</div>
+          <div class="user-mini-info">
+            <div class="user-mini-name" id="userMiniName">—</div>
+            <div class="user-mini-role" id="userMiniRole">—</div>
+          </div>
+        </div>
+        <div class="status-mini">
+          <span class="dot dot-unknown" id="dotBackend"></span>
+          <span class="status-label" id="statusLabel">Проверяю backend…</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== Main ===== -->
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-brand">
+          <span class="topbar-brand-mark">s</span>
+          <span class="topbar-brand-text">samaya <span class="topbar-brand-thin">Business</span></span>
+          <span class="topbar-brand-divider">—</span>
+          <span class="topbar-brand-salon" id="topbarSalon">Самая</span>
+        </div>
+        <div class="topbar-spacer"></div>
+        <span class="topbar-tariff" title="Тариф">Тариф: <b>PRO</b></span>
+        <button class="topbar-icon-btn" id="topbarHelp" type="button" title="Помощь" aria-label="Помощь">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 115 0c0 1.4-2.5 1.6-2.5 3.5"/><circle cx="12" cy="16.5" r="0.8" fill="currentColor"/></svg>
+        </button>
+        <button class="topbar-icon-btn topbar-bell" id="topbarBell" type="button" title="Уведомления" aria-label="Уведомления">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.85 23.85 0 005.454-1.31A8.97 8.97 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.97 8.97 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.26 24.26 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
+          <span class="topbar-bell-dot"></span>
+        </button>
+        <div class="topbar-user" id="topbarUser">
+          <div class="topbar-user-avatar" id="topbarUserAvatar">?</div>
+          <span class="topbar-user-name" id="topbarUserName">—</span>
+        </div>
+        <button class="topbar-action" id="apilogToggle" type="button" title="DEV: лог запросов">API лог</button>
+      </header>
+      <div class="topbar-sub" id="viewTitle">Профиль</div>
+
+      <div class="content">
+        <!-- View: profile -->
+        <section class="view active" data-view="profile">
+          <div id="authGuest">
+            <div class="card auth-card">
+              <h2 class="card-title">Аутентификация</h2>
+              <div class="tabs">
+                <button class="tab active" data-tab="login" type="button">Войти</button>
+                <button class="tab" data-tab="register" type="button">Регистрация</button>
+              </div>
+              <div class="tab-pane active" data-pane="login">
+                <form id="loginForm" class="form">
+                  <label for="loginId">Email или телефон</label>
+                  <input id="loginId" name="identifier" type="text" required
+                         placeholder="owner@samaya.test или +79604080333" autocomplete="username" />
+                  <label for="loginPwd">Пароль</label>
+                  <input id="loginPwd" name="password" type="password" required minlength="8" autocomplete="current-password" />
+                  <button type="submit" class="btn-primary">Войти</button>
+                </form>
+              </div>
+              <div class="tab-pane" data-pane="register">
+                <form id="registerForm" class="form">
+                  <label for="regName">Имя</label>
+                  <input id="regName" name="full_name" type="text" placeholder="Зухра" />
+                  <label for="regEmail">Email</label>
+                  <input id="regEmail" name="email" type="email" placeholder="you@samaya.test" />
+                  <label for="regPhone">Телефон</label>
+                  <input id="regPhone" name="phone" type="text" placeholder="+79604080333" />
+                  <label for="regPwd">Пароль (мин 8)</label>
+                  <input id="regPwd" name="password" type="password" required minlength="8" autocomplete="new-password" />
+                  <label for="regRole">Роль</label>
+                  <select id="regRole" name="role">
+                    <option value="client" selected>client</option>
+                    <option value="master">master</option>
+                    <option value="admin">admin</option>
+                    <option value="owner">owner</option>
+                  </select>
+                  <button type="submit" class="btn-primary">Зарегистрироваться</button>
+                </form>
+              </div>
+              <div class="error" id="authError" hidden></div>
+            </div>
+          </div>
+
+          <div id="authUser" hidden>
+            <div class="card user-card-wrapper">
+              <div class="user-card-row">
+                <div class="user-avatar" id="userAvatar">?</div>
+                <div class="user-info">
+                  <div class="user-name" id="userName">—</div>
+                  <div class="user-meta" id="userMeta">—</div>
+                </div>
+                <div class="user-actions">
+                  <button id="refreshBtn" class="btn-secondary" type="button">Обновить токены</button>
+                  <button id="logoutBtn" class="btn-danger" type="button">Выйти</button>
+                </div>
+              </div>
+              <dl class="claims">
+                <dt>user_id</dt><dd id="claimSub">—</dd>
+                <dt>company_id</dt><dd id="claimCompany">—</dd>
+                <dt>role</dt><dd id="claimRole">—</dd>
+                <dt>expires</dt><dd id="claimExp">—</dd>
+              </dl>
+              <div class="error" id="userError" hidden></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- View: clients -->
+        <section class="view view-clients" data-view="clients" hidden>
+          <nav class="subnav" id="clientsSubnav">
+            <button type="button" class="subnav-item active" data-clients-tab="list">Список клиентов</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — RFM-анализ">Возвращаемость</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — бонусы и кешбэк">Бонусная программа</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — рассылки">Рассылка</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — телефония">Звонки</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — сертификаты">Сертификаты</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — чаевые">Чаевые</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — отзывы">Отзывы</button>
+            <button type="button" class="subnav-item disabled" data-pending="P1" title="Phase 1 — штрафы">Штрафы</button>
+          </nav>
+
+          <div class="clients-toolbar">
+            <input id="clientsSearch" class="clients-search" type="text"
+                   placeholder="Имя клиента или телефон" autocomplete="off" />
+            <input id="clientsCardSearch" class="clients-search clients-search-card" type="text"
+                   placeholder="Карта" disabled title="Phase 1 — поиск по карте лояльности" />
+            <span class="clients-toolbar-help" title="Подсказки" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 115 0c0 1.4-2.5 1.6-2.5 3.5"/><circle cx="12" cy="16.5" r="0.8" fill="currentColor"/></svg>
+            </span>
+            <div class="clients-toolbar-spacer"></div>
+            <button type="button" class="btn-success" id="clientsAddBonus" disabled
+                    title="Phase 1 — массовое начисление бонусов">→ Начислить бонусы</button>
+            <button type="button" class="btn-primary" id="clientsAddBtn">Добавить нового клиента</button>
+            <div class="clients-more" id="clientsMore">
+              <button type="button" class="clients-more-btn" id="clientsMoreBtn" aria-label="Ещё">⋯</button>
+              <div class="clients-more-menu" id="clientsMoreMenu" hidden>
+                <button type="button" class="clients-more-item" id="clientsExportCsv">↓ Экспорт в CSV</button>
+                <button type="button" class="clients-more-item disabled" disabled title="Phase 1">↓ Экспорт в Excel</button>
+                <button type="button" class="clients-more-item disabled" disabled title="Phase 1">↑ Импорт</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="clients-grid">
+            <div class="clients-table-wrap">
+              <div class="clients-table-head">
+                <div class="ct-col ct-col-check"><input type="checkbox" id="clientsSelectAll" /></div>
+                <div class="ct-col ct-col-name">Клиент</div>
+                <div class="ct-col ct-col-visits" title="Количество посещений">Кол-во</div>
+                <div class="ct-col ct-col-last">Последний визит</div>
+                <div class="ct-col ct-col-bonus">Бонусы</div>
+                <div class="ct-col ct-col-avg">Средний чек</div>
+                <div class="ct-col ct-col-total">Сумма</div>
+              </div>
+              <div id="clientsList" class="clients-table-body">
+                <div class="clients-empty">Загрузка…</div>
+              </div>
+              <div class="clients-pagination" id="clientsPagination" hidden></div>
+            </div>
+
+            <aside class="clients-sidebar">
+              <h3 class="clients-sidebar-title">Категории</h3>
+              <ul class="clients-segments" id="clientsSegments">
+                <!-- заполняется renderSegments -->
+              </ul>
+              <div class="clients-segments-period" id="clientsSegmentsPeriod" hidden>
+                за период: <a href="#" id="clientsNewPeriod" class="link-blue">—</a>
+              </div>
+            </aside>
+          </div>
+
+          <!-- Modal: add/edit client -->
+          <div class="modal-backdrop" id="clientModalBackdrop" hidden></div>
+          <div class="modal" id="clientModal" hidden role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
+            <div class="modal-head">
+              <h3 id="clientModalTitle">Новый клиент</h3>
+              <button type="button" class="modal-close" id="clientModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="clientForm" class="form modal-body">
+              <input type="hidden" id="clientId" name="id" />
+              <div class="form-grid">
+                <div>
+                  <label for="clFullName">Имя</label>
+                  <input id="clFullName" name="full_name" type="text" required placeholder="Фамилия Имя" />
+                </div>
+                <div>
+                  <label for="clPhone">Телефон</label>
+                  <input id="clPhone" name="phone" type="tel" required placeholder="+7 (___) ___-__-__" />
+                </div>
+                <div>
+                  <label for="clBirthday">Дата рождения</label>
+                  <input id="clBirthday" name="birthday" type="date" />
+                </div>
+                <div>
+                  <label for="clGender">Пол</label>
+                  <select id="clGender" name="gender">
+                    <option value="">—</option>
+                    <option value="female">Женский</option>
+                    <option value="male">Мужской</option>
+                  </select>
+                </div>
+                <div class="form-grid-full">
+                  <label for="clEmail">Email</label>
+                  <input id="clEmail" name="email" type="email" placeholder="user@mail.ru" />
+                </div>
+                <div class="form-grid-full">
+                  <label for="clComment">Заметка</label>
+                  <textarea id="clComment" name="comment" rows="3" placeholder="Комментарий администратора"></textarea>
+                </div>
+              </div>
+              <div class="modal-foot">
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary" id="clientSubmit">Сохранить</button>
+                  <button type="button" class="btn-ghost" id="clientCancel">Отмена</button>
+                </div>
+                <button type="button" class="btn-link-danger" id="clientDelete" hidden>Удалить</button>
+              </div>
+              <div class="error" id="clientFormError" hidden></div>
+            </form>
+          </div>
+        </section>
+
+        <!-- View: services -->
+        <section class="view" data-view="services" hidden>
+          <div class="card data-card">
+            <div class="data-head">
+              <h2 class="card-title">Услуги</h2>
+              <span class="counter" id="servicesCounter">0</span>
+              <div class="data-head-spacer"></div>
+              <button class="btn-primary btn-sm" id="addServiceToggle" type="button">+ Добавить услугу</button>
+            </div>
+            <details class="add-block" id="addServiceBlock">
+              <summary class="visually-hidden">Форма добавления услуги</summary>
+              <form id="addServiceForm" class="form add-form">
+                <div class="form-grid">
+                  <div>
+                    <label for="svcName">Название</label>
+                    <input id="svcName" name="name" type="text" required placeholder="ЛЛ живота" />
+                  </div>
+                  <div>
+                    <label for="svcPrice">Цена, ₽</label>
+                    <input id="svcPrice" name="price" type="number" min="0" step="100" required placeholder="450000" />
+                  </div>
+                  <div>
+                    <label for="svcDuration">Длительность, мин</label>
+                    <input id="svcDuration" name="duration_minutes" type="number" min="5" max="480" required placeholder="120" />
+                  </div>
+                  <div>
+                    <label for="svcColor">Цвет (hex)</label>
+                    <input id="svcColor" name="color" type="text" pattern="^#[0-9a-fA-F]{6}$" placeholder="#a78bfa" />
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary">Создать</button>
+                  <button type="button" class="btn-ghost" id="addServiceCancel">Отмена</button>
+                </div>
+              </form>
+            </details>
+            <div id="servicesList" class="data-list"></div>
+          </div>
+        </section>
+
+        <!-- View: masters -->
+        <section class="view" data-view="masters" hidden>
+          <div class="card data-card">
+            <div class="data-head">
+              <h2 class="card-title">Сотрудники</h2>
+              <span class="counter" id="mastersCounter">0</span>
+              <div class="data-head-spacer"></div>
+              <button class="btn-primary btn-sm" id="addMasterToggle" type="button">+ Добавить сотрудника</button>
+            </div>
+            <details class="add-block" id="addMasterBlock">
+              <summary class="visually-hidden">Форма добавления сотрудника</summary>
+              <form id="addMasterForm" class="form add-form">
+                <div class="form-grid">
+                  <div>
+                    <label for="mDisplayName">Имя</label>
+                    <input id="mDisplayName" name="display_name" type="text" required placeholder="Магомедова Наида" />
+                  </div>
+                  <div>
+                    <label for="mSpec">Специализация</label>
+                    <input id="mSpec" name="specialization" type="text" placeholder="Врач-косметолог" />
+                  </div>
+                </div>
+                <p class="hint">Сотрудник создаётся без user_id (standalone). Привязку к аккаунту добавим в след. итерации.</p>
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary">Создать</button>
+                  <button type="button" class="btn-ghost" id="addMasterCancel">Отмена</button>
+                </div>
+              </form>
+            </details>
+            <div id="mastersList" class="data-list"></div>
+          </div>
+        </section>
+
+        <!-- View: journal -->
+        <section class="view view-journal" data-view="journal" hidden>
+          <div class="journal-toolbar">
+            <div class="cal-toggle">
+              <button class="cal-toggle-btn active" data-mode="calendar" type="button" title="Календарь" aria-label="Календарь">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9h17M8 3.5v3M16 3.5v3"/></svg>
+              </button>
+              <button class="cal-toggle-btn" data-mode="list" type="button" title="Список" aria-label="Список">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg>
+              </button>
+              <button class="cal-toggle-btn" data-mode="masters" type="button" title="По сотрудникам" aria-label="По сотрудникам">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="9" r="3"/><circle cx="17" cy="11" r="2.4"/><path d="M3.5 19c.5-2.6 2.8-4.5 5.5-4.5s5 1.9 5.5 4.5M14.5 18.5c.4-1.8 2-3.2 4-3.2s3.6 1.4 4 3.2"/></svg>
+              </button>
+            </div>
+            <div class="journal-period" role="tablist" aria-label="Период журнала">
+              <button class="journal-period-btn" data-period="today" type="button">Сегодня</button>
+              <button class="journal-period-btn" data-period="tomorrow" type="button">Завтра</button>
+              <button class="journal-period-btn" data-period="week" type="button">Неделя</button>
+              <button class="journal-period-btn" data-period="month" type="button">Месяц</button>
+            </div>
+            <div class="journal-datenav">
+              <button class="journal-datenav-btn" id="journalPrevDay" type="button" aria-label="Предыдущий день">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button class="journal-datenav-current" id="journalDateBtn" type="button">
+                <span id="journalDateLabel">—</span>
+                <input type="date" id="journalDate" class="journal-datenav-input" />
+              </button>
+              <button class="journal-datenav-btn" id="journalNextDay" type="button" aria-label="Следующий день">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <div class="journal-toolbar-spacer"></div>
+            <button class="btn-primary btn-sm" id="addBookingToggle" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+              Добавить запись
+            </button>
+            <button class="btn-success btn-sm" id="addSaleBtn" type="button" title="скоро">Оформить продажу</button>
+          </div>
+          <details class="add-block" id="addBookingBlock">
+            <summary class="visually-hidden">Форма создания записи</summary>
+            <form id="addBookingForm" class="form add-form">
+              <div class="form-grid">
+                <div>
+                  <label for="bMaster">Сотрудник</label>
+                  <select id="bMaster" name="master_id" required></select>
+                </div>
+                <div>
+                  <label for="bStarts">Время начала</label>
+                  <input id="bStarts" name="starts_at" type="datetime-local" required />
+                </div>
+                <div>
+                  <label for="bPhone">Телефон клиента</label>
+                  <input id="bPhone" name="client_phone" type="text" required placeholder="+79604080333" />
+                </div>
+                <div>
+                  <label for="bName">Имя клиента</label>
+                  <input id="bName" name="client_name" type="text" placeholder="Виктория" />
+                </div>
+              </div>
+              <label>Услуги</label>
+              <div class="service-picker" id="bServices"></div>
+              <label for="bNotes">Примечание</label>
+              <input id="bNotes" name="notes" type="text" placeholder="опц." />
+              <div class="form-actions">
+                <button type="submit" class="btn-primary">Создать</button>
+                <button type="button" class="btn-ghost" id="addBookingCancel">Отмена</button>
+              </div>
+            </form>
+          </details>
+
+          <div class="journal-layout">
+            <div class="journal-main">
+              <span class="counter visually-hidden" id="journalCounter">0</span>
+              <div id="journalCalendar" class="cal-container"></div>
+
+              <div id="journalFiltersPanel" class="journal-filters-panel" hidden>
+                <div class="jf-row">
+                  <div class="jf-group">
+                    <label>Рабочее время</label>
+                    <select disabled title="Phase 1 — выбор по дате визита/создания">
+                      <option>Дата визита</option>
+                    </select>
+                  </div>
+                  <div class="jf-group">
+                    <label>Сотрудники</label>
+                    <select id="filterMaster"><option value="">Все</option></select>
+                  </div>
+                  <div class="jf-group">
+                    <label>Статус</label>
+                    <select id="filterStatus">
+                      <option value="">Все</option>
+                      <option value="pending">Ожидание</option>
+                      <option value="confirmed">Подтверждена</option>
+                      <option value="completed">Завершена</option>
+                      <option value="canceled">Отменена</option>
+                      <option value="no_show">Не пришёл</option>
+                    </select>
+                  </div>
+                  <div class="jf-group">
+                    <label>Источник</label>
+                    <select id="filterSource"><option value="">Все</option></select>
+                  </div>
+                </div>
+                <div class="jf-row">
+                  <div class="jf-group">
+                    <label>Тип записи</label>
+                    <select disabled title="Phase 1 — типы записей"><option>Не выбрано</option></select>
+                  </div>
+                  <div class="jf-group">
+                    <label>Автор записи</label>
+                    <select disabled title="Phase 1 — автор записи"><option>Не выбрано</option></select>
+                  </div>
+                  <div class="jf-group">
+                    <label>Клиент</label>
+                    <input type="text" id="filterClient" placeholder="Имя клиента или телефон" autocomplete="off" />
+                  </div>
+                  <div class="jf-group jf-group-anon">
+                    <label class="jf-checkbox"><input type="checkbox" id="filterAnon"> Аноним</label>
+                  </div>
+                </div>
+                <div class="jf-actions">
+                  <button type="button" class="jf-link" id="filterReset">Сбросить всё</button>
+                </div>
+              </div>
+
+              <div id="journalList" class="data-list" hidden></div>
+
+              <div id="journalCharts" class="journal-charts" hidden>
+                <div class="chart-card">
+                  <div class="chart-card-head">Топ 5 сотрудников</div>
+                  <div class="chart-card-body">
+                    <svg class="donut-svg" viewBox="0 0 42 42" width="120" height="120" data-chart="masters"></svg>
+                    <ul class="chart-legend" id="legendMasters"></ul>
+                  </div>
+                </div>
+                <div class="chart-card">
+                  <div class="chart-card-head">Топ 5 услуг</div>
+                  <div class="chart-card-body">
+                    <svg class="donut-svg" viewBox="0 0 42 42" width="120" height="120" data-chart="services"></svg>
+                    <ul class="chart-legend" id="legendServices"></ul>
+                  </div>
+                </div>
+                <div class="chart-card">
+                  <div class="chart-card-head">Источники записей</div>
+                  <div class="chart-card-body">
+                    <svg class="donut-svg" viewBox="0 0 42 42" width="120" height="120" data-chart="sources"></svg>
+                    <ul class="chart-legend" id="legendSources"></ul>
+                  </div>
+                </div>
+                <div class="chart-card">
+                  <div class="chart-card-head">Типы записей</div>
+                  <div class="chart-card-body chart-card-empty">
+                    <div class="chart-empty">Phase 1</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside class="journal-aside">
+              <div class="mini-cal" id="miniCal"></div>
+              <div class="finance-card">
+                <div class="finance-card-head">
+                  <span>Финансы за сегодня</span>
+                  <button class="finance-card-refresh" id="financeRefresh" type="button" aria-label="Обновить">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12a8 8 0 0114-5.3L20 9M20 4v5h-5M20 12a8 8 0 01-14 5.3L4 15M4 20v-5h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                </div>
+                <div class="finance-card-body">
+                  <svg class="finance-donut" viewBox="0 0 42 42" width="120" height="120">
+                    <circle cx="21" cy="21" r="15.915" fill="none" stroke="#e5e7eb" stroke-width="6"></circle>
+                    <circle id="financeDonutCash" cx="21" cy="21" r="15.915" fill="none" stroke="#22c5d8" stroke-width="6" stroke-dasharray="93 7" stroke-dashoffset="25"></circle>
+                  </svg>
+                  <div class="finance-total" id="financeTotal">0</div>
+                </div>
+                <ul class="finance-legend">
+                  <li><span class="dot" style="background:#22c5d8"></span> Наличные <span class="finance-legend-val" id="financeCash">0</span></li>
+                  <li><span class="dot" style="background:#3b82f6"></span> Безналичные <span class="finance-legend-val" id="financeCard">0</span></li>
+                </ul>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- View: schedule -->
+        <section class="view view-schedule" data-view="schedule" hidden>
+          <div class="schedule-toolbar">
+            <div class="journal-filter">
+              <span class="journal-filter-label">Все сотрудники</span>
+              <span class="journal-filter-count" id="schMastersCount">0</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="schedule-monthnav">
+              <button class="schedule-monthnav-side" id="schPrevMonth" type="button" aria-label="Предыдущий месяц"><span id="schPrevMonthLabel">—</span></button>
+              <span class="schedule-monthnav-current" id="schMonthLabel">—</span>
+              <button class="schedule-monthnav-side" id="schNextMonth" type="button" aria-label="Следующий месяц"><span id="schNextMonthLabel">—</span></button>
+            </div>
+            <div class="journal-toolbar-spacer"></div>
+            <button class="btn-primary btn-sm" id="schAddMaster" type="button" title="скоро">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+              Добавить сотрудника
+            </button>
+            <button class="btn-secondary btn-sm" id="schApplyTemplate" type="button" title="Применить 10:00–20:00 ко всем пустым дням выбранного сотрудника">Шаблон 10–20</button>
+            <button class="btn-primary btn-sm" id="schSave" type="button">Сохранить</button>
+          </div>
+          <div class="schedule-layout">
+            <div class="schedule-main">
+              <div id="schGrid" class="schedule-hgrid"></div>
+              <select id="schMaster" class="visually-hidden" aria-hidden="true"></select>
+              <input type="date" id="schFrom" class="visually-hidden" aria-hidden="true" />
+              <input type="date" id="schTo" class="visually-hidden" aria-hidden="true" />
+            </div>
+            <aside class="schedule-aside">
+              <div class="schedule-hint">
+                <p>Выделите в графике один или несколько дней для настройки расписания.</p>
+                <p class="hint">Клик по ячейке — задать время; ⇧+клик — выходной.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- View: inventory -->
+        <section class="view" data-view="inventory" hidden>
+          <!-- Products -->
+          <div class="card data-card">
+            <div class="data-head">
+              <h2 class="card-title">Расходники</h2>
+              <span class="counter" id="productsCounter">0</span>
+              <div class="data-head-spacer"></div>
+              <button class="btn-ghost btn-sm" id="invShiftWriteoffBtn" type="button" title="Быстро списать расходники по факту смены">📋 Списание</button>
+              <button class="btn-ghost btn-sm" id="invInventoryCheckBtn" type="button" title="Сверить факт с учётом, разница спишется автоматически">🔄 Инвентаризация</button>
+              <button class="btn-secondary btn-sm" id="addReceiptToggle" type="button">+ Поступление</button>
+              <button class="btn-primary btn-sm" id="addProductToggle" type="button">+ Товар</button>
+            </div>
+            <details class="add-block" id="addProductBlock">
+              <summary class="visually-hidden">Форма добавления товара</summary>
+              <form id="addProductForm" class="form add-form">
+                <div class="form-grid">
+                  <div>
+                    <label for="pName">Название</label>
+                    <input id="pName" name="name" type="text" required placeholder="Гель-проводник X" />
+                  </div>
+                  <div>
+                    <label for="pUnit">Единица</label>
+                    <input id="pUnit" name="unit" type="text" required placeholder="мл / шт / гр / уп" value="шт" />
+                  </div>
+                  <div>
+                    <label for="pCategory">Категория</label>
+                    <input id="pCategory" name="category" type="text" placeholder="расходник" />
+                  </div>
+                  <div>
+                    <label for="pMin">Мин. остаток</label>
+                    <input id="pMin" name="min_stock" type="number" min="0" step="any" value="0" />
+                  </div>
+                  <div style="grid-column: 1 / -1;">
+                    <label for="pTrackingMode">Режим учёта</label>
+                    <select id="pTrackingMode" name="tracking_mode">
+                      <option value="auto" selected>✅ авто — по техкарте при завершении услуги (фикс. норма)</option>
+                      <option value="manual">✋ вручную — мастер списывает в конце смены (норма плавает)</option>
+                      <option value="periodic">🔄 инвентаризация — только при пересчёте (разница факт/учёт)</option>
+                      <option value="expense_only">💸 в расход — не на складе, сразу в Финансы</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary">Создать</button>
+                  <button type="button" class="btn-ghost" id="addProductCancel">Отмена</button>
+                </div>
+              </form>
+            </details>
+            <details class="add-block" id="addReceiptBlock">
+              <summary class="visually-hidden">Форма поступления</summary>
+              <form id="addReceiptForm" class="form add-form">
+                <div class="form-grid">
+                  <div>
+                    <label for="rSupplier">Поставщик</label>
+                    <select id="rSupplier" name="supplier_id"><option value="">—</option></select>
+                  </div>
+                  <div>
+                    <label for="rInvoice">Номер накладной</label>
+                    <input id="rInvoice" name="invoice_number" type="text" placeholder="AB-001" />
+                  </div>
+                </div>
+                <label>Позиции</label>
+                <div class="receipt-items" id="receiptItems"></div>
+                <button type="button" class="btn-ghost btn-xs" id="addReceiptItem">+ Позиция</button>
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary">Принять поступление</button>
+                  <button type="button" class="btn-ghost" id="addReceiptCancel">Отмена</button>
+                </div>
+              </form>
+            </details>
+            <div id="productsList" class="data-list"></div>
+          </div>
+
+          <!-- Tech cards -->
+          <div class="card data-card" style="margin-top: 16px;">
+            <div class="data-head">
+              <h2 class="card-title">Техкарты услуг</h2>
+              <span class="counter" id="techCardsCounter">0</span>
+              <div class="data-head-spacer"></div>
+              <button class="btn-primary btn-sm" id="editTechCardToggle" type="button">+ Техкарта</button>
+            </div>
+            <details class="add-block" id="editTechCardBlock">
+              <summary class="visually-hidden">Форма техкарты</summary>
+              <form id="editTechCardForm" class="form add-form">
+                <label for="tcService">Услуга</label>
+                <select id="tcService" name="service_id" required></select>
+                <label>Расход на одну услугу</label>
+                <div class="receipt-items" id="techCardItems"></div>
+                <button type="button" class="btn-ghost btn-xs" id="addTechCardItem">+ Позиция</button>
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary">Сохранить</button>
+                  <button type="button" class="btn-ghost" id="editTechCardCancel">Отмена</button>
+                </div>
+              </form>
+            </details>
+            <div id="techCardsList" class="data-list"></div>
+          </div>
+
+          <!-- Movements -->
+          <div class="card data-card" style="margin-top: 16px;">
+            <div class="data-head">
+              <h2 class="card-title">Журнал движений</h2>
+              <span class="counter" id="movementsCounter">0</span>
+            </div>
+            <div id="movementsList" class="data-list"></div>
+          </div>
+        </section>
+
+        <!-- View: salary (Sprint 1 — Tab 1 + Tab 4 + 2 заглушки) -->
+        <section class="view view-salary" data-view="salary" hidden>
+          <nav class="subnav" id="salarySubnav">
+            <button type="button" class="subnav-item active" data-sal-tab="payroll">Расчёт зарплаты</button>
+            <button type="button" class="subnav-item" data-sal-tab="settlements">Взаиморасчёты</button>
+            <button type="button" class="subnav-item" data-sal-tab="accruals">Начисления</button>
+            <button type="button" class="subnav-item" data-sal-tab="schemes">Схемы расчёта</button>
+          </nav>
+
+          <!-- Tab 1: Расчёт зарплаты -->
+          <div id="salTabPayroll" class="sal-tab">
+            <div class="sal-toolbar">
+              <select id="salPayrollMaster" class="schedule-master-select" title="Фильтр по сотруднику">
+                <option value="">Все сотрудники</option>
+              </select>
+              <div class="period-pills" id="salPayrollPeriod" role="tablist" aria-label="Период расчёта">
+                <button type="button" class="period-pill active" data-period="today">Сегодня</button>
+                <button type="button" class="period-pill" data-period="yesterday">Вчера</button>
+                <button type="button" class="period-pill" data-period="week">Неделя</button>
+                <button type="button" class="period-pill" data-period="month">Месяц</button>
+              </div>
+              <div class="sal-toolbar-spacer"></div>
+              <button type="button" class="btn-primary btn-sm" id="salPayrollRun">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                Начислить
+              </button>
+            </div>
+
+            <div class="sal-layout">
+              <div class="sal-main">
+                <div class="sal-grid">
+                  <div class="sal-grid-head">
+                    <div class="sg-col sg-col-master">Сотрудник</div>
+                    <div class="sg-col sg-col-num">% с продаж</div>
+                    <div class="sg-col sg-col-num">% с продаж салона</div>
+                    <div class="sg-col sg-col-num">Оклад / Повременная</div>
+                    <div class="sg-col sg-col-num">Гарантированная</div>
+                    <div class="sg-col sg-col-num sg-col-total">К начислению</div>
+                  </div>
+                  <div id="salPayrollList" class="sal-grid-body"></div>
+                </div>
+              </div>
+              <aside class="sal-aside">
+                <div class="sal-aside-card">
+                  <div class="sal-aside-label">Всего к выплате</div>
+                  <div class="sal-aside-amount" id="salPayrollTotal">0 ₽</div>
+                  <div class="sal-aside-meta" id="salPayrollMastersN">0 сотрудников</div>
+                  <button type="button" class="btn-primary" id="salPayrollRunSticky">Начислить всё</button>
+                </div>
+              </aside>
+            </div>
+          </div>
+
+          <!-- Tab 2: Взаиморасчёты -->
+          <div id="salTabSettlements" class="sal-tab" hidden>
+            <div class="sal-toolbar">
+              <select id="salSettleMaster" class="schedule-master-select" title="Фильтр по сотруднику">
+                <option value="">Все сотрудники</option>
+              </select>
+              <div class="sal-toolbar-spacer"></div>
+              <div class="sal-aside-meta" id="salSettleSummary">Сальдо к выплате: <b>0 ₽</b></div>
+            </div>
+            <div id="salSettleList" class="sal-settle-list"></div>
+          </div>
+
+          <!-- Tab 3: Начисления -->
+          <div id="salTabAccruals" class="sal-tab" hidden>
+            <div class="sal-toolbar">
+              <select id="salAccrualsMaster" class="schedule-master-select" title="Фильтр по сотруднику">
+                <option value="">Все сотрудники</option>
+              </select>
+              <select id="salAccrualsType" class="schedule-master-select" title="Фильтр по типу" style="min-width:160px">
+                <option value="">Все типы</option>
+                <option value="accrual">Начисление</option>
+                <option value="bonus">Премия</option>
+                <option value="penalty">Штраф</option>
+                <option value="adjustment">Корректировка</option>
+                <option value="payout">Выплата</option>
+              </select>
+              <div class="sal-toolbar-spacer"></div>
+              <button type="button" class="btn-primary btn-sm" id="salAccrualAdd">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                Премия / Штраф
+              </button>
+            </div>
+            <div class="sal-grid">
+              <div class="sal-grid-head sal-acc-grid-head">
+                <div class="sg-col sg-col-master">Сотрудник</div>
+                <div class="sg-col">Тип</div>
+                <div class="sg-col sg-col-num">Сумма</div>
+                <div class="sg-col">Период</div>
+                <div class="sg-col sg-col-date">Создано</div>
+                <div class="sg-col">Источник</div>
+              </div>
+              <div id="salAccrualsList" class="sal-grid-body"></div>
+            </div>
+          </div>
+
+          <!-- Tab 4: Схемы расчёта -->
+          <div id="salTabSchemes" class="sal-tab" hidden>
+            <div class="sal-toolbar">
+              <select id="salSchemesMaster" class="schedule-master-select" title="Фильтр по сотруднику">
+                <option value="">Все сотрудники</option>
+              </select>
+              <div class="sal-toolbar-spacer"></div>
+              <button type="button" class="btn-primary btn-sm" id="salSchemesAdd">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                Добавить схему
+              </button>
+            </div>
+            <div class="sal-grid">
+              <div class="sal-grid-head">
+                <div class="sg-col sg-col-master">Сотрудник</div>
+                <div class="sg-col">Описание схемы</div>
+                <div class="sg-col sg-col-date">Дата начала действия</div>
+                <div class="sg-col sg-col-action"></div>
+                <div class="sg-col sg-col-action"></div>
+              </div>
+              <div id="salSchemesList" class="sal-grid-body"></div>
+            </div>
+            <div class="sal-info-banner">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M11 11h1v5h1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Можно добавить сразу несколько схем начисления заработной платы для одного сотрудника. Но на одном временном периоде будет действовать только одна схема.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Modal: salary_scheme_create -->
+        <div class="modal-backdrop" id="salSchemeModalBackdrop" hidden>
+          <div class="modal salary-modal" id="salSchemeModal" role="dialog" aria-modal="true" aria-labelledby="salSchemeModalTitle">
+            <div class="modal-head">
+              <h3 class="modal-title" id="salSchemeModalTitle">Добавить схему</h3>
+              <button type="button" class="modal-close" id="salSchemeModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="salSchemeForm">
+              <div class="modal-body">
+                <div class="form-grid">
+                  <div>
+                    <label for="salSchemeMaster">Сотрудник</label>
+                    <select id="salSchemeMaster" name="master_id" required></select>
+                  </div>
+                  <div>
+                    <label for="salSchemeStart">Дата начала действия</label>
+                    <input id="salSchemeStart" name="effective_from" type="date" required />
+                  </div>
+                </div>
+
+                <label>Тип схемы</label>
+                <div class="sal-radio-group">
+                  <label class="sal-radio">
+                    <input type="radio" name="scheme_type" value="rate" checked />
+                    <div>
+                      <div class="sal-radio-title">Ставка</div>
+                      <div class="sal-radio-hint">Только фиксированный оклад за период</div>
+                    </div>
+                  </label>
+                  <label class="sal-radio">
+                    <input type="radio" name="scheme_type" value="rate_plus_percent" />
+                    <div>
+                      <div class="sal-radio-title">Ставка + % с продаж</div>
+                      <div class="sal-radio-hint">Оклад плюс процент с продаж за вычетом скидки</div>
+                    </div>
+                  </label>
+                  <label class="sal-radio">
+                    <input type="radio" name="scheme_type" value="percent_only" />
+                    <div>
+                      <div class="sal-radio-title">% с продаж</div>
+                      <div class="sal-radio-hint">Только процент с продаж</div>
+                    </div>
+                  </label>
+                </div>
+
+                <div class="form-grid sal-rate-fields">
+                  <div>
+                    <label for="salSchemeRate">Размер ставки, ₽</label>
+                    <input id="salSchemeRate" name="rate_amount" type="number" min="0" step="500" placeholder="2500" />
+                  </div>
+                  <div>
+                    <label for="salSchemePeriod">Период ставки</label>
+                    <select id="salSchemePeriod" name="rate_period">
+                      <option value="day">День</option>
+                      <option value="week">Неделя</option>
+                      <option value="month" selected>Месяц</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-grid sal-percent-fields" hidden>
+                  <div>
+                    <label for="salSchemePctSvc">% с продаж услуг</label>
+                    <input id="salSchemePctSvc" name="percent_services" type="number" min="0" max="100" step="1" placeholder="30" value="30" />
+                  </div>
+                  <div>
+                    <label for="salSchemePctGoods">% с продаж товаров</label>
+                    <input id="salSchemePctGoods" name="percent_goods" type="number" min="0" max="100" step="1" placeholder="0" value="0" />
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="salSchemeGuarantee">Гарантированная сумма, ₽</label>
+                    <input id="salSchemeGuarantee" name="guaranteed" type="number" min="0" step="500" placeholder="не задана" />
+                  </div>
+                  <div>
+                    <label class="sal-checkbox-row">
+                      <input type="checkbox" id="salSchemeUseDiscount" name="apply_discount" checked />
+                      <span>Учитывать скидку при расчёте %</span>
+                    </label>
+                  </div>
+                </div>
+
+                <label for="salSchemeNotes">Комментарий</label>
+                <textarea id="salSchemeNotes" name="notes" rows="2" placeholder="опц., до 300 символов" maxlength="300"></textarea>
+
+                <div class="error" id="salSchemeError" hidden></div>
+              </div>
+              <div class="modal-foot">
+                <button type="button" class="btn-ghost" id="salSchemeCancel">Отмена</button>
+                <button type="submit" class="btn-primary">Сохранить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Modal: salary_payout -->
+        <div class="modal-backdrop" id="salPayoutModalBackdrop" hidden>
+          <div class="modal salary-modal" id="salPayoutModal" role="dialog" aria-modal="true" aria-labelledby="salPayoutModalTitle">
+            <div class="modal-head">
+              <h3 class="modal-title" id="salPayoutModalTitle">Выплата сотруднику</h3>
+              <button type="button" class="modal-close" id="salPayoutModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="salPayoutForm">
+              <div class="modal-body">
+                <div class="form-grid">
+                  <div>
+                    <label>Сотрудник</label>
+                    <input id="salPayoutMasterName" type="text" readonly />
+                    <input id="salPayoutMasterId" type="hidden" />
+                  </div>
+                  <div>
+                    <label>Сальдо к выплате</label>
+                    <input id="salPayoutBalance" type="text" readonly />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="salPayoutAmount">Сумма к выплате, ₽</label>
+                    <input id="salPayoutAmount" name="amount" type="number" min="1" step="100" required />
+                  </div>
+                  <div>
+                    <label for="salPayoutDate">Дата</label>
+                    <input id="salPayoutDate" name="date" type="date" required />
+                  </div>
+                </div>
+                <label for="salPayoutAccount">Со счёта</label>
+                <select id="salPayoutAccount" name="account_id" required>
+                  <option value="cash">Касса</option>
+                  <option value="card">Расчётный счёт</option>
+                </select>
+                <label for="salPayoutNotes">Примечание</label>
+                <textarea id="salPayoutNotes" name="notes" rows="2" placeholder="опц."></textarea>
+                <div class="error" id="salPayoutError" hidden></div>
+              </div>
+              <div class="modal-foot">
+                <button type="button" class="btn-ghost" id="salPayoutCancel">Отмена</button>
+                <button type="submit" class="btn-success">Выплатить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Modal: accrual_create -->
+        <div class="modal-backdrop" id="salAccrualModalBackdrop" hidden>
+          <div class="modal salary-modal" id="salAccrualModal" role="dialog" aria-modal="true" aria-labelledby="salAccrualModalTitle">
+            <div class="modal-head">
+              <h3 class="modal-title" id="salAccrualModalTitle">Премия / Штраф / Корректировка</h3>
+              <button type="button" class="modal-close" id="salAccrualModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="salAccrualForm">
+              <div class="modal-body">
+                <div class="form-grid">
+                  <div>
+                    <label for="salAccrualMaster">Сотрудник</label>
+                    <select id="salAccrualMaster" name="master_id" required></select>
+                  </div>
+                  <div>
+                    <label for="salAccrualDate">Дата</label>
+                    <input id="salAccrualDate" name="date" type="date" required />
+                  </div>
+                </div>
+                <label>Тип</label>
+                <div class="sal-radio-group">
+                  <label class="sal-radio">
+                    <input type="radio" name="acc_type" value="bonus" checked />
+                    <div>
+                      <div class="sal-radio-title">Премия</div>
+                      <div class="sal-radio-hint">Положительное начисление сотруднику</div>
+                    </div>
+                  </label>
+                  <label class="sal-radio">
+                    <input type="radio" name="acc_type" value="penalty" />
+                    <div>
+                      <div class="sal-radio-title">Штраф</div>
+                      <div class="sal-radio-hint">Удержание из ЗП сотрудника</div>
+                    </div>
+                  </label>
+                  <label class="sal-radio">
+                    <input type="radio" name="acc_type" value="adjustment" />
+                    <div>
+                      <div class="sal-radio-title">Корректировка</div>
+                      <div class="sal-radio-hint">Ручное исправление сальдо (+/−)</div>
+                    </div>
+                  </label>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="salAccrualAmount">Сумма, ₽</label>
+                    <input id="salAccrualAmount" name="amount" type="number" min="1" step="100" required />
+                  </div>
+                  <div class="sal-acc-sign-hint" id="salAccrualSignHint">+ к сальдо сотрудника</div>
+                </div>
+                <label for="salAccrualReason">Причина</label>
+                <textarea id="salAccrualReason" name="reason" rows="2" required maxlength="300" placeholder="например: премия за апрель за выполнение плана"></textarea>
+                <div class="error" id="salAccrualError" hidden></div>
+              </div>
+              <div class="modal-foot">
+                <button type="button" class="btn-ghost" id="salAccrualCancel">Отмена</button>
+                <button type="submit" class="btn-primary">Создать</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Modal: payroll_run -->
+        <div class="modal-backdrop" id="salPayrollModalBackdrop" hidden>
+          <div class="modal salary-modal salary-modal-wide" id="salPayrollModal" role="dialog" aria-modal="true" aria-labelledby="salPayrollModalTitle">
+            <div class="modal-head">
+              <h3 class="modal-title" id="salPayrollModalTitle">Начислить за период</h3>
+              <button type="button" class="modal-close" id="salPayrollModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="salPayrollForm">
+              <div class="modal-body">
+                <div class="form-grid">
+                  <div>
+                    <label for="salPayrollFrom">С даты</label>
+                    <input id="salPayrollFrom" name="from" type="date" required />
+                  </div>
+                  <div>
+                    <label for="salPayrollTo">По дату</label>
+                    <input id="salPayrollTo" name="to" type="date" required />
+                  </div>
+                </div>
+                <label>Сотрудники</label>
+                <div class="sal-payroll-preview" id="salPayrollPreview"></div>
+                <div class="sal-payroll-total">
+                  Итого к начислению: <b id="salPayrollPreviewTotal">0 ₽</b>
+                </div>
+                <div class="error" id="salPayrollError" hidden></div>
+              </div>
+              <div class="modal-foot">
+                <button type="button" class="btn-ghost" id="salPayrollCancel">Отмена</button>
+                <button type="submit" class="btn-success" id="salPayrollSubmit">Начислить</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- View: finance -->
+        <section class="view" data-view="finance" hidden>
+          <nav class="subnav" id="financeSubnav">
+            <button type="button" class="subnav-item active" data-fin-tab="overview">Доходы и расходы</button>
+            <button type="button" class="subnav-item" data-fin-tab="accounts">Счета и кассы</button>
+            <button type="button" class="subnav-item" data-fin-tab="ops">Кассовые операции</button>
+          </nav>
+
+          <!-- Доходы и расходы -->
+          <div id="finTabOverview">
+            <!-- Period pills (Сегодня / Вчера / Неделя / Месяц / Год + custom) -->
+            <div class="fin-period-bar" id="finPeriodBar">
+              <button type="button" class="fin-period-pill active" data-fin-period="today">Сегодня</button>
+              <button type="button" class="fin-period-pill" data-fin-period="yesterday">Вчера</button>
+              <button type="button" class="fin-period-pill" data-fin-period="week">Неделя</button>
+              <button type="button" class="fin-period-pill" data-fin-period="month">Месяц</button>
+              <button type="button" class="fin-period-pill" data-fin-period="year">Год</button>
+              <span class="fin-period-label" id="finPeriodLabel">сегодня</span>
+            </div>
+
+            <!-- 4 KPI cards с donut'ами по типам счетов -->
+            <div class="fin-kpi-row fin-kpi-row-4">
+              <div class="fin-kpi-card fin-kpi-balance">
+                <div class="fin-kpi-label">Остаток на начало периода</div>
+                <div class="fin-kpi-content">
+                  <svg class="fin-kpi-donut" viewBox="0 0 42 42" width="80" height="80" id="finKpiDonutOpening" aria-hidden="true">
+                    <circle cx="21" cy="21" r="15.915" fill="none" stroke="#e2e8f0" stroke-width="4"></circle>
+                    <circle cx="21" cy="21" r="15.915" fill="none" stroke="#3b82f6" stroke-width="4" stroke-dasharray="0 100" stroke-dashoffset="25" transform="rotate(-90 21 21)" id="finKpiDonutOpeningArc"></circle>
+                  </svg>
+                  <div>
+                    <div class="fin-kpi-val" id="finKpiOpening">0 ₽</div>
+                  </div>
+                </div>
+              </div>
+              <div class="fin-kpi-card fin-kpi-income">
+                <div class="fin-kpi-label">Доходы</div>
+                <div class="fin-kpi-val" id="finKpiIncome">0 ₽</div>
+              </div>
+              <div class="fin-kpi-card fin-kpi-expense">
+                <div class="fin-kpi-label">Расходы</div>
+                <div class="fin-kpi-val" id="finKpiExpense">0 ₽</div>
+              </div>
+              <div class="fin-kpi-card fin-kpi-balance">
+                <div class="fin-kpi-label">Остаток на конец периода</div>
+                <div class="fin-kpi-content">
+                  <svg class="fin-kpi-donut" viewBox="0 0 42 42" width="80" height="80" aria-hidden="true">
+                    <circle cx="21" cy="21" r="15.915" fill="none" stroke="#e2e8f0" stroke-width="4"></circle>
+                    <circle cx="21" cy="21" r="15.915" fill="none" stroke="#16a34a" stroke-width="4" stroke-dasharray="0 100" stroke-dashoffset="25" transform="rotate(-90 21 21)" id="finKpiDonutClosingArc"></circle>
+                  </svg>
+                  <div>
+                    <div class="fin-kpi-val" id="finKpiClosing">0 ₽</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Account-type breakdown legend -->
+            <div class="fin-account-legend" id="finAccountLegend"></div>
+
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Транзакции</h2>
+                <span class="counter" id="finTransCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-ghost btn-sm" id="finFiltersBtn">⚙ Фильтры</button>
+                <button type="button" class="btn-success btn-sm" id="finAddIncomeBtn">+ Доход</button>
+                <button type="button" class="btn-danger btn-sm" id="finAddExpenseBtn">+ Расход</button>
+              </div>
+              <!-- Filter drawer (collapsible) -->
+              <div class="fin-filters-drawer" id="finFiltersDrawer" hidden>
+                <div class="form-grid">
+                  <div>
+                    <label for="finFilterAccount">Счёт</label>
+                    <select id="finFilterAccount"><option value="">Все счета</option></select>
+                  </div>
+                  <div>
+                    <label for="finFilterCategory">Статья</label>
+                    <select id="finFilterCategory"><option value="">Все статьи</option></select>
+                  </div>
+                  <div>
+                    <label for="finFilterKind">Тип</label>
+                    <select id="finFilterKind">
+                      <option value="">Все типы</option>
+                      <option value="income">Доход</option>
+                      <option value="expense">Расход</option>
+                      <option value="transfer_in">Перемещение (получено)</option>
+                      <option value="transfer_out">Перемещение (отправлено)</option>
+                      <option value="adjust">Корректировка</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button type="button" class="btn-ghost btn-sm" id="finFiltersReset">Сбросить</button>
+                </div>
+              </div>
+              <div id="finTransList" class="data-list"></div>
+            </div>
+          </div>
+
+          <!-- Счета и кассы -->
+          <div id="finTabAccounts" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Счета и кассы</h2>
+                <span class="counter" id="finAccountsCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-secondary btn-sm" id="finTransferBtn">⇄ Перемещение</button>
+                <button type="button" class="btn-primary btn-sm" id="finAddAccountBtn">+ Счёт</button>
+              </div>
+              <div id="finAccountsList" class="data-list"></div>
+            </div>
+          </div>
+
+          <!-- Кассовые операции -->
+          <div id="finTabOps" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Кассовые операции</h2>
+                <span class="counter" id="finOpsCounter">0</span>
+              </div>
+              <div id="finOpsList" class="data-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- View: settings (5 sub-tab; Услуги/Сотрудники ссылаются на основные view) -->
+        <section class="view" data-view="settings" hidden>
+          <nav class="subnav" id="settingsSubnav">
+            <button type="button" class="subnav-item active" data-set-tab="company">Компания</button>
+            <button type="button" class="subnav-item" data-set-tab="services">Услуги</button>
+            <button type="button" class="subnav-item" data-set-tab="masters">Сотрудники</button>
+            <button type="button" class="subnav-item" data-set-tab="templates">Шаблоны графика</button>
+            <button type="button" class="subnav-item" data-set-tab="notifications">Уведомления</button>
+          </nav>
+
+          <!-- Tab: Компания -->
+          <div id="setTabCompany">
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Профиль компании</h2>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-primary btn-sm" id="setCompanySave">Сохранить</button>
+              </div>
+              <form id="setCompanyForm" class="form add-form" style="padding: 16px;">
+                <div class="form-grid">
+                  <div><label for="setCompanyName">Название</label><input id="setCompanyName" name="name" type="text" required /></div>
+                  <div><label for="setCompanyPhone">Телефон</label><input id="setCompanyPhone" name="phone" type="text" /></div>
+                  <div><label for="setCompanyEmail">Email</label><input id="setCompanyEmail" name="email" type="email" /></div>
+                  <div><label for="setCompanyWebsite">Сайт</label><input id="setCompanyWebsite" name="website" type="url" placeholder="https://..." /></div>
+                  <div><label for="setCompanyOpen">Открытие</label><input id="setCompanyOpen" name="default_open" type="time" required /></div>
+                  <div><label for="setCompanyClose">Закрытие</label><input id="setCompanyClose" name="default_close" type="time" required /></div>
+                  <div><label for="setCompanyTz">Часовой пояс</label>
+                    <select id="setCompanyTz" name="timezone">
+                      <option value="Europe/Moscow">Europe/Moscow (UTC+3)</option>
+                      <option value="Europe/Kaliningrad">Europe/Kaliningrad (UTC+2)</option>
+                      <option value="Europe/Samara">Europe/Samara (UTC+4)</option>
+                      <option value="Asia/Yekaterinburg">Asia/Yekaterinburg (UTC+5)</option>
+                      <option value="Asia/Krasnoyarsk">Asia/Krasnoyarsk (UTC+7)</option>
+                      <option value="Asia/Irkutsk">Asia/Irkutsk (UTC+8)</option>
+                      <option value="Asia/Vladivostok">Asia/Vladivostok (UTC+10)</option>
+                    </select>
+                  </div>
+                  <div><label for="setCompanyLogo">Логотип URL</label><input id="setCompanyLogo" name="logo_url" type="url" placeholder="https://..." /></div>
+                </div>
+                <div style="margin-top: 12px;">
+                  <label for="setCompanyAddress">Адрес</label>
+                  <input id="setCompanyAddress" name="address" type="text" />
+                </div>
+                <div style="margin-top: 12px;">
+                  <label for="setCompanyDescription">Описание</label>
+                  <textarea id="setCompanyDescription" name="description" rows="3" placeholder="Краткое описание для виджета записи"></textarea>
+                </div>
+                <div class="error" id="setCompanyError" hidden></div>
+                <div id="setCompanySaved" class="empty" hidden style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;">Сохранено ✓</div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Tab: Услуги (re-uses main services view via deep-link / iframe alternative) -->
+          <div id="setTabServices" hidden>
+            <div class="card empty-card">
+              <div class="empty-icon">🛠</div>
+              <h3>Управление услугами</h3>
+              <p>Полный CRUD доступен в основном разделе «Услуги» в левом меню. Эта вкладка — алиас для удобства навигации.</p>
+              <a class="btn-primary btn-sm" href="#services" id="setOpenServices">Открыть «Услуги»</a>
+            </div>
+          </div>
+
+          <!-- Tab: Сотрудники -->
+          <div id="setTabMasters" hidden>
+            <div class="card empty-card">
+              <div class="empty-icon">👥</div>
+              <h3>Сотрудники</h3>
+              <p>Полный CRUD сотрудников доступен в основном разделе «Сотрудники» в левом меню.</p>
+              <a class="btn-primary btn-sm" href="#masters" id="setOpenMasters">Открыть «Сотрудники»</a>
+            </div>
+          </div>
+
+          <!-- Tab: Шаблоны графика -->
+          <div id="setTabTemplates" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Шаблоны рабочих часов</h2>
+                <span class="counter" id="setTemplatesCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-primary btn-sm" id="setTemplateAddBtn">+ Шаблон</button>
+              </div>
+              <div id="setTemplatesList" class="data-list"></div>
+            </div>
+          </div>
+
+          <!-- Tab: Уведомления -->
+          <div id="setTabNotifications" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Каналы уведомлений</h2>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-primary btn-sm" id="setNotificationsSave">Сохранить</button>
+              </div>
+              <form id="setNotificationsForm" style="padding: 16px;">
+                <div class="set-notify-row">
+                  <label><input type="checkbox" name="wa_reminder" id="setNotifyWaReminder" /> WhatsApp напоминание клиенту за 1 день до визита</label>
+                </div>
+                <div class="set-notify-row">
+                  <label><input type="checkbox" name="sms_confirm" id="setNotifySmsConfirm" /> SMS-подтверждение записи (после создания)</label>
+                </div>
+                <div class="set-notify-row">
+                  <label><input type="checkbox" name="tg_master" id="setNotifyTgMaster" /> Telegram уведомление мастеру о новой записи</label>
+                </div>
+                <div class="set-notify-row">
+                  <label><input type="checkbox" name="email_owner" id="setNotifyEmailOwner" /> Email-сводка владельцу за день</label>
+                </div>
+                <div class="empty" style="margin-top: 12px;">
+                  Интеграции с WhatsApp/SMS/Telegram пока не подключены — настройки сохраняются для будущего использования.
+                </div>
+                <div id="setNotificationsSaved" class="empty" hidden style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;">Сохранено ✓</div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- Modal: schedule template -->
+        <div class="modal-backdrop" id="setTemplateBackdrop" hidden></div>
+        <div class="modal" id="setTemplateModal" hidden role="dialog" aria-modal="true">
+          <div class="modal-head">
+            <h3 id="setTemplateModalTitle">Новый шаблон</h3>
+            <button type="button" class="modal-close" id="setTemplateClose">×</button>
+          </div>
+          <form class="modal-body" id="setTemplateForm">
+            <input type="hidden" id="setTemplateId" name="id" />
+            <div><label for="setTemplateName">Название</label><input id="setTemplateName" name="name" type="text" required placeholder="Стандартный (10–20)" /></div>
+            <div class="form-grid" style="margin-top: 12px;">
+              <div><label for="setTemplateStart">Начало</label><input id="setTemplateStart" name="start_time" type="time" required /></div>
+              <div><label for="setTemplateEnd">Конец</label><input id="setTemplateEnd" name="end_time" type="time" required /></div>
+            </div>
+            <fieldset style="margin-top: 12px; border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px;">
+              <legend style="padding: 0 6px; color: var(--muted); font-size: 12px;">Дни недели</legend>
+              <div class="set-dow-grid">
+                <label><input type="checkbox" data-dow-bit="1" checked /> Пн</label>
+                <label><input type="checkbox" data-dow-bit="2" checked /> Вт</label>
+                <label><input type="checkbox" data-dow-bit="4" checked /> Ср</label>
+                <label><input type="checkbox" data-dow-bit="8" checked /> Чт</label>
+                <label><input type="checkbox" data-dow-bit="16" checked /> Пт</label>
+                <label><input type="checkbox" data-dow-bit="32" checked /> Сб</label>
+                <label><input type="checkbox" data-dow-bit="64" checked /> Вс</label>
+              </div>
+            </fieldset>
+            <div style="margin-top: 12px;">
+              <label><input type="checkbox" id="setTemplateDefault" name="is_default" /> Использовать по умолчанию</label>
+            </div>
+            <div class="error" id="setTemplateError" hidden></div>
+            <div class="form-actions">
+              <button type="submit" class="btn-primary">Сохранить</button>
+              <button type="button" class="btn-ghost" id="setTemplateCancel">Отмена</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- View: placeholder (для незаимплементированных модулей) -->
+        <section class="view" data-view="placeholder" hidden>
+          <div class="card placeholder-card">
+            <div class="placeholder-icon">⏳</div>
+            <h2 class="placeholder-title" id="placeholderTitle">Модуль</h2>
+            <p class="placeholder-desc" id="placeholderDesc">Этот модуль ещё не реализован.</p>
+            <div class="status-pill pending" id="placeholderStatus">ожидает</div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Modal: view booking -->
+      <div class="modal-backdrop" id="bkModalBackdrop" hidden></div>
+      <div class="modal bk-modal" id="bkModal" hidden role="dialog" aria-modal="true" aria-labelledby="bkModalTitle">
+        <div class="modal-head">
+          <span class="bk-modal-dot" id="bkModalDot"></span>
+          <h3 id="bkModalTitle">Запись</h3>
+          <button type="button" class="modal-close" id="bkModalClose" aria-label="Закрыть">×</button>
+        </div>
+        <div class="modal-body bk-modal-body" id="bkModalBody"></div>
+        <div class="modal-foot bk-modal-foot" id="bkModalFoot">
+          <button type="button" class="btn-secondary btn-sm" id="bkModalRepeat">Повторить запись</button>
+          <button type="button" class="btn-ghost btn-sm" id="bkModalClose2">Закрыть</button>
+        </div>
+      </div>
+
+      <!-- Modal: finance income -->
+      <div class="modal-backdrop" id="finIncomeBackdrop" hidden></div>
+      <div class="modal fin-modal" id="finIncomeModal" hidden role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3>Доход</h3>
+          <button type="button" class="modal-close" id="finIncomeClose">×</button>
+        </div>
+        <form class="modal-body" id="finIncomeForm">
+          <div class="form-grid">
+            <div><label for="finIncomeDate">Дата</label><input id="finIncomeDate" name="date" type="date" required /></div>
+            <div><label for="finIncomeAmount">Сумма ₽</label><input id="finIncomeAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+            <div><label for="finIncomeAccount">Счёт</label><select id="finIncomeAccount" name="account_id"></select></div>
+            <div><label for="finIncomeCategory">Категория</label><select id="finIncomeCategory" name="category_id"><option value="">— без категории —</option></select></div>
+          </div>
+          <div style="margin-top:12px"><label for="finIncomeNote">Комментарий</label><input id="finIncomeNote" name="note" type="text" placeholder="Необязательно" /></div>
+          <div class="form-actions">
+            <button type="submit" class="btn-success">Сохранить</button>
+            <button type="button" class="btn-ghost" id="finIncomeCancel">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Modal: finance expense -->
+      <div class="modal-backdrop" id="finExpenseBackdrop" hidden></div>
+      <div class="modal fin-modal" id="finExpenseModal" hidden role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3>Расход</h3>
+          <button type="button" class="modal-close" id="finExpenseClose">×</button>
+        </div>
+        <form class="modal-body" id="finExpenseForm">
+          <div class="form-grid">
+            <div><label for="finExpenseDate">Дата</label><input id="finExpenseDate" name="date" type="date" required /></div>
+            <div><label for="finExpenseAmount">Сумма ₽</label><input id="finExpenseAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+            <div><label for="finExpenseAccount">Счёт</label><select id="finExpenseAccount" name="account_id"></select></div>
+            <div><label for="finExpenseCategory">Категория</label><select id="finExpenseCategory" name="category_id"><option value="">— без категории —</option></select></div>
+          </div>
+          <div style="margin-top:12px"><label for="finExpenseNote">Комментарий</label><input id="finExpenseNote" name="note" type="text" placeholder="Необязательно" /></div>
+          <div class="form-actions">
+            <button type="submit" class="btn-danger">Сохранить</button>
+            <button type="button" class="btn-ghost" id="finExpenseCancel">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Modal: finance transfer -->
+      <div class="modal-backdrop" id="finTransferBackdrop" hidden></div>
+      <div class="modal fin-modal" id="finTransferModal" hidden role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3>Перемещение средств</h3>
+          <button type="button" class="modal-close" id="finTransferClose">×</button>
+        </div>
+        <form class="modal-body" id="finTransferForm">
+          <div class="form-grid">
+            <div><label for="finTransferDate">Дата</label><input id="finTransferDate" name="date" type="date" required /></div>
+            <div><label for="finTransferAmount">Сумма ₽</label><input id="finTransferAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+            <div><label for="finTransferFrom">Откуда</label><select id="finTransferFrom" name="from_account_id"></select></div>
+            <div><label for="finTransferTo">Куда</label><select id="finTransferTo" name="to_account_id"></select></div>
+          </div>
+          <div style="margin-top:12px"><label for="finTransferNote">Комментарий</label><input id="finTransferNote" name="note" type="text" placeholder="Необязательно" /></div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Переместить</button>
+            <button type="button" class="btn-ghost" id="finTransferCancel">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Modal: add account -->
+      <div class="modal-backdrop" id="finAccountBackdrop" hidden></div>
+      <div class="modal fin-modal" id="finAccountModal" hidden role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3>Новый счёт</h3>
+          <button type="button" class="modal-close" id="finAccountClose">×</button>
+        </div>
+        <form class="modal-body" id="finAccountForm">
+          <div><label for="finAccountName">Название</label><input id="finAccountName" name="name" type="text" required placeholder="Касса, Расчётный счёт…" /></div>
+          <div style="margin-top:12px"><label for="finAccountInitBal">Начальный баланс ₽</label><input id="finAccountInitBal" name="balance" type="number" step="0.01" value="0" /></div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Создать</button>
+            <button type="button" class="btn-ghost" id="finAccountCancel">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Modal: shift writeoff (manual consumption) -->
+      <div class="modal-backdrop" id="invShiftBackdrop" hidden></div>
+      <div class="modal" id="invShiftModal" hidden role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3>📋 Сменное списание расходников</h3>
+          <button type="button" class="modal-close" id="invShiftClose">×</button>
+        </div>
+        <form class="modal-body" id="invShiftForm">
+          <div class="form-grid">
+            <div>
+              <label for="invShiftMaster">Сотрудник</label>
+              <select id="invShiftMaster" name="master_id"><option value="">— общая смена —</option></select>
+            </div>
+            <div>
+              <label for="invShiftDate">Дата смены</label>
+              <input id="invShiftDate" name="consumed_at" type="date" />
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <label for="invShiftNote">Комментарий</label>
+            <input id="invShiftNote" name="shift_note" type="text" placeholder="Опц. (например «утренняя смена»)" />
+          </div>
+          <label style="margin-top:14px;display:block">Что списать:</label>
+          <div id="invShiftItems" class="receipt-items"></div>
+          <button type="button" class="btn-ghost btn-xs" id="invShiftAddItem">+ Позиция</button>
+          <div class="empty-hint" style="margin-top:8px;">FIFO-списание со склада. Стоимость спишется автоматически.</div>
+          <div class="error" id="invShiftError" hidden></div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Списать</button>
+            <button type="button" class="btn-ghost" id="invShiftCancel">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Modal: inventory check -->
+      <div class="modal-backdrop" id="invCheckBackdrop" hidden></div>
+      <div class="modal inv-check-modal" id="invCheckModal" hidden role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3>🔄 Инвентаризация</h3>
+          <button type="button" class="modal-close" id="invCheckClose">×</button>
+        </div>
+        <form class="modal-body" id="invCheckForm">
+          <div class="form-grid">
+            <div>
+              <label for="invCheckDate">Дата сверки</label>
+              <input id="invCheckDate" name="checked_at" type="date" />
+            </div>
+            <div>
+              <label for="invCheckNote">Комментарий</label>
+              <input id="invCheckNote" name="note" type="text" placeholder="Опц. (например «месячная ревизия»)" />
+            </div>
+          </div>
+          <div class="empty-hint" style="margin-top:12px;">
+            Введите фактический остаток на складе. Разница с учётной автоматически спишется/добавится.
+          </div>
+          <table class="inv-check-table">
+            <thead>
+              <tr>
+                <th>Товар</th>
+                <th>Учётно</th>
+                <th>Факт</th>
+                <th>Разница</th>
+              </tr>
+            </thead>
+            <tbody id="invCheckRows"></tbody>
+          </table>
+          <div class="error" id="invCheckError" hidden></div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Применить инвентаризацию</button>
+            <button type="button" class="btn-ghost" id="invCheckCancel">Отмена</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Modal: master card (8 tabs, 4 active + 4 stub) -->
+      <div class="modal-backdrop" id="mcBackdrop" hidden></div>
+      <div class="modal master-card-modal" id="mcModal" hidden role="dialog" aria-modal="true" aria-labelledby="mcTitle">
+        <div class="modal-head mc-head">
+          <div class="mc-head-info">
+            <div class="user-avatar mc-head-avatar" id="mcHeadAvatar">?</div>
+            <div class="mc-head-text">
+              <h3 id="mcTitle">Сотрудник</h3>
+              <div class="mc-head-sub" id="mcHeadSub"></div>
+            </div>
+          </div>
+          <button type="button" class="modal-close" id="mcClose" aria-label="Закрыть">×</button>
+        </div>
+
+        <nav class="mc-tabs" id="mcTabs">
+          <button type="button" class="mc-tab active" data-mc-tab="profile">Профиль</button>
+          <button type="button" class="mc-tab" data-mc-tab="schedule">График</button>
+          <button type="button" class="mc-tab" data-mc-tab="services">Услуги</button>
+          <button type="button" class="mc-tab" data-mc-tab="schemes">Схемы ЗП</button>
+          <button type="button" class="mc-tab disabled" data-pending="P2" title="Phase 2 — настройки виджета">Онлайн-запись</button>
+          <button type="button" class="mc-tab disabled" data-pending="P2" title="Phase 2 — роли и права">Доступ</button>
+          <button type="button" class="mc-tab disabled" data-pending="P3" title="Phase 3 — галерея фото">Фото работ</button>
+          <button type="button" class="mc-tab disabled" data-pending="P2" title="Phase 2 — оповещения">Оповещения</button>
+        </nav>
+
+        <div class="modal-body mc-body">
+          <!-- Tab: Профиль -->
+          <div class="mc-panel" id="mcPanelProfile">
+            <div class="mc-profile-grid">
+              <div class="mc-avatar-block">
+                <div class="user-avatar mc-avatar-large" id="mcAvatarLarge">?</div>
+                <div class="mc-status-toggle" role="radiogroup" aria-label="Статус сотрудника">
+                  <button type="button" class="mc-status-btn active" data-mc-status="active">Работает</button>
+                  <button type="button" class="mc-status-btn" data-mc-status="inactive">Уволен</button>
+                </div>
+              </div>
+              <form id="mcProfileForm" class="form mc-profile-form">
+                <div class="form-grid">
+                  <div><label for="mcFirstName">Имя *</label><input id="mcFirstName" name="first_name" type="text" required /></div>
+                  <div><label for="mcLastName">Фамилия</label><input id="mcLastName" name="last_name" type="text" /></div>
+                  <div><label for="mcPosition">Должность *</label><input id="mcPosition" name="position" type="text" required placeholder="Врач-косметолог" /></div>
+                  <div><label for="mcCategory">Категория *</label>
+                    <select id="mcCategory" name="category" required>
+                      <option value="">— выберите —</option>
+                      <option value="Администратор">Администратор</option>
+                      <option value="Врач">Врач</option>
+                      <option value="Косметолог">Косметолог</option>
+                      <option value="Менеджер по продажам">Менеджер по продажам</option>
+                      <option value="Маркетолог">Маркетолог</option>
+                      <option value="SMM">SMM</option>
+                      <option value="Ассистент">Ассистент</option>
+                      <option value="Прочее">Прочее</option>
+                    </select>
+                  </div>
+                  <div><label for="mcPhone">Телефон</label><input id="mcPhone" name="phone" type="tel" placeholder="+7..." /></div>
+                  <div><label for="mcEmail">Email</label><input id="mcEmail" name="email" type="email" placeholder="name@example.com" /></div>
+                </div>
+                <div style="margin-top: 12px;">
+                  <label for="mcNotes">Сведения о сотруднике</label>
+                  <textarea id="mcNotes" name="notes" rows="3" placeholder="Опыт работы, аллергии, заметки администратора"></textarea>
+                </div>
+                <label class="mc-checkbox" style="margin-top: 12px;">
+                  <input type="checkbox" id="mcProvidesServices" name="provides_services" />
+                  Оказывает услуги
+                </label>
+                <div class="error" id="mcProfileError" hidden></div>
+                <div class="mc-actions">
+                  <button type="button" class="btn-danger btn-sm" id="mcDelete">Удалить сотрудника</button>
+                  <button type="submit" class="btn-primary">Сохранить профиль</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- Tab: График -->
+          <div class="mc-panel" id="mcPanelSchedule" hidden>
+            <div id="mcScheduleContent">
+              <div class="empty">Загрузка расписания…</div>
+            </div>
+          </div>
+
+          <!-- Tab: Услуги -->
+          <div class="mc-panel" id="mcPanelServices" hidden>
+            <div id="mcServicesContent">
+              <div class="empty">Загрузка услуг…</div>
+            </div>
+          </div>
+
+          <!-- Tab: Схемы ЗП -->
+          <div class="mc-panel" id="mcPanelSchemes" hidden>
+            <div id="mcSchemesContent">
+              <div class="empty">Загрузка схем…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API log drawer -->
+      <aside class="apilog-drawer" id="apilogDrawer" hidden>
+        <div class="apilog-head">
+          <span>API лог</span>
+          <button id="apilogClose" type="button" aria-label="Закрыть">×</button>
+        </div>
+        <pre id="apiLog">Ожидание запросов…</pre>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

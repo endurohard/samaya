@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+dist/
+build/
+*.log
+.DS_Store
+.idea/
+.vscode/
+coverage/
+.local/
+Wiki/.obsidian/workspace.json
+Wiki/.obsidian/workspace-mobile.json
+*.canvas

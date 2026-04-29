@@ -1,0 +1,103 @@
+_format_version: "3.0"
+_transform: true
+
+# Декларативный конфиг Kong (DB-less). Маршруты добавляются по мере готовности сервисов.
+# Phase 0a: /api/auth/* → user-service (готов)
+#           /api/salons/* → salon-service
+#           /api/bookings/* → booking-service
+#           /api/clients/* → client-service (готов)
+# Phase 0b: /api/inventory/* → inventory-service.
+
+services:
+  - name: user-service
+    url: http://user-service:3001
+    routes:
+      - name: auth
+        paths:
+          - /api/auth
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+  - name: salon-service
+    url: http://salon-service:3002
+    routes:
+      - name: salons
+        paths:
+          - /api/salons
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+  - name: booking-service
+    url: http://booking-service:3003
+    routes:
+      - name: bookings
+        paths:
+          - /api/bookings
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+  - name: inventory-service
+    url: http://inventory-service:3005
+    routes:
+      - name: inventory
+        paths:
+          - /api/inventory
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+  - name: client-service
+    url: http://client-service:3004
+    routes:
+      - name: clients
+        paths:
+          - /api/clients
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+  - name: finance-service
+    url: http://finance-service:3006
+    routes:
+      - name: finance
+        paths:
+          - /api/finance
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+  - name: salary-service
+    url: http://salary-service:3007
+    routes:
+      - name: salary
+        paths:
+          - /api/salary
+        strip_path: false
+        methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+
+routes: []
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "http://localhost:3000"
+        - "http://localhost:8010"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Authorization
+        - Content-Type
+        - X-Requested-With
+      credentials: false
+      max_age: 3600
+
+  - name: rate-limiting
+    config:
+      minute: 6000
+      policy: local
+      # Dev: 6000/min на IP. Для prod снизить до 600 + per-route ужесточение
+      # на /auth/login и /bookings/public/create против бот-флуда.

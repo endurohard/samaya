@@ -1,0 +1,290 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: samaya-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB required}
+    # Постгрес НЕ публикуется на хост — сервисы внутри сети используют postgres:5432.
+    # Если нужен доступ из хоста (psql/IDE), создайте docker-compose.override.yml
+    # с ports: ["5433:5432"] (5432 на хосте обычно занят другим Postgres).
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+      - ./database/migrations:/migrations:ro
+    networks:
+      - samaya-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: samaya-redis
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - samaya-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  kong:
+    image: kong:3.5
+    container_name: samaya-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    volumes:
+      - ./kong:/kong:ro
+    ports:
+      - "${KONG_PROXY_PORT:-8000}:8000"
+      - "${KONG_ADMIN_PORT:-8001}:8001"
+    networks:
+      - samaya-network
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: samaya-user-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3001"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  salon-service:
+    build:
+      context: ./services/salon-service
+      dockerfile: Dockerfile
+    container_name: samaya-salon-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3002"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  booking-service:
+    build:
+      context: ./services/booking-service
+      dockerfile: Dockerfile
+    container_name: samaya-booking-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3003
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      COMPANY_TZ_OFFSET: ${COMPANY_TZ_OFFSET:-+03:00}
+      SLOT_STEP_MINUTES: ${SLOT_STEP_MINUTES:-15}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3003"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  client-service:
+    build:
+      context: ./services/client-service
+      dockerfile: Dockerfile
+    container_name: samaya-client-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3004
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3004"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  inventory-service:
+    build:
+      context: ./services/inventory-service
+      dockerfile: Dockerfile
+    container_name: samaya-inventory-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3005
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      DEFAULT_WAREHOUSE_ID: 11111111-1111-1111-1111-111111111111
+      CONSUME_WORKER_ENABLED: "true"
+      CONSUME_WORKER_INTERVAL_MS: "10000"
+      CONSUME_WORKER_BATCH: "20"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3005"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  finance-service:
+    build:
+      context: ./services/finance-service
+      dockerfile: Dockerfile
+    container_name: samaya-finance-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3006
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3006"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3006/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  salary-service:
+    build:
+      context: ./services/salary-service
+      dockerfile: Dockerfile
+    container_name: samaya-salary-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3007
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      BOOKING_SERVICE_URL: http://booking-service:3003
+      FINANCE_SERVICE_URL: http://finance-service:3006
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3007"
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3007/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend-service:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: samaya-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - samaya-network
+    depends_on:
+      - kong
+    restart: unless-stopped
+
+  # Все сервисы MVP подключены: user/salon/booking/client/inventory + frontend.
+
+networks:
+  samaya-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

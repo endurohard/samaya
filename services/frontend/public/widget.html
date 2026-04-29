@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>samaya — онлайн-запись</title>
+  <link rel="stylesheet" href="/widget.css" />
+</head>
+<body>
+  <div class="widget">
+    <header class="w-head">
+      <div class="w-brand">
+        <span class="w-mark">s</span>
+        <div>
+          <div class="w-name">samaya</div>
+          <div class="w-sub">Онлайн-запись</div>
+        </div>
+      </div>
+    </header>
+
+    <main class="w-main">
+      <!-- Step 1: Services -->
+      <section class="w-step" id="stepServices">
+        <h2 class="w-step-title"><span class="w-step-num">1</span> Услуги</h2>
+        <div class="w-list" id="servicesList">
+          <div class="w-loading">Загрузка…</div>
+        </div>
+      </section>
+
+      <!-- Step 2: Masters -->
+      <section class="w-step" id="stepMasters" hidden>
+        <h2 class="w-step-title"><span class="w-step-num">2</span> Мастер</h2>
+        <div class="w-list" id="mastersList"></div>
+      </section>
+
+      <!-- Step 3: Date -->
+      <section class="w-step" id="stepDate" hidden>
+        <h2 class="w-step-title"><span class="w-step-num">3</span> Дата</h2>
+        <input type="date" id="dateInput" class="w-date" />
+      </section>
+
+      <!-- Step 4: Time slots -->
+      <section class="w-step" id="stepSlots" hidden>
+        <h2 class="w-step-title"><span class="w-step-num">4</span> Время</h2>
+        <div id="slotsHint" class="w-hint"></div>
+        <div class="w-slots" id="slotsList"></div>
+      </section>
+
+      <!-- Step 5: Contacts -->
+      <section class="w-step" id="stepContacts" hidden>
+        <h2 class="w-step-title"><span class="w-step-num">5</span> Контакты</h2>
+        <form id="bookForm" class="w-form">
+          <label for="bName">Имя</label>
+          <input id="bName" name="client_name" type="text" required placeholder="Виктория" />
+          <label for="bPhone">Телефон</label>
+          <input id="bPhone" name="client_phone" type="tel" required placeholder="+7 960 408-03-33" />
+          <label for="bNotes">Комментарий (опционально)</label>
+          <input id="bNotes" name="notes" type="text" placeholder="что-то добавить?" />
+          <button type="submit" class="w-btn-primary">Записаться</button>
+        </form>
+      </section>
+
+      <!-- Summary panel (sticky bottom on mobile) -->
+      <aside class="w-summary" id="summary" hidden>
+        <div class="w-summary-row">
+          <span class="w-summary-label">Услуги</span>
+          <span id="sumServices">—</span>
+        </div>
+        <div class="w-summary-row">
+          <span class="w-summary-label">Мастер</span>
+          <span id="sumMaster">—</span>
+        </div>
+        <div class="w-summary-row">
+          <span class="w-summary-label">Когда</span>
+          <span id="sumWhen">—</span>
+        </div>
+        <div class="w-summary-row total">
+          <span class="w-summary-label">Итого</span>
+          <span id="sumTotal">—</span>
+        </div>
+      </aside>
+
+      <!-- Success screen -->
+      <section class="w-success" id="successScreen" hidden>
+        <div class="w-success-icon">✓</div>
+        <h2>Запись принята</h2>
+        <p>Мы отправим напоминание перед визитом. Спасибо!</p>
+        <dl class="w-confirmation">
+          <dt>Когда</dt><dd id="okWhen">—</dd>
+          <dt>Услуги</dt><dd id="okServices">—</dd>
+          <dt>Мастер</dt><dd id="okMaster">—</dd>
+          <dt>Сумма</dt><dd id="okTotal">—</dd>
+        </dl>
+        <a href="/widget.html" class="w-btn-secondary">Записаться ещё</a>
+      </section>
+
+      <!-- Error -->
+      <div class="w-error" id="error" hidden></div>
+    </main>
+
+    <footer class="w-foot">
+      <a href="/" class="w-foot-link">Я администратор салона</a>
+    </footer>
+  </div>
+
+  <script src="/widget.js"></script>
+</body>
+</html>

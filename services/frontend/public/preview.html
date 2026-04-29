@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<title>preview — журнал DIKIDI-style</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  /* фейковая раскладка только для preview — позволяет открыть страницу без backend */
+  body { background: var(--bg); }
+  .preview-cal { height: 780px; }
+</style>
+</head><body>
+<div class="app">
+  <aside class="sidebar">
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="#"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.1a7.5 7.5 0 0115 0A18 18 0 0112 21.75 18 18 0 014.5 20.1z"/></svg><span>Профиль</span></a>
+      <a class="nav-item active" href="#"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v11.25"/></svg><span>Журнал записей</span></a>
+      <a class="nav-item" href="#"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>График работы</span></a>
+      <a class="nav-item disabled" data-pending="скоро" href="#"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM4 21v-1a7 7 0 0114 0v1"/></svg><span>Клиенты</span></a>
+      <a class="nav-item" href="#"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.81 15.9L9 18.75l-.81-2.85"/></svg><span>Услуги</span></a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <span class="topbar-brand-mark">s</span>
+        <span class="topbar-brand-text">samaya <span class="topbar-brand-thin">Business</span></span>
+        <span class="topbar-brand-divider">—</span>
+        <span class="topbar-brand-salon">Самая</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <span class="topbar-tariff">Тариф: <b>PRO</b></span>
+      <button class="topbar-icon-btn"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/></svg></button>
+      <button class="topbar-icon-btn topbar-bell"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" d="M14.857 17.082a23.85 23.85 0 005.454-1.31A8.97 8.97 0 0118 9.75V9A6 6 0 006 9v.75a8.97 8.97 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a3 3 0 11-5.714 0"/></svg><span class="topbar-bell-dot"></span></button>
+      <div class="topbar-user"><div class="topbar-user-avatar" style="background:#16a34a">З</div><span class="topbar-user-name">Зухра</span></div>
+    </header>
+
+    <div class="content">
+      <section class="view view-journal active">
+        <div class="journal-toolbar">
+          <div class="cal-toggle">
+            <button class="cal-toggle-btn active"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9h17M8 3.5v3M16 3.5v3"/></svg></button>
+            <button class="cal-toggle-btn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+            <button class="cal-toggle-btn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="9" r="3"/><circle cx="17" cy="11" r="2.4"/></svg></button>
+          </div>
+          <div class="journal-filter"><span class="journal-filter-label">Все элементы</span><span class="journal-filter-count">3</span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="journal-datenav">
+            <button class="journal-datenav-btn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <button class="journal-datenav-current">Сб, 25 апреля</button>
+            <button class="journal-datenav-btn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></button>
+          </div>
+          <div class="journal-toolbar-spacer"></div>
+          <button class="btn-primary btn-sm">+ Добавить запись</button>
+          <button class="btn-success btn-sm">Оформить продажу</button>
+        </div>
+
+        <div class="journal-layout">
+          <div class="journal-main">
+            <div class="cal-container">
+              <div class="cal-grid" style="grid-template-columns: 56px repeat(2, minmax(180px, 1fr)) 56px; grid-template-rows: 64px 780px;">
+                <div class="cal-corner" style="grid-row:1; grid-column:1"></div>
+                <div class="cal-master-head" style="grid-row:1; grid-column:2">
+                  <div class="cal-master-avatar" style="background:#9ca3af">МН</div>
+                  <div class="cal-master-info"><div class="cal-master-name">Магомедова Наида</div><div class="cal-master-hours">10:00 – 20:00</div></div>
+                </div>
+                <div class="cal-master-head" style="grid-row:1; grid-column:3">
+                  <div class="cal-master-avatar" style="background:#a78bfa">БЗ</div>
+                  <div class="cal-master-info"><div class="cal-master-name">Балакеримова Зухра</div><div class="cal-master-hours">09:40 – 20:00</div></div>
+                </div>
+                <div class="cal-corner right" style="grid-row:1; grid-column:4"></div>
+
+                <div class="cal-time-axis" style="grid-row:2; grid-column:1; height:780px">
+                  <div class="cal-hour-label" style="top:0">09:00</div>
+                  <div class="cal-hour-label" style="top:60px">10:00</div>
+                  <div class="cal-hour-label" style="top:120px">11:00</div>
+                  <div class="cal-hour-label" style="top:180px">12:00</div>
+                  <div class="cal-hour-label" style="top:240px">13:00</div>
+                  <div class="cal-hour-label" style="top:300px">14:00</div>
+                  <div class="cal-hour-label" style="top:360px">15:00</div>
+                  <div class="cal-hour-label" style="top:420px">16:00</div>
+                  <div class="cal-hour-label" style="top:480px">17:00</div>
+                  <div class="cal-hour-label" style="top:540px">18:00</div>
+                  <div class="cal-hour-label" style="top:600px">19:00</div>
+                  <div class="cal-hour-label" style="top:660px">20:00</div>
+                  <div class="cal-hour-label" style="top:720px">21:00</div>
+                  <div class="cal-hour-label" style="top:780px">22:00</div>
+                </div>
+
+                <div class="cal-master-col" style="grid-row:2; grid-column:2; height:780px">
+                  <div class="cal-booking" style="top:60px; height:90px">
+                    <div class="cal-booking-badges"><span class="cal-badge confirmed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span></div>
+                    <div class="cal-booking-time">10:00 – 11:30</div>
+                    <div class="cal-booking-name">Муслимова Виктория</div>
+                    <div class="cal-booking-phone">+7 (928) 288-81-25</div>
+                    <div class="cal-booking-svc">ЛЛ ног</div>
+                  </div>
+                </div>
+
+                <div class="cal-master-col" style="grid-row:2; grid-column:3; height:780px">
+                  <div class="cal-booking" style="top:60px; height:115px">
+                    <div class="cal-booking-badges">
+                      <span class="cal-badge message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.5 8.5 0 018 8v.5z"/></svg></span>
+                      <span class="cal-badge confirmed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>
+                      <span class="cal-badge new">NEW</span>
+                    </div>
+                    <div class="cal-booking-time">10:00 – 11:55</div>
+                    <div class="cal-booking-name">Савельева Анна</div>
+                    <div class="cal-booking-phone">+7 (912) 905-92-33</div>
+                    <div class="cal-booking-svc">ЛЛ живота</div>
+                    <div class="cal-booking-note">Пери Ж-450.000 + 50.000 лобок</div>
+                  </div>
+                  <div class="cal-booking" style="top:180px; height:120px">
+                    <div class="cal-booking-badges">
+                      <span class="cal-badge confirmed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>
+                      <span class="cal-badge new">NEW</span>
+                    </div>
+                    <div class="cal-booking-time">12:00 – 14:00</div>
+                    <div class="cal-booking-name">Темертасова Гульнас</div>
+                    <div class="cal-booking-phone">+7 (927) 065-28-03</div>
+                    <div class="cal-booking-svc">ЛЛ живота, ЛЛ рук</div>
+                    <div class="cal-booking-note">Пери Живот 200т Лобок 50т Руки 200т</div>
+                  </div>
+                </div>
+
+                <div class="cal-time-axis right" style="grid-row:2; grid-column:4; height:780px">
+                  <div class="cal-hour-label" style="top:0">09:00</div>
+                  <div class="cal-hour-label" style="top:60px">10:00</div>
+                  <div class="cal-hour-label" style="top:120px">11:00</div>
+                  <div class="cal-hour-label" style="top:180px">12:00</div>
+                  <div class="cal-hour-label" style="top:240px">13:00</div>
+                  <div class="cal-hour-label" style="top:300px">14:00</div>
+                  <div class="cal-hour-label" style="top:360px">15:00</div>
+                  <div class="cal-hour-label" style="top:420px">16:00</div>
+                  <div class="cal-hour-label" style="top:480px">17:00</div>
+                  <div class="cal-hour-label" style="top:540px">18:00</div>
+                  <div class="cal-hour-label" style="top:600px">19:00</div>
+                  <div class="cal-hour-label" style="top:660px">20:00</div>
+                  <div class="cal-hour-label" style="top:720px">21:00</div>
+                  <div class="cal-hour-label" style="top:780px">22:00</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="journal-aside">
+            <div class="mini-cal">
+              <div class="mini-cal-head">
+                <button class="mini-cal-nav"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 6l-6 6 6 6"/></svg></button>
+                <div class="mini-cal-title">Апрель</div>
+                <button class="mini-cal-nav"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
+              </div>
+              <div class="mini-cal-grid">
+                <div class="mini-cal-dow">ПН</div><div class="mini-cal-dow">ВТ</div><div class="mini-cal-dow">СР</div><div class="mini-cal-dow">ЧТ</div><div class="mini-cal-dow">ПТ</div><div class="mini-cal-dow weekend">СБ</div><div class="mini-cal-dow weekend">ВС</div>
+                <div class="mini-cal-day outside">30</div><div class="mini-cal-day outside">31</div>
+                <div class="mini-cal-day">1</div><div class="mini-cal-day">2</div><div class="mini-cal-day">3</div><div class="mini-cal-day weekend">4</div><div class="mini-cal-day weekend">5</div>
+                <div class="mini-cal-day">6</div><div class="mini-cal-day">7</div><div class="mini-cal-day">8</div><div class="mini-cal-day">9</div><div class="mini-cal-day">10</div><div class="mini-cal-day weekend">11</div><div class="mini-cal-day weekend">12</div>
+                <div class="mini-cal-day">13</div><div class="mini-cal-day">14</div><div class="mini-cal-day">15</div><div class="mini-cal-day">16</div><div class="mini-cal-day">17</div><div class="mini-cal-day weekend">18</div><div class="mini-cal-day weekend">19</div>
+                <div class="mini-cal-day">20</div><div class="mini-cal-day">21</div><div class="mini-cal-day">22</div><div class="mini-cal-day">23</div><div class="mini-cal-day">24</div><div class="mini-cal-day weekend selected">25</div><div class="mini-cal-day weekend">26</div>
+                <div class="mini-cal-day">27</div><div class="mini-cal-day">28</div><div class="mini-cal-day">29</div><div class="mini-cal-day">30</div>
+              </div>
+            </div>
+            <div class="finance-card">
+              <div class="finance-card-head"><span>Финансы за сегодня</span></div>
+              <div class="finance-card-body">
+                <svg class="finance-donut" viewBox="0 0 42 42" width="120" height="120">
+                  <circle cx="21" cy="21" r="15.915" fill="none" stroke="#e5e7eb" stroke-width="6"></circle>
+                  <circle cx="21" cy="21" r="15.915" fill="none" stroke="#22c5d8" stroke-width="6" stroke-dasharray="93 7" stroke-dashoffset="25"></circle>
+                </svg>
+                <div class="finance-total">1 461 000</div>
+              </div>
+              <ul class="finance-legend">
+                <li><span class="dot" style="background:#22c5d8"></span> Наличные <span class="finance-legend-val">1 355 000</span></li>
+                <li><span class="dot" style="background:#3b82f6"></span> Безналичные <span class="finance-legend-val">106 000</span></li>
+              </ul>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</body></html>
