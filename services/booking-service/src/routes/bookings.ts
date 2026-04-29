@@ -54,6 +54,58 @@ router.get('/', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Sales list (completed bookings) =====
+const salesListSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  master_id: z.string().uuid().optional(),
+  payment_method: z.enum(['cash', 'card', 'online']).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
+router.get('/sales', async (req, res, next) => {
+  try {
+    const q = salesListSchema.parse(req.query);
+    const params: unknown[] = [req.auth!.company_id];
+    let where = `b.company_id = $1 AND b.status = 'completed'`;
+    if (q.from) { params.push(q.from); where += ` AND b.completed_at >= $${params.length}::date`; }
+    if (q.to)   { params.push(q.to);   where += ` AND b.completed_at <  ($${params.length}::date + INTERVAL '1 day')`; }
+    if (q.master_id) { params.push(q.master_id); where += ` AND b.master_id = $${params.length}`; }
+    if (q.payment_method) { params.push(q.payment_method); where += ` AND b.payment_method = $${params.length}`; }
+    params.push(q.limit);
+
+    const { rows } = await pool.query(
+      `SELECT b.id, b.master_id, b.client_id, b.client_name, b.client_phone,
+              b.starts_at, b.ends_at, b.completed_at,
+              b.total_price::float8 AS total_price,
+              b.discount_pct::float8 AS discount_pct,
+              b.discount_amount::float8 AS discount_amount,
+              (b.total_price - b.discount_amount)::float8 AS paid_amount,
+              b.payment_method, b.notes,
+              COALESCE(
+                (SELECT json_agg(json_build_object(
+                    'service_name', bs.service_name,
+                    'price', bs.price::float8
+                  ) ORDER BY bs.sort_order)
+                 FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
+                '[]'::json
+              ) AS services
+       FROM bookings.bookings b
+       WHERE ${where}
+       ORDER BY b.completed_at DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+
+    const totals = rows.reduce(
+      (acc, r) => ({ revenue: acc.revenue + r.paid_amount, count: acc.count + 1 }),
+      { revenue: 0, count: 0 },
+    );
+
+    return res.json({ items: rows, totals });
+  } catch (e) { return next(e); }
+});
+
 // ===== Get one =====
 router.get('/:id', async (req, res, next) => {
   try {
@@ -242,17 +294,29 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
   }
 });
 
-// ===== Complete =====
+// ===== Complete (оформить продажу) =====
+const completeSchema = z.object({
+  payment_method: z.enum(['cash', 'card', 'online']).default('cash'),
+  discount_pct: z.number().min(0).max(100).default(0),
+});
+
 router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
   const client = await pool.connect();
   try {
+    const input = completeSchema.parse(req.body ?? {});
     await client.query('BEGIN');
     const upd = await client.query(
       `UPDATE bookings.bookings
-       SET status = 'completed', completed_at = NOW()
+       SET status = 'completed', completed_at = NOW(),
+           payment_method = $3,
+           discount_pct = $4,
+           discount_amount = ROUND(total_price * $4 / 100, 2)
        WHERE company_id = $1 AND id = $2 AND status IN ('confirmed', 'pending')
-       RETURNING *, total_price::float8 AS total_price`,
-      [req.auth!.company_id, req.params.id],
+       RETURNING *,
+         total_price::float8 AS total_price,
+         discount_amount::float8 AS discount_amount,
+         (total_price - discount_amount)::float8 AS paid_amount`,
+      [req.auth!.company_id, req.params.id, input.payment_method, input.discount_pct],
     );
     if (!upd.rows[0]) {
       await client.query('ROLLBACK');
@@ -264,6 +328,8 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       [upd.rows[0].id, req.auth!.company_id, JSON.stringify({
         booking_id: upd.rows[0].id,
         completed_by: req.auth!.sub,
+        payment_method: input.payment_method,
+        discount_pct: input.discount_pct,
       })],
     );
     await client.query('COMMIT');

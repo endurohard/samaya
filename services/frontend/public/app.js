@@ -9,6 +9,7 @@
     services: 'Услуги',
     masters: 'Сотрудники',
     inventory: 'Склад / Расходники',
+    sales: 'Продажи',
     finance: 'Финансы',
     salary: 'Зарплата',
     settings: 'Настройки',
@@ -487,6 +488,9 @@
     }
     if (view === 'settings') {
       void activateSettingsView();
+    }
+    if (view === 'sales') {
+      void activateSalesView();
     }
   }
 
@@ -1510,6 +1514,8 @@
     `;
 
     if (els.bkModalRepeat) els.bkModalRepeat.hidden = !isCanceled;
+    const completeBtn = document.getElementById('bkModalComplete');
+    if (completeBtn) completeBtn.hidden = !['pending', 'confirmed'].includes(b.status);
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = false;
     els.bkModal.hidden = false;
   }
@@ -4764,6 +4770,156 @@
     if (e.key !== 'Escape') return;
     const sm = document.getElementById('invShiftModal'); if (sm && !sm.hidden) closeInvShiftModal();
     const cm = document.getElementById('invCheckModal'); if (cm && !cm.hidden) closeInvCheckModal();
+  });
+
+  // ===== SALES =====
+
+  const PAYMENT_LABELS = { cash: 'Наличные', card: 'Карта', online: 'Онлайн' };
+
+  let salesPeriod = 'today';
+  let salesCurrentBookingId = null;
+  let salesCurrentBookingPrice = 0;
+
+  function getSalesRange(period) {
+    const today = todayLocalISO();
+    if (period === 'today')  return { from: today, to: today };
+    if (period === 'week') {
+      const d = new Date(today + 'T00:00:00');
+      d.setDate(d.getDate() - 6);
+      return { from: d.toISOString().slice(0, 10), to: today };
+    }
+    if (period === 'month') {
+      const d = new Date(today + 'T00:00:00');
+      return { from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, to: today };
+    }
+    if (period === 'year') {
+      const d = new Date(today + 'T00:00:00');
+      return { from: `${d.getFullYear()}-01-01`, to: today };
+    }
+    return { from: today, to: today };
+  }
+
+  async function activateSalesView() {
+    await loadSales();
+  }
+
+  async function loadSales() {
+    const { from, to } = getSalesRange(salesPeriod);
+    const { ok, data } = await apiCall('GET', `/api/bookings/sales?from=${from}&to=${to}`);
+    if (!ok) return;
+    renderSalesKpi(data.totals, data.items);
+    renderSalesTable(data.items);
+  }
+
+  function renderSalesKpi(totals, items) {
+    const revenue = totals?.revenue || 0;
+    const count = totals?.count || 0;
+    document.getElementById('salesKpiRevenue').textContent = formatPrice(revenue);
+    document.getElementById('salesKpiCount').textContent = count;
+    document.getElementById('salesKpiAvg').textContent = count ? formatPrice(revenue / count) : '—';
+    const byCash   = items.filter((i) => i.payment_method === 'cash').reduce((a, i) => a + i.paid_amount, 0);
+    const byCard   = items.filter((i) => i.payment_method === 'card').reduce((a, i) => a + i.paid_amount, 0);
+    const byOnline = items.filter((i) => i.payment_method === 'online').reduce((a, i) => a + i.paid_amount, 0);
+    document.getElementById('salesKpiMethods').textContent =
+      `${formatPrice(byCash)} / ${formatPrice(byCard)} / ${formatPrice(byOnline)}`;
+  }
+
+  function renderSalesTable(items) {
+    const tbody = document.getElementById('salesTableBody');
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Продаж за период нет</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map((s) => {
+      const services = (s.services || []).map((sv) => escapeHtml(sv.service_name)).join(', ');
+      const dt = new Date(s.completed_at);
+      const dateStr = dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+      const timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const client = escapeHtml(s.client_name || s.client_phone || '—');
+      const method = PAYMENT_LABELS[s.payment_method] || s.payment_method || '—';
+      const discount = s.discount_pct > 0 ? `${s.discount_pct}%` : '—';
+      return `<tr>
+        <td style="white-space:nowrap">${dateStr} ${timeStr}</td>
+        <td>${client}</td>
+        <td style="color:var(--text-dim);font-size:13px">${services || '—'}</td>
+        <td><span class="pill pill-${s.payment_method === 'cash' ? 'ok' : s.payment_method === 'card' ? 'info' : 'warn'}">${method}</span></td>
+        <td class="text-right">${discount}</td>
+        <td class="text-right"><strong>${formatPrice(s.paid_amount)}</strong></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ===== Sale modal (complete booking) =====
+  function openSaleModal(bookingId, bookingPrice, servicesHtml) {
+    salesCurrentBookingId = bookingId;
+    salesCurrentBookingPrice = bookingPrice;
+    document.getElementById('saleModalServices').innerHTML = servicesHtml;
+    document.getElementById('saleDiscount').value = '0';
+    document.getElementById('saleTotalDisplay').textContent = formatPrice(bookingPrice);
+    document.getElementById('saleModalBackdrop').hidden = false;
+    document.getElementById('saleModal').hidden = false;
+  }
+
+  function closeSaleModal() {
+    document.getElementById('saleModalBackdrop').hidden = true;
+    document.getElementById('saleModal').hidden = true;
+    salesCurrentBookingId = null;
+  }
+
+  document.getElementById('saleDiscount')?.addEventListener('input', (e) => {
+    const pct = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+    const paid = salesCurrentBookingPrice * (1 - pct / 100);
+    document.getElementById('saleTotalDisplay').textContent = formatPrice(paid);
+  });
+
+  document.getElementById('saleForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!salesCurrentBookingId) return;
+    const method = document.getElementById('salePaymentMethod').value;
+    const discountPct = Number(document.getElementById('saleDiscount').value) || 0;
+    const btn = document.getElementById('saleModalSubmit');
+    btn.disabled = true; btn.textContent = 'Проводим…';
+
+    const { ok, data } = await apiCall('POST', `/api/bookings/${salesCurrentBookingId}/complete`, {
+      payment_method: method,
+      discount_pct: discountPct,
+    });
+
+    btn.disabled = false; btn.textContent = 'Провести оплату';
+
+    if (!ok) {
+      alert('Ошибка: ' + (data?.error || 'неизвестная ошибка'));
+      return;
+    }
+    closeSaleModal();
+    closeBookingModal();
+    // Refresh journal and sales
+    void loadBookings();
+    if (currentView === 'sales') void loadSales();
+  });
+
+  document.getElementById('saleModalClose')?.addEventListener('click', closeSaleModal);
+  document.getElementById('saleModalCancel')?.addEventListener('click', closeSaleModal);
+  document.getElementById('saleModalBackdrop')?.addEventListener('click', closeSaleModal);
+
+  // Wire "Оформить продажу" button inside bk-modal
+  document.getElementById('bkModalComplete')?.addEventListener('click', () => {
+    if (!_bkModalCurrent) return;
+    const b = _bkModalCurrent;
+    const servicesHtml = (b.services || [])
+      .map((s) => `<div>${escapeHtml(s.service_name)} — <strong>${formatPrice(s.price)}</strong></div>`)
+      .join('') || '<div>Услуги не указаны</div>';
+    openSaleModal(b.id, b.total_price || 0, servicesHtml);
+  });
+
+  // Sales period pills
+  document.getElementById('salesPeriodPills')?.addEventListener('click', (e) => {
+    const pill = e.target.closest('.period-pill');
+    if (!pill) return;
+    salesPeriod = pill.dataset.period;
+    document.querySelectorAll('#salesPeriodPills .period-pill').forEach((p) =>
+      p.classList.toggle('active', p === pill));
+    void loadSales();
   });
 
   // ===== Init =====
