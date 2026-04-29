@@ -380,6 +380,7 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
 const completeSchema = z.object({
   payment_method: z.enum(['cash', 'card', 'online']).default('cash'),
   discount_pct: z.number().min(0).max(100).default(0),
+  promo_code: z.string().optional(),
 });
 
 router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
@@ -387,18 +388,43 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
   try {
     const input = completeSchema.parse(req.body ?? {});
     await client.query('BEGIN');
+
+    let promoId: string | null = null;
+    let discountPct = input.discount_pct;
+    if (input.promo_code) {
+      const today = new Date().toISOString().slice(0, 10);
+      const pr = await client.query(
+        `SELECT id, discount_pct::float8 FROM bookings.promotions
+         WHERE company_id = $1 AND code = $2 AND is_active = TRUE
+           AND (valid_from IS NULL OR valid_from <= $3)
+           AND (valid_to   IS NULL OR valid_to   >= $3)
+           AND (max_uses   IS NULL OR used_count < max_uses)`,
+        [req.auth!.company_id, input.promo_code.toUpperCase(), today],
+      );
+      if (pr.rows[0]) {
+        promoId = pr.rows[0].id;
+        discountPct = Math.max(discountPct, pr.rows[0].discount_pct);
+        await client.query(
+          `UPDATE bookings.promotions SET used_count = used_count + 1 WHERE id = $1`,
+          [promoId],
+        );
+      }
+    }
+
     const upd = await client.query(
       `UPDATE bookings.bookings
        SET status = 'completed', completed_at = NOW(),
            payment_method = $3,
            discount_pct = $4,
-           discount_amount = ROUND(total_price * $4 / 100, 2)
+           discount_amount = ROUND(total_price * $4 / 100, 2),
+           promo_id = $5,
+           promo_code = $6
        WHERE company_id = $1 AND id = $2 AND status IN ('confirmed', 'pending')
        RETURNING *,
          total_price::float8 AS total_price,
          discount_amount::float8 AS discount_amount,
          (total_price - discount_amount)::float8 AS paid_amount`,
-      [req.auth!.company_id, req.params.id, input.payment_method, input.discount_pct],
+      [req.auth!.company_id, req.params.id, input.payment_method, discountPct, promoId, input.promo_code?.toUpperCase() ?? null],
     );
     if (!upd.rows[0]) {
       await client.query('ROLLBACK');
@@ -411,7 +437,8 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
         booking_id: upd.rows[0].id,
         completed_by: req.auth!.sub,
         payment_method: input.payment_method,
-        discount_pct: input.discount_pct,
+        discount_pct: discountPct,
+        promo_code: input.promo_code ?? null,
       })],
     );
     await client.query('COMMIT');

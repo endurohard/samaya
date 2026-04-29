@@ -13,6 +13,7 @@
     sales: 'Продажи',
     finance: 'Финансы',
     salary: 'Зарплата',
+    promotion: 'Акции и промокоды',
     settings: 'Настройки',
   };
 
@@ -210,6 +211,30 @@
     clientTabHistory: document.getElementById('clientTabHistory'),
     clientHistoryTab: document.getElementById('clientHistoryTab'),
     clientHistoryList: document.getElementById('clientHistoryList'),
+
+    // promotion view
+    promoAddBtn: document.getElementById('promoAddBtn'),
+    promosList: document.getElementById('promosList'),
+    promosCounter: document.getElementById('promosCounter'),
+    promoModal: document.getElementById('promoModal'),
+    promoModalBackdrop: document.getElementById('promoModalBackdrop'),
+    promoModalClose: document.getElementById('promoModalClose'),
+    promoModalTitle: document.getElementById('promoModalTitle'),
+    promoForm: document.getElementById('promoForm'),
+    promoId: document.getElementById('promoId'),
+    promoCode: document.getElementById('promoCode'),
+    promoName: document.getElementById('promoName'),
+    promoDiscount: document.getElementById('promoDiscount'),
+    promoFrom: document.getElementById('promoFrom'),
+    promoTo: document.getElementById('promoTo'),
+    promoMaxUses: document.getElementById('promoMaxUses'),
+    promoSubmit: document.getElementById('promoSubmit'),
+    promoDelete: document.getElementById('promoDelete'),
+    promoCancel: document.getElementById('promoCancel'),
+    promoFormError: document.getElementById('promoFormError'),
+    salePromoCode: document.getElementById('salePromoCode'),
+    salePromoApply: document.getElementById('salePromoApply'),
+    salePromoMsg: document.getElementById('salePromoMsg'),
 
     // api log
     apiLog: document.getElementById('apiLog'),
@@ -497,6 +522,9 @@
     }
     if (view === 'sales') {
       void activateSalesView();
+    }
+    if (view === 'promotion') {
+      void activatePromotionView();
     }
     if (view === 'analytics') {
       if (cachedMasters.length === 0) void loadMasters();
@@ -5045,6 +5073,8 @@
     document.getElementById('saleModalServices').innerHTML = servicesHtml;
     document.getElementById('saleDiscount').value = '0';
     document.getElementById('saleTotalDisplay').textContent = formatPrice(bookingPrice);
+    if (els.salePromoCode) els.salePromoCode.value = '';
+    if (els.salePromoMsg) els.salePromoMsg.textContent = '';
     document.getElementById('saleModalBackdrop').hidden = false;
     document.getElementById('saleModal').hidden = false;
   }
@@ -5066,12 +5096,14 @@
     if (!salesCurrentBookingId) return;
     const method = document.getElementById('salePaymentMethod').value;
     const discountPct = Number(document.getElementById('saleDiscount').value) || 0;
+    const promoCode = els.salePromoCode?.value?.trim().toUpperCase() || undefined;
     const btn = document.getElementById('saleModalSubmit');
     btn.disabled = true; btn.textContent = 'Проводим…';
 
     const { ok, data } = await apiCall('POST', `/api/bookings/${salesCurrentBookingId}/complete`, {
       payment_method: method,
       discount_pct: discountPct,
+      ...(promoCode ? { promo_code: promoCode } : {}),
     });
 
     btn.disabled = false; btn.textContent = 'Провести оплату';
@@ -5110,6 +5142,158 @@
       p.classList.toggle('active', p === pill));
     void loadSales();
   });
+
+  // ===== Promotion (promo codes) =====
+  let cachedPromos = [];
+
+  async function activatePromotionView() {
+    await loadPromos();
+  }
+
+  async function loadPromos() {
+    const { ok, data } = await apiCall('GET', '/api/bookings/promos');
+    if (!ok) return;
+    cachedPromos = data.items || [];
+    renderPromos();
+  }
+
+  function renderPromos() {
+    if (!els.promosCounter) return;
+    els.promosCounter.textContent = String(cachedPromos.length);
+    if (!cachedPromos.length) {
+      els.promosList.innerHTML = '<div class="empty">Промокодов пока нет. Создайте первый!</div>';
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    els.promosList.innerHTML = cachedPromos.map((p) => {
+      const expired = p.valid_to && p.valid_to < today;
+      const notStarted = p.valid_from && p.valid_from > today;
+      const exhausted = p.max_uses != null && p.used_count >= p.max_uses;
+      const inactive = !p.is_active;
+      const statusCls = (expired || notStarted || exhausted || inactive) ? 'pill-mute' : 'pill-ok';
+      const statusLabel = inactive ? 'выкл' : expired ? 'истёк' : notStarted ? 'не начат' : exhausted ? 'исчерпан' : 'активен';
+      const period = [p.valid_from, p.valid_to].filter(Boolean).join(' — ') || 'бессрочно';
+      const uses = p.max_uses != null ? `${p.used_count}/${p.max_uses}` : p.used_count;
+      return `<div class="data-row promo-row" data-promo-id="${p.id}">
+        <div class="promo-code-badge">${escapeHtml(p.code)}</div>
+        <div class="promo-info">
+          <div class="promo-name">${escapeHtml(p.name)}</div>
+          <div class="promo-meta">${period} &middot; использований: ${uses}</div>
+        </div>
+        <div class="promo-discount">${p.discount_pct}%</div>
+        <span class="pill ${statusCls}">${statusLabel}</span>
+        <button class="btn-ghost btn-sm promo-edit-btn" data-id="${p.id}">Изменить</button>
+      </div>`;
+    }).join('');
+    els.promosList.querySelectorAll('.promo-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => openPromoModal(btn.dataset.id));
+    });
+  }
+
+  function openPromoModal(id) {
+    els.promoFormError.hidden = true;
+    els.promoForm.reset();
+    if (id) {
+      const p = cachedPromos.find((x) => x.id === id);
+      if (!p) return;
+      els.promoModalTitle.textContent = 'Редактировать промокод';
+      els.promoId.value = p.id;
+      els.promoCode.value = p.code;
+      els.promoName.value = p.name;
+      els.promoDiscount.value = p.discount_pct;
+      els.promoFrom.value = p.valid_from || '';
+      els.promoTo.value = p.valid_to || '';
+      els.promoMaxUses.value = p.max_uses ?? '';
+      els.promoDelete.hidden = false;
+      els.promoSubmit.textContent = 'Сохранить';
+    } else {
+      els.promoModalTitle.textContent = 'Новый промокод';
+      els.promoId.value = '';
+      els.promoDelete.hidden = true;
+      els.promoSubmit.textContent = 'Создать';
+    }
+    els.promoModalBackdrop.hidden = false;
+    els.promoModal.hidden = false;
+    setTimeout(() => els.promoCode.focus(), 50);
+  }
+
+  function closePromoModal() {
+    els.promoModalBackdrop.hidden = true;
+    els.promoModal.hidden = true;
+  }
+
+  async function submitPromoForm(e) {
+    e.preventDefault();
+    els.promoFormError.hidden = true;
+    const id = els.promoId.value.trim();
+    const body = {
+      code: els.promoCode.value.trim().toUpperCase(),
+      name: els.promoName.value.trim(),
+      discount_pct: parseFloat(els.promoDiscount.value),
+      valid_from: els.promoFrom.value || null,
+      valid_to: els.promoTo.value || null,
+      max_uses: els.promoMaxUses.value ? parseInt(els.promoMaxUses.value, 10) : null,
+    };
+    const res = id
+      ? await apiCall('PATCH', `/api/bookings/promos/${id}`, body)
+      : await apiCall('POST', '/api/bookings/promos', body);
+    if (!res.ok) {
+      const msg = res.data?.code === 'PROMO_CODE_EXISTS' ? 'Промокод с таким кодом уже существует'
+                : res.data?.error || 'Ошибка сохранения';
+      els.promoFormError.textContent = msg;
+      els.promoFormError.hidden = false;
+      return;
+    }
+    closePromoModal();
+    await loadPromos();
+  }
+
+  async function deletePromo() {
+    const id = els.promoId.value.trim();
+    if (!id) return;
+    if (!confirm('Удалить промокод?')) return;
+    await apiCall('DELETE', `/api/bookings/promos/${id}`);
+    closePromoModal();
+    await loadPromos();
+  }
+
+  // Toggle promo in sale modal
+  if (els.salePromoApply) {
+    els.salePromoApply.addEventListener('click', async () => {
+      const code = els.salePromoCode.value.trim().toUpperCase();
+      if (!code) return;
+      const res = await apiCall('GET', `/api/bookings/promos/check?code=${encodeURIComponent(code)}`);
+      if (!res.ok) {
+        const msg = res.data?.code === 'PROMO_NOT_FOUND' ? 'Промокод не найден'
+                  : res.data?.code === 'PROMO_EXPIRED'   ? 'Промокод истёк'
+                  : res.data?.code === 'PROMO_INACTIVE'  ? 'Промокод неактивен'
+                  : res.data?.code === 'PROMO_EXHAUSTED' ? 'Лимит использований исчерпан'
+                  : res.data?.code === 'PROMO_NOT_STARTED' ? 'Акция ещё не началась'
+                  : 'Промокод недействителен';
+        els.salePromoMsg.style.color = 'var(--danger)';
+        els.salePromoMsg.textContent = msg;
+        return;
+      }
+      const p = res.data;
+      els.saleDiscount.value = Math.max(parseFloat(els.saleDiscount.value) || 0, p.discount_pct);
+      els.salePromoMsg.style.color = 'var(--success, #16a34a)';
+      els.salePromoMsg.textContent = `✓ «${p.name}» — скидка ${p.discount_pct}% применена`;
+      els.saleDiscount.dispatchEvent(new Event('input'));
+    });
+  }
+
+  if (els.promoAddBtn) els.promoAddBtn?.addEventListener('click', () => openPromoModal(null));
+  if (els.promoModalClose) els.promoModalClose.addEventListener('click', closePromoModal);
+  if (els.promoModalBackdrop) els.promoModalBackdrop.addEventListener('click', closePromoModal);
+  if (els.promoCancel) els.promoCancel.addEventListener('click', closePromoModal);
+  if (els.promoDelete) els.promoDelete.addEventListener('click', deletePromo);
+  if (els.promoForm) els.promoForm.addEventListener('submit', submitPromoForm);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && els.promoModal && !els.promoModal.hidden) closePromoModal();
+  });
+
+  // Also send promo_code when completing booking via sale modal
+  // (handled inside submitSaleForm — need to pass salePromoCode.value)
 
   // ===== Init =====
   renderAuth();

@@ -58,9 +58,9 @@
           <span>Сотрудники</span>
         </a>
         <div class="nav-section">Скоро</div>
-        <a class="nav-item disabled" data-pending="P1" title="Phase 1 — акции, промокоды" href="#promotion">
-          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5A2.25 2.25 0 008.25 22.5h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></svg>
-          <span>Продвижение</span>
+        <a class="nav-item" data-view="promotion" href="#promotion">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l6-6m3.75-1.5a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-12 9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zM3 3h2.25a2.25 2.25 0 012.25 2.25v1.5a2.25 2.25 0 01-2.25 2.25H3V3z"/></svg>
+          <span>Акции</span>
         </a>
         <a class="nav-item disabled" data-pending="P1" title="Phase 1 — WhatsApp Business API" href="#messages">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.12 2.99 2.71 3.23a48.4 48.4 0 003.29.37V21l4.18-4.18a1.14 1.14 0 01.78-.33 48.3 48.3 0 005.83-.5c1.59-.23 2.71-1.62 2.71-3.23V6.74c0-1.6-1.12-3-2.71-3.23A48.4 48.4 0 0012 3c-2.39 0-4.74.18-7.04.51-1.59.24-2.71 1.63-2.71 3.23v6.02z"/></svg>
@@ -1375,6 +1375,65 @@
         </div>
 
         <!-- View: placeholder (для незаимплементированных модулей) -->
+        <!-- ===== VIEW: PROMOTION (promo codes) ===== -->
+        <section class="view" data-view="promotion" hidden>
+          <div class="card data-card">
+            <div class="data-head">
+              <h2 class="card-title">Промокоды</h2>
+              <span class="counter" id="promosCounter">0</span>
+              <div class="data-head-spacer"></div>
+              <button class="btn-primary btn-sm" id="promoAddBtn" type="button">+ Промокод</button>
+            </div>
+            <div id="promosList" class="data-list"></div>
+          </div>
+
+          <!-- Modal: add/edit promo -->
+          <div class="modal-backdrop" id="promoModalBackdrop" hidden></div>
+          <div class="modal" id="promoModal" hidden role="dialog" aria-modal="true" aria-labelledby="promoModalTitle">
+            <div class="modal-head">
+              <h3 id="promoModalTitle">Новый промокод</h3>
+              <button type="button" class="modal-close" id="promoModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="promoForm" class="form modal-body">
+              <input type="hidden" id="promoId" />
+              <div class="form-grid">
+                <div>
+                  <label for="promoCode">Код</label>
+                  <input id="promoCode" name="code" type="text" required placeholder="SUMMER20" style="text-transform:uppercase" />
+                </div>
+                <div>
+                  <label for="promoDiscount">Скидка %</label>
+                  <input id="promoDiscount" name="discount_pct" type="number" required min="1" max="100" step="0.5" placeholder="10" />
+                </div>
+                <div class="form-grid-full">
+                  <label for="promoName">Название акции</label>
+                  <input id="promoName" name="name" type="text" required placeholder="Летняя скидка" />
+                </div>
+                <div>
+                  <label for="promoFrom">Действует с</label>
+                  <input id="promoFrom" name="valid_from" type="date" />
+                </div>
+                <div>
+                  <label for="promoTo">Действует по</label>
+                  <input id="promoTo" name="valid_to" type="date" />
+                </div>
+                <div>
+                  <label for="promoMaxUses">Макс. использований</label>
+                  <input id="promoMaxUses" name="max_uses" type="number" min="1" step="1" placeholder="без ограничений" />
+                </div>
+              </div>
+              <div class="modal-foot">
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary" id="promoSubmit">Создать</button>
+                  <button type="button" class="btn-ghost" id="promoCancel">Отмена</button>
+                </div>
+                <button type="button" class="btn-link-danger" id="promoDelete" hidden>Удалить</button>
+              </div>
+              <div class="error" id="promoFormError" hidden></div>
+            </form>
+          </div>
+        </section>
+
         <section class="view" data-view="placeholder" hidden>
           <div class="card placeholder-card">
             <div class="placeholder-icon">⏳</div>
@@ -1531,6 +1590,14 @@
               <option value="card">Карта</option>
               <option value="online">Онлайн</option>
             </select>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:flex-end;">
+              <div>
+                <label for="salePromoCode">Промокод</label>
+                <input id="salePromoCode" name="promo_code" type="text" placeholder="SUMMER20" style="text-transform:uppercase" />
+              </div>
+              <button type="button" class="btn-ghost btn-sm" id="salePromoApply" style="margin-bottom:1px">Применить</button>
+            </div>
+            <div id="salePromoMsg" style="font-size:12px;margin-top:-6px;min-height:16px;"></div>
             <label for="saleDiscount">Скидка, %</label>
             <input id="saleDiscount" name="discount_pct" type="number" min="0" max="100" step="1" value="0" />
             <div class="sale-total-row">

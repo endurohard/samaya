@@ -6,6 +6,7 @@ import { config } from './config';
 import { pool } from './db';
 import { errorHandler } from './middleware';
 import bookingsRoutes from './routes/bookings';
+import promosRoutes from './routes/promos';
 import slotsRoutes from './routes/slots';
 import publicRoutes from './routes/public';
 
@@ -31,6 +32,7 @@ app.use('/api/bookings/slots', slotsRoutes);
 app.use('/api/bookings/public', publicRoutes);
 
 // Auth-protected
+app.use('/api/bookings/promos', promosRoutes);
 app.use('/api/bookings', bookingsRoutes);
 
 app.use(errorHandler);
