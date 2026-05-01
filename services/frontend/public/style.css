@@ -1413,7 +1413,10 @@ body {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 1px;
 }
-.sch-day-head.weekend { color: var(--danger); }
+.sch-day-head.weekend {
+  color: var(--danger);
+  background: #fff5f5; /* тонкая розовая подложка как у DIKIDI */
+}
 .sch-day-head.today {
   background: var(--primary-soft);
   color: var(--primary-hover);
@@ -1458,10 +1461,17 @@ body {
   transition: background 0.1s;
 }
 .sch-cell:hover { background: var(--primary-soft); }
-.sch-cell.weekend { background: #fff7f7; }
+/* Тонкая розовая полоса вертикально через всю колонку выходного */
+.sch-cell.weekend { background: #fff5f5; }
 .sch-cell.weekend:hover { background: #ffe8e8; }
-.sch-cell.is-off { color: var(--text-muted); font-style: italic; }
+/* В выходных днях у мастеров просто пусто (как у DIKIDI) */
+.sch-cell.is-off { background: #fafbfc; }
+.sch-cell.is-off.weekend { background: #fff5f5; }
+.sch-cell.is-off.weekend:hover { background: #ffe8e8; }
+.sch-cell.is-off:hover { background: var(--primary-soft); }
+/* Пустая ячейка без расписания */
 .sch-cell.empty { background: var(--bg-soft); }
+.sch-cell.empty.weekend { background: #fff5f5; }
 .sch-cell.empty:hover { background: var(--primary-soft); }
 .sch-cell.dirty { box-shadow: inset 0 0 0 2px var(--primary); }
 .sch-cell.today { background: var(--primary-soft); }
@@ -1915,29 +1925,25 @@ body {
   .clients-sidebar { position: static; }
 }
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar { position: relative; height: auto; }
-  .form-grid { grid-template-columns: 1fr; }
+  /* старое .sidebar { position: relative } удалено — конфликтовало с drawer-режимом */
   .user-card-row { flex-wrap: wrap; }
   .user-actions { flex: 1 0 100%; justify-content: flex-end; }
-  .topbar-brand-text, .topbar-brand-divider, .topbar-brand-salon { display: none; }
   .clients-table-head { display: none; }
   .clients-row {
     grid-template-columns: 36px 1fr auto;
     grid-template-areas:
       "check name visits"
-      "check last bonus"
-      "check avg total";
+      "check last total";
     gap: 4px 12px;
     padding: 12px;
   }
-  .clients-row .ct-col-check { grid-area: check; }
-  .clients-row .ct-col-name { grid-area: name; }
-  .clients-row .ct-col-visits { grid-area: visits; }
-  .clients-row .ct-col-last { grid-area: last; }
-  .clients-row .ct-col-bonus { grid-area: bonus; }
-  .clients-row .ct-col-avg { grid-area: avg; }
-  .clients-row .ct-col-total { grid-area: total; }
+  .clients-row .ct-col-check  { grid-area: check; }
+  .clients-row .ct-col-name   { grid-area: name; }
+  .clients-row .ct-col-visits { grid-area: visits; font-weight: 600; }
+  .clients-row .ct-col-last   { grid-area: last; font-size: 12px; color: var(--text-dim); }
+  .clients-row .ct-col-total  { grid-area: total; font-weight: 600; font-size: 13px; }
+  .clients-row .ct-col-bonus,
+  .clients-row .ct-col-avg    { display: none; }
 }
 @media (max-width: 600px) {
   .recipe-row { grid-template-columns: 1fr 1fr auto; }
@@ -2275,6 +2281,50 @@ body {
   border-color: var(--danger);
   color: var(--danger);
 }
+
+/* Техничка — подсветка голубым */
+.sal-row.sal-row-cleaner { border-left: 3px solid #06b6d4; }
+/* Менеджер — подсветка зелёным */
+.sal-row.sal-row-manager { border-left: 3px solid var(--success); }
+
+/* Заголовок секции в Комиссиях */
+.sal-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Toggle switch */
+.toggle-switch { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
+.toggle-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  width: 36px; height: 20px;
+  background: var(--border);
+  border-radius: 20px;
+  transition: background .2s;
+  position: relative;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform .2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.toggle-switch input:checked + .toggle-track { background: var(--primary); }
+.toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
+
+/* Badge серый */
+.badge-gray { background: var(--border); color: var(--text-muted); }
 
 /* info banner (под таблицей схем) */
 .sal-info-banner {
@@ -2985,6 +3035,41 @@ body {
   .fin-kpi-row-4 { grid-template-columns: 1fr; }
 }
 
+/* ===== Finance Categories tab ===== */
+.fin-cat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .fin-cat-grid { grid-template-columns: 1fr; }
+}
+.fin-cat-list { padding: 0 0 4px; }
+.fin-cat-row { display: flex; align-items: center; }
+.fin-cat-row .row-main { flex: 1; }
+.fin-cat-add-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 12px;
+}
+.fin-cat-add-form input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+.badge-muted {
+  display: inline-block;
+  background: #f1f5f9;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
 /* ===== Inventory tracking_mode badges + inv-check table ===== */
 .tracking-badge {
   display: inline-flex;
@@ -3063,6 +3148,20 @@ body {
 /* Sale modal */
 .sale-total-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .sale-total-label { color: var(--text-dim); font-size: 13px; }
+.sale-bonus-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 13px; }
+.sale-bonus-label { color: var(--text-dim); }
+.sale-bonus-balance { font-weight: 600; color: #7c3aed; }
+.cl-bonus-row { display: flex; align-items: center; gap: 10px; padding: 8px 0 4px; font-size: 13px; }
+.cl-bonus-label { color: var(--text-dim); }
+.cl-bonus-val { font-weight: 600; color: #7c3aed; }
+.cl-bonus-adj-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cl-bonus-adj-form input { flex: 1 1 120px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.bonus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .bonus-grid { grid-template-columns: 1fr; } }
+.input-suffix-wrap { display: flex; align-items: center; gap: 0; }
+.input-suffix-wrap input { border-radius: 6px 0 0 6px; flex: 1; }
+.input-suffix { background: #f1f5f9; border: 1px solid var(--border); border-left: none; border-radius: 0 6px 6px 0; padding: 8px 12px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.field-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 #saleTotalDisplay { font-size: 20px; font-weight: 700; }
 
 /* ===== Analytics view ===== */
@@ -3175,3 +3274,787 @@ body {
 .promo-name { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .promo-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 .promo-discount { font-size: 18px; font-weight: 700; color: var(--primary); text-align: center; }
+
+/* ── Client analyzes (files) tab ── */
+.analyzes-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.analyzes-upload-label {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.analyzes-upload-label:hover { background: var(--primary-soft, #ede9fe); }
+.analyzes-list { display: flex; flex-direction: column; gap: 6px; min-height: 80px; }
+.analyzes-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  font-size: 13px;
+}
+.analyzes-file-icon { font-size: 20px; flex-shrink: 0; }
+.analyzes-file-info { flex: 1; min-width: 0; }
+.analyzes-file-name { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.analyzes-file-meta { display: block; font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.analyzes-file-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ============================================================ *
+ * SCHEDULE — DIKIDI-style mini-preview справа
+ * ============================================================ */
+.sch-preview {
+  margin-top: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.sch-preview-grid {
+  display: grid;
+  /* первая колонка — мастер, потом 6 дней */
+  grid-template-columns: 30px repeat(6, 1fr);
+}
+.spc {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 4px 1px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  height: 32px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px;
+  background: var(--bg-soft);
+}
+.spc.weekend { color: var(--danger); background: #fff5f5; }
+.spc-num { font-size: 12px; font-weight: 600; }
+.spc-dow { font-size: 9px; color: inherit; opacity: 0.85; }
+.spc-corner { background: var(--bg-soft); height: 32px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+.spc-corner svg { width: 14px; height: 14px; color: var(--text-muted); }
+
+.spm {
+  height: 36px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card);
+}
+.spm-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-size: 9px;
+  color: #fff;
+  font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+.spcell {
+  height: 36px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 9px;
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  gap: 0;
+  line-height: 1.15;
+}
+.spcell.weekend { background: #fff5f5; }
+.spcell.empty { background: var(--bg-soft); }
+.spcell.empty.weekend { background: #fff5f5; }
+.spcell.is-off { background: var(--bg-soft); }
+.spcell.is-off.weekend { background: #fff5f5; }
+.spcell.today { background: var(--primary-soft); }
+/* убираем правую границу у последней колонки */
+.sch-preview-grid > *:nth-child(7n) { border-right: none; }
+
+.sch-preview-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 6px 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: not-allowed; /* пока не реализовано */
+}
+.sch-preview-toggle input { accent-color: var(--primary); }
+
+/* ============================================================ *
+ * SCHEDULE — dropdown master filter (DIKIDI-style)
+ * ============================================================ */
+.sch-master-filter { position: relative; }
+.sch-master-filter-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 200px;
+}
+.sch-master-filter-trigger:hover { border-color: var(--border-strong); }
+.sch-master-filter-trigger svg { color: var(--text-muted); margin-left: auto; }
+.sch-master-filter.open .sch-master-filter-trigger svg { transform: rotate(180deg); }
+.sch-master-filter-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+  min-width: 280px;
+  max-width: 360px;
+  max-height: 480px;
+  overflow-y: auto;
+  z-index: 30;
+  padding: 6px 0;
+}
+.sch-mf-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+.sch-mf-row:hover { background: var(--bg-soft); }
+.sch-mf-row.sch-mf-all {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  padding: 9px 12px;
+  grid-template-columns: 1fr auto 28px;
+}
+.sch-mf-row.sch-mf-all .sch-mf-name { grid-column: 1; }
+.sch-mf-row.sch-mf-group {
+  font-weight: 600;
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  padding: 6px 12px;
+  grid-template-columns: 1fr auto 28px;
+}
+.sch-mf-row.sch-mf-group .sch-mf-name { grid-column: 1; }
+.sch-mf-row.sch-mf-master { padding-left: 20px; }
+.sch-mf-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #fff; font-weight: 600;
+  flex-shrink: 0;
+}
+.sch-mf-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sch-mf-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.sch-mf-row input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--primary);
+  width: 16px; height: 16px;
+  cursor: pointer;
+}
+
+/* ============================================================ *
+ * MOBILE & TOUCH OPTIMIZATION                                   *
+ * ============================================================ */
+
+/* base touch hygiene */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+* {
+  -webkit-tap-highlight-color: rgba(99, 102, 241, 0.15);
+}
+button, a, .nav-item, .subnav-item, .period-pill, .cal-toggle-btn,
+.journal-period-btn, .topbar-icon-btn, .modal-close, .row-item, .clients-row {
+  -webkit-tap-highlight-color: rgba(99, 102, 241, 0.15);
+  touch-action: manipulation;
+}
+/* iOS safe area insets */
+.topbar { padding-top: max(10px, env(safe-area-inset-top)); }
+.sidebar { padding-top: max(0px, env(safe-area-inset-top)); }
+.modal-foot { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.apilog-drawer { right: max(24px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); }
+
+/* burger button — скрыта на десктопе */
+.topbar-burger {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+}
+.topbar-burger:hover { background: var(--bg); }
+
+/* sidebar backdrop — скрыт на десктопе */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  z-index: 60;
+}
+
+/* ====== ≤ 1100px: sidebar шире, layouts двухколоночные → одноколоночные ====== */
+@media (max-width: 1100px) {
+  .journal-layout, .schedule-layout, .sal-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .journal-aside, .schedule-aside, .sal-aside { position: static; }
+  .sch-preview { max-width: 100%; }
+}
+
+/* ====== ≤ 900px: sidebar становится off-canvas drawer ====== */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .topbar-burger { display: inline-flex; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 84vw;
+    max-width: 320px;
+    height: 100vh;
+    z-index: 70;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease-out;
+    box-shadow: 0 0 32px rgba(15, 23, 42, 0.18);
+  }
+  body.sidebar-open .sidebar { transform: none; }
+  body.sidebar-open .sidebar-backdrop { display: block; }
+  .sidebar-backdrop { display: none; }
+
+  /* topbar — ужмём элементы */
+  .topbar { padding: 8px 12px; height: auto; min-height: 56px; gap: 6px; flex-wrap: nowrap; }
+  .topbar-brand { gap: 8px; min-width: 0; flex-shrink: 1; }
+  .topbar-brand-text, .topbar-brand-divider, .topbar-brand-salon { display: none; }
+  .topbar-brand-mark { width: 30px; height: 30px; }
+  .topbar-tariff { display: none; }
+  .topbar-icon-btn { width: 36px; height: 36px; }
+  .topbar-user-name { display: none; }
+  .topbar-user { padding: 4px; }
+  .topbar-action { display: none; } /* API лог скрываем на мобиле */
+  .content { padding: 12px; }
+
+  /* фокус на input не должен зумить (iOS) */
+  input, select, textarea { font-size: 16px !important; }
+  .form input, .form select, .modal-body input, .modal-body select, .modal-body textarea {
+    font-size: 16px;
+  }
+
+  /* модалки на всю высоту */
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+  .modal, .salary-modal, .salary-modal-wide {
+    width: 100% !important;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-body { flex: 1; overflow-y: auto; }
+  .modal-foot { position: sticky; bottom: 0; background: var(--bg-soft); }
+
+  /* form-grid в одну колонку */
+  .form-grid { grid-template-columns: 1fr !important; }
+
+  /* журнал/график — компактнее */
+  .journal-toolbar, .schedule-toolbar, .sal-toolbar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .journal-period, .period-pills { width: 100%; overflow-x: auto; }
+  .journal-period-btn, .period-pill { padding: 6px 10px; font-size: 12px; }
+  .journal-datenav { width: 100%; justify-content: space-between; }
+  .journal-datenav-current { flex: 1; }
+  .schedule-monthnav { width: 100%; justify-content: space-between; padding: 0; }
+  .schedule-monthnav-current { font-size: 14px; }
+
+  /* кнопки в тулбарах — переходят на новую строку */
+  .btn-primary.btn-sm, .btn-success.btn-sm, .btn-secondary.btn-sm {
+    min-height: 38px;
+  }
+
+  /* subnav горизонтальный скролл */
+  .subnav {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .subnav::-webkit-scrollbar { display: none; }
+  .subnav-item { flex-shrink: 0; }
+
+  /* зарплата — таблица в карточки */
+  .sal-grid-head { display: none; }
+  .sal-row {
+    grid-template-columns: 1fr !important;
+    gap: 4px !important;
+    padding: 12px 14px !important;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    background: var(--card);
+  }
+  .sal-row .sg-col { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+  .sal-row .sg-col::before {
+    content: attr(data-label);
+    color: var(--text-dim);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .sal-row .sg-col:not([data-label])::before { display: none; }
+  .sal-row .sg-col-master { padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .sal-row .sg-col-master::before { display: none; }
+  .sal-row .sg-col-num { text-align: right; font-weight: 500; }
+  .sal-row .sg-col-total { font-size: 14px; font-weight: 700; border-top: 1px solid var(--border); padding-top: 6px; margin-top: 2px; }
+  .sal-row.summary { background: var(--bg-soft); }
+
+  /* финансы KPI в одну колонку */
+  .fin-kpi-row { grid-template-columns: 1fr !important; gap: 8px; }
+  .fin-kpi-card { padding: 14px; }
+  .fin-kpi-val { font-size: 20px; }
+
+  /* журнал — chart cards в 1 колонку */
+  .journal-charts { grid-template-columns: 1fr !important; gap: 8px; }
+  .donut-svg { width: 130px !important; height: 130px !important; }
+
+  /* mini-calendar и finance-card в журнале */
+  .mini-cal { padding: 10px; }
+  .mini-cal-day { width: 32px; height: 32px; font-size: 13px; }
+
+  /* settlements card — компактнее */
+  .sal-settle-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .sal-settle-row .col-amount { text-align: right; font-size: 14px; }
+  .sal-settle-row .col-date { font-size: 11px; }
+
+  /* schedule master filter dropdown — full-width */
+  .sch-master-filter-trigger { width: 100%; min-width: 0; }
+  .sch-master-filter-panel { left: 0; right: 0; max-width: none; }
+
+  /* график — мини-превью двигается под основную сетку */
+  .schedule-aside { margin-top: 12px; }
+  .sch-preview-grid { font-size: 9px; }
+}
+
+/* ====== ≤ 640px: совсем узко ====== */
+@media (max-width: 640px) {
+  .topbar { padding: 8px 10px; min-height: 52px; }
+  .topbar-brand-mark { width: 28px; height: 28px; font-size: 12px; }
+  .topbar-icon-btn { width: 34px; height: 34px; }
+  .topbar-icon-btn svg { width: 18px; height: 18px; }
+  .topbar-user-avatar { width: 28px; height: 28px; font-size: 12px; }
+  .content { padding: 10px; }
+  .card, .data-card { padding: 14px; }
+  .fin-kpi-val { font-size: 18px; }
+  .sal-aside-amount { font-size: 22px; }
+  .salary-modal-wide { font-size: 14px; }
+  .modal-head { padding: 12px 14px; }
+  .modal-title { font-size: 15px; }
+  .modal-body { padding: 14px; }
+  .modal-foot { padding: 10px 14px; }
+  .btn-primary, .btn-secondary, .btn-danger, .btn-success, .btn-ghost {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  /* кнопки в data-head — растягиваются */
+  .data-head { flex-wrap: wrap; }
+  .data-head .btn-primary, .data-head .btn-secondary { flex: 1 1 auto; }
+
+  /* journal calendar — узкие колонки мастеров */
+  .cal-master-head { padding: 6px 4px; gap: 4px; height: 56px; }
+  .cal-master-avatar { width: 32px; height: 32px; font-size: 12px; }
+  .cal-master-name { font-size: 12px; }
+  .cal-master-hours { font-size: 10px; }
+  .cal-grid { font-size: 11px; }
+
+  /* schedule grid — поуже */
+  .sch-corner-cell, .sch-day-head { height: 48px; padding: 6px 2px; }
+  .sch-day-num { font-size: 14px; }
+  .sch-day-dow { font-size: 10px; }
+  .sch-master-cell, .sch-cell { height: 56px; }
+  .sch-cell { font-size: 11px; }
+
+  /* booking блоки */
+  .cal-booking { padding: 4px 6px; }
+  .cal-booking-name { font-size: 12px; }
+  .cal-booking-time { font-size: 10px; }
+  .cal-booking-svc { font-size: 10px; }
+}
+
+/* ====== iOS hover-fix: убрать stale hover на тач-устройствах ====== */
+@media (hover: none) {
+  .row-item:hover, .nav-item:hover, .subnav-item:hover,
+  .clients-row:hover, .sal-row:hover, .sch-cell:hover {
+    background: inherit;
+  }
+}
+
+/* ============================================================ *
+ * MOBILE OVERFLOW FIX (v2) — стопит развал layout на узких экранах
+ * ============================================================ */
+html, body { overflow-x: hidden; }
+.app { max-width: 100vw; }
+.main { min-width: 0; max-width: 100%; overflow-x: hidden; }
+
+@media (max-width: 900px) {
+  /* любые контейнеры не должны выходить за viewport */
+  .content, .view, .data-card, .card,
+  .journal-toolbar, .schedule-toolbar, .sal-toolbar,
+  .clients-toolbar, .fin-toolbar, .subnav,
+  .journal-layout, .schedule-layout, .sal-layout,
+  .clients-grid {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* clients page — раньше grid сайдбар + табл, теперь stack */
+  .clients-grid { grid-template-columns: 1fr !important; gap: 12px; }
+  .clients-sidebar { order: 2; }
+  .clients-table-wrap { order: 1; }
+
+  /* clients-toolbar — флекс-врап */
+  .clients-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .clients-toolbar .clients-search,
+  .clients-toolbar .clients-search-card { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+  .clients-toolbar .btn-primary,
+  .clients-toolbar .btn-success,
+  .clients-toolbar .btn-secondary {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal; /* позволяем переносу длинного текста кнопки */
+    line-height: 1.2;
+  }
+  .clients-toolbar-spacer { display: none; }
+
+  /* row не вылезает — ему может мешать сетка с min-content */
+  .clients-row {
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .ct-col, .clients-row > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+  /* data-head — кнопки на новую строку */
+  .data-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .data-head .btn-primary, .data-head .btn-secondary {
+    flex: 1 1 auto;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  .data-head-spacer { display: none; }
+
+  /* финансы (overview/accounts/ops) toolbar */
+  .fin-toolbar { flex-wrap: wrap; gap: 8px; }
+  .fin-toolbar > * { flex: 0 1 auto; min-width: 0; }
+}
+
+/* clientModal — sibling backdrop pattern, fullscreen на мобиле */
+@media (max-width: 900px) {
+  #clientModalBackdrop[hidden] { display: none; }
+  #clientModalBackdrop {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 80;
+  }
+  #clientModal[hidden] { display: none; }
+  #clientModal {
+    position: fixed !important;
+    top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+    width: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    transform: none !important;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #clientModal .modal-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #clientModal .modal-foot { position: sticky; bottom: 0; background: var(--bg-soft); }
+}
+
+/* ============================================================ *
+ * MOBILE OVERFLOW FIX (v3) — bullet-proof модалки fullscreen
+ * Перебивает все базовые стили .modal с transform/width.
+ * ============================================================ */
+@media (max-width: 900px) {
+  /* любая модалка (.modal, .bk-modal, .salary-modal, .modal--wide, и т.д.) */
+  .modal,
+  .bk-modal,
+  .salary-modal,
+  .modal--wide,
+  #clientModal,
+  #salSchemeModal,
+  #salPayoutModal,
+  #salAccrualModal,
+  #salPayrollModal {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    transform: none !important;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal[hidden],
+  .bk-modal[hidden],
+  .salary-modal[hidden],
+  #clientModal[hidden] { display: none !important; }
+
+  /* head sticky сверху */
+  .modal-head, .bk-modal-head {
+    position: sticky;
+    top: 0;
+    background: var(--card);
+    z-index: 2;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* body — единственный скроллящийся блок */
+  .modal-body, .bk-modal-body {
+    flex: 1 1 auto !important;
+    min-height: 0;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 16px !important;
+  }
+
+  /* foot — sticky снизу + перенос кнопок */
+  .modal-foot, .bk-modal-foot {
+    position: sticky !important;
+    bottom: 0;
+    background: var(--bg-soft);
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 10px 14px !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  }
+  .modal-foot > *, .bk-modal-foot > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  /* form-grid внутри любой модалки → 1 колонка */
+  .modal .form-grid,
+  .bk-modal .form-grid,
+  #clientModal .form-grid,
+  #clientForm.form-grid,
+  .modal-body .form-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* любое поле/select/textarea — на ширину 100% и без min-width */
+  .modal input, .modal select, .modal textarea,
+  .bk-modal input, .bk-modal select, .bk-modal textarea,
+  #clientModal input, #clientModal select, #clientModal textarea {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  /* таблица истории / анализы внутри clientModal — горизонтальный скролл */
+  #clientModal table,
+  #clientModal .history-row,
+  #clientModal .analysis-row {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto;
+  }
+  #clientModal .history-row,
+  #clientModal .analysis-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #clientModal .history-row > *,
+  #clientModal .analysis-row > * {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ===== Messages / Broadcast ===== */
+.messages-layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .messages-layout { grid-template-columns: 1fr; }
+}
+.broadcast-card, .broadcast-history-card { padding: 24px; }
+.broadcast-segment-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  margin-top: 16px;
+}
+.broadcast-count-box {
+  text-align: center;
+  min-width: 72px;
+  padding: 8px 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.broadcast-count-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1;
+}
+.broadcast-count-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.hint-inline { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+.broadcast-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 100px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  margin-top: 6px;
+}
+.broadcast-textarea:focus { outline: none; border-color: var(--primary); }
+.broadcast-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+.char-count { font-size: 12px; color: var(--text-muted); }
+.broadcast-preview {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.broadcast-preview-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.broadcast-preview-text { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
+.broadcast-progress {
+  margin-top: 16px;
+}
+.broadcast-progress-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.broadcast-progress-bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width .3s;
+}
+.broadcast-progress-label { font-size: 13px; color: var(--text-muted); }
+.broadcast-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
+}
+.broadcast-disclaimer { font-size: 12px; color: var(--text-muted); }
+.broadcast-result {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.broadcast-result.success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+.broadcast-result.error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+.broadcast-result.partial { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+.broadcast-history { display: flex; flex-direction: column; gap: 10px; }
+.broadcast-hist-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.broadcast-hist-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.broadcast-hist-seg { font-weight: 600; }
+.broadcast-hist-time { font-size: 11px; color: var(--text-muted); }
+.broadcast-hist-stats { color: var(--text-muted); font-size: 12px; }
+.broadcast-hist-stats b { color: var(--success); }
+.broadcast-hist-stats .fail { color: var(--danger); }

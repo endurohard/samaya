@@ -279,7 +279,33 @@ services:
       - kong
     restart: unless-stopped
 
-  # Все сервисы MVP подключены: user/salon/booking/client/inventory + frontend.
+  whatsapp-service:
+    build:
+      context: ./services/whatsapp-service
+      dockerfile: Dockerfile
+    container_name: samaya-whatsapp
+    environment:
+      PORT: 3008
+      WHATSAPP_TEST_MODE: ${WHATSAPP_TEST_MODE:-true}
+      WHATSAPP_SESSION_DIR: /data/session
+      WHATSAPP_SOCKS_PROXY: ${WHATSAPP_SOCKS_PROXY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3008"
+    volumes:
+      - whatsapp_session:/data/session
+    networks:
+      - samaya-network
+    shm_size: '256mb'
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3008/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Все сервисы MVP подключены: user/salon/booking/client/inventory + frontend + whatsapp.
 
 networks:
   samaya-network:
@@ -288,3 +314,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  whatsapp_session:

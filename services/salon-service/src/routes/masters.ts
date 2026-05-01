@@ -11,7 +11,7 @@ router.get('/', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT m.id, m.company_id, m.user_id, m.display_name, m.specialization,
               m.first_name, m.last_name, m.position, m.category,
-              m.phone, m.email, m.notes, m.provides_services,
+              m.phone, m.email, m.notes, m.provides_services, m.in_commission_pool,
               m.dismissed_at,
               m.avatar_url, m.sort_order, m.is_active, m.created_at, m.updated_at,
               COALESCE(
@@ -35,7 +35,7 @@ router.get('/:id', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT m.id, m.company_id, m.user_id, m.display_name, m.specialization,
               m.first_name, m.last_name, m.position, m.category,
-              m.phone, m.email, m.notes, m.provides_services,
+              m.phone, m.email, m.notes, m.provides_services, m.in_commission_pool,
               m.dismissed_at,
               m.avatar_url, m.sort_order, m.is_active, m.created_at, m.updated_at,
               COALESCE(
@@ -66,6 +66,7 @@ const createSchema = z.object({
   email: z.string().email().nullable().or(z.literal('')).optional(),
   notes: z.string().max(2000).nullable().optional(),
   provides_services: z.boolean().optional(),
+  in_commission_pool: z.boolean().optional(),
   avatar_url: z.string().url().nullable().or(z.literal('')).optional(),
   sort_order: z.number().int().optional(),
 }).refine((d) => d.display_name || d.first_name || d.last_name, {

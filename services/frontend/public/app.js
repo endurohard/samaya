@@ -14,6 +14,7 @@
     finance: 'Финансы',
     salary: 'Зарплата',
     promotion: 'Акции и промокоды',
+    messages: 'Сообщения',
     settings: 'Настройки',
   };
 
@@ -146,6 +147,7 @@
     addBookingToggle: document.getElementById('addBookingToggle'),
     addBookingCancel: document.getElementById('addBookingCancel'),
     bMaster: document.getElementById('bMaster'),
+    bManager: document.getElementById('bManager'),
     bServices: document.getElementById('bServices'),
 
     // schedule
@@ -211,6 +213,11 @@
     clientTabHistory: document.getElementById('clientTabHistory'),
     clientHistoryTab: document.getElementById('clientHistoryTab'),
     clientHistoryList: document.getElementById('clientHistoryList'),
+    clientTabAnalyzes: document.getElementById('clientTabAnalyzes'),
+    clientAnalyzesTab: document.getElementById('clientAnalyzesTab'),
+    clFilesList: document.getElementById('clFilesList'),
+    clFileUpload: document.getElementById('clFileUpload'),
+    clCopyUploadLink: document.getElementById('clCopyUploadLink'),
 
     // promotion view
     promoAddBtn: document.getElementById('promoAddBtn'),
@@ -235,6 +242,27 @@
     salePromoCode: document.getElementById('salePromoCode'),
     salePromoApply: document.getElementById('salePromoApply'),
     salePromoMsg: document.getElementById('salePromoMsg'),
+    saleBonusSection: document.getElementById('saleBonusSection'),
+    saleBonusBalance: document.getElementById('saleBonusBalance'),
+    saleBonusSpend: document.getElementById('saleBonusSpend'),
+    saleBonusHint: document.getElementById('saleBonusHint'),
+    // client modal bonus section
+    clBonusSection: document.getElementById('clBonusSection'),
+    clBonusDisplay: document.getElementById('clBonusDisplay'),
+    clBonusAdjBtn: document.getElementById('clBonusAdjBtn'),
+    clBonusAdjForm: document.getElementById('clBonusAdjForm'),
+    clBonusAdjAmount: document.getElementById('clBonusAdjAmount'),
+    clBonusAdjNote: document.getElementById('clBonusAdjNote'),
+    clBonusAdjSave: document.getElementById('clBonusAdjSave'),
+    clBonusAdjCancel: document.getElementById('clBonusAdjCancel'),
+    // bonus program tab
+    clientsTabBonus: document.getElementById('clientsTabBonus'),
+    bonusSettingsSave: document.getElementById('bonusSettingsSave'),
+    bonusAccrualRate: document.getElementById('bonusAccrualRate'),
+    bonusMaxSpend: document.getElementById('bonusMaxSpend'),
+    bonusSettingsSaved: document.getElementById('bonusSettingsSaved'),
+    bonusTopList: document.getElementById('bonusTopList'),
+    bonusTopCounter: document.getElementById('bonusTopCounter'),
 
     // api log
     apiLog: document.getElementById('apiLog'),
@@ -308,6 +336,38 @@
     finAccountCancel: document.getElementById('finAccountCancel'),
     finAccountName: document.getElementById('finAccountName'),
     finAccountInitBal: document.getElementById('finAccountInitBal'),
+    // income/expense counterparty selects
+    finIncomeCparty: document.getElementById('finIncomeCparty'),
+    finExpenseCparty: document.getElementById('finExpenseCparty'),
+    // categories tab
+    finTabCategories: document.getElementById('finTabCategories'),
+    finCatIncomeList: document.getElementById('finCatIncomeList'),
+    finCatExpenseList: document.getElementById('finCatExpenseList'),
+    finCatAddIncomeBtn: document.getElementById('finCatAddIncomeBtn'),
+    finCatAddExpenseBtn: document.getElementById('finCatAddExpenseBtn'),
+    finCatIncomeForm: document.getElementById('finCatIncomeForm'),
+    finCatExpenseForm: document.getElementById('finCatExpenseForm'),
+    finCatIncomeName: document.getElementById('finCatIncomeName'),
+    finCatExpenseName: document.getElementById('finCatExpenseName'),
+    finCatIncomeCancel: document.getElementById('finCatIncomeCancel'),
+    finCatExpenseCancel: document.getElementById('finCatExpenseCancel'),
+    // counterparties tab
+    finTabCounterparties: document.getElementById('finTabCounterparties'),
+    finCpartyCounter: document.getElementById('finCpartyCounter'),
+    finCpartyList: document.getElementById('finCpartyList'),
+    finCpartyAddBtn: document.getElementById('finCpartyAddBtn'),
+    finCpartyBackdrop: document.getElementById('finCpartyBackdrop'),
+    finCpartyModal: document.getElementById('finCpartyModal'),
+    finCpartyForm: document.getElementById('finCpartyForm'),
+    finCpartyClose: document.getElementById('finCpartyClose'),
+    finCpartyCancel: document.getElementById('finCpartyCancel'),
+    finCpartyId: document.getElementById('finCpartyId'),
+    finCpartyName: document.getElementById('finCpartyName'),
+    finCpartyKind: document.getElementById('finCpartyKind'),
+    finCpartyInn: document.getElementById('finCpartyInn'),
+    finCpartyPhone: document.getElementById('finCpartyPhone'),
+    finCpartyEmail: document.getElementById('finCpartyEmail'),
+    finCpartyNotes: document.getElementById('finCpartyNotes'),
   };
 
   const CAL_START_HOUR = 9;
@@ -342,6 +402,7 @@
   let journalMode = localStorage.getItem('journalMode') || 'calendar'; // calendar | list
   let journalPeriod = localStorage.getItem('journalPeriod') || 'day';   // day | week | month
   const journalFilters = { master_id: '', status: '', source: '', client: '', anon: false };
+  let jrnSelectedMasters = null; // Set<id> — null означает «все»; управляется jrnRenderMasterFilter
   let scheduleItems = []; // [{ work_date, start_time, end_time, is_day_off, saved, dirty }]
   let currentView = 'profile';
   let financeTab = 'overview';
@@ -491,7 +552,7 @@
       n.classList.toggle('active', n.dataset.view === view);
     });
     els.viewTitle.textContent = VIEW_TITLES[view];
-    if (view === 'services') void loadServices();
+    if (view === 'services') void Promise.all([loadServices(), salLoadCommissions()]);
     if (view === 'masters') void loadMasters();
     if (view === 'journal') {
       if (!els.journalDate.value) els.journalDate.value = todayLocalISO();
@@ -510,6 +571,7 @@
       void loadInventoryAll();
     }
     if (view === 'clients') {
+      switchClientsTab(clientsActiveTab);
       void loadClientsAll();
     }
     if (view === 'finance') {
@@ -540,7 +602,26 @@
       if (n.classList.contains('disabled')) return;
       const v = n.dataset.view;
       if (v) setView(v);
+      // мобильно: после выбора пункта меню — закрыть drawer
+      document.body.classList.remove('sidebar-open');
+      const back = document.getElementById('sidebarBackdrop');
+      if (back) back.hidden = true;
     });
+  });
+
+  // ===== Mobile sidebar drawer =====
+  const _burger = document.getElementById('topbarBurger');
+  const _sbBack = document.getElementById('sidebarBackdrop');
+  function _toggleSidebar(open) {
+    const isOpen = open == null ? !document.body.classList.contains('sidebar-open') : !!open;
+    document.body.classList.toggle('sidebar-open', isOpen);
+    if (_sbBack) _sbBack.hidden = !isOpen;
+    if (_burger) _burger.setAttribute('aria-expanded', String(isOpen));
+  }
+  if (_burger) _burger.addEventListener('click', () => _toggleSidebar());
+  if (_sbBack) _sbBack.addEventListener('click', () => _toggleSidebar(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) _toggleSidebar(false);
   });
 
   // ===== Auth render =====
@@ -619,17 +700,106 @@
       els.servicesList.innerHTML = '<div class="empty">Услуг пока нет.</div>';
       return;
     }
-    els.servicesList.innerHTML = cachedServices.map((s) => `
-      <div class="row-item ${s.is_active ? '' : 'inactive'}">
-        <div class="dot-color" style="background: ${escapeHtml(s.color || '#6366f1')}"></div>
-        <div class="row-main">
-          <div class="row-name">${escapeHtml(s.name)}</div>
-          <div class="row-meta">${escapeHtml(s.category_name || 'без категории')}</div>
+    // Строим карту комиссий по service_id
+    const commMap = new Map(cachedCommissions.map((c) => [c.service_id, c]));
+    els.servicesList.innerHTML = cachedServices.map((s) => {
+      const comm = commMap.get(s.id);
+      const commBadge = comm
+        ? `<span class="badge badge-green">${comm.commission_type === 'percent' ? comm.amount + '% менеджерам' : fmtMoney(comm.amount) + ' ₽ оформившему'}</span>`
+        : '';
+      return `
+        <div class="row-item clickable ${s.is_active ? '' : 'inactive'}" data-svc-id="${s.id}">
+          <div class="dot-color" style="background: ${escapeHtml(s.color || '#6366f1')}"></div>
+          <div class="row-main">
+            <div class="row-name">${escapeHtml(s.name)}</div>
+            <div class="row-meta">${escapeHtml(s.category_name || 'без категории')}${commBadge ? ' · ' : ''}${commBadge}</div>
+          </div>
+          <div class="row-stat">${formatPrice(s.price)} · ${s.duration_minutes} мин</div>
         </div>
-        <div class="row-stat">${formatPrice(s.price)} · ${s.duration_minutes} мин</div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
+    els.servicesList.querySelectorAll('[data-svc-id]').forEach((row) => {
+      row.addEventListener('click', () => openSvcEditModal(row.dataset.svcId));
+    });
   }
+
+  function openSvcEditModal(serviceId) {
+    const s = cachedServices.find((x) => x.id === serviceId);
+    if (!s) return;
+    const comm = cachedCommissions.find((c) => c.service_id === s.id);
+    document.getElementById('svcEditId').value = s.id;
+    document.getElementById('svcEditTitle').textContent = s.name;
+    document.getElementById('svcEditName').value = s.name;
+    document.getElementById('svcEditPrice').value = s.price;
+    document.getElementById('svcEditDuration').value = s.duration_minutes;
+    document.getElementById('svcEditColor').value = s.color || '#6366f1';
+    document.getElementById('svcEditCommType').value = comm?.commission_type || '';
+    document.getElementById('svcEditCommAmount').value = comm?.amount || '';
+    document.getElementById('svcEditError').hidden = true;
+    updateSvcCommLabel();
+    document.getElementById('svcEditBackdrop').hidden = false;
+  }
+
+  function updateSvcCommLabel() {
+    const type = document.getElementById('svcEditCommType')?.value;
+    const label = document.getElementById('svcEditCommAmountLabel');
+    const wrap = document.getElementById('svcEditCommAmountWrap');
+    if (label) label.textContent = type === 'percent' ? 'Размер (%)' : 'Сумма (₽)';
+    if (wrap) wrap.hidden = !type;
+  }
+
+  document.getElementById('svcEditCommType')?.addEventListener('change', updateSvcCommLabel);
+  document.getElementById('svcEditClose')?.addEventListener('click', () => {
+    document.getElementById('svcEditBackdrop').hidden = true;
+  });
+  document.getElementById('svcEditCancel')?.addEventListener('click', () => {
+    document.getElementById('svcEditBackdrop').hidden = true;
+  });
+  document.getElementById('svcEditBackdrop')?.addEventListener('click', (e) => {
+    if (e.target.id === 'svcEditBackdrop') document.getElementById('svcEditBackdrop').hidden = true;
+  });
+  document.getElementById('svcEditForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('svcEditError');
+    errEl.hidden = true;
+    const serviceId = document.getElementById('svcEditId').value;
+    const fd = new FormData(document.getElementById('svcEditForm'));
+    // 1. Обновляем услугу
+    const svcPayload = {
+      name: fd.get('name'),
+      price: parseFloat(fd.get('price')),
+      duration_minutes: parseInt(fd.get('duration_minutes')),
+      color: fd.get('color') || null,
+    };
+    const r1 = await apiCall('PATCH', `/api/salons/services/${serviceId}`, svcPayload);
+    if (!r1.ok) {
+      errEl.textContent = r1.data?.error || 'Ошибка сохранения услуги';
+      errEl.hidden = false;
+      return;
+    }
+    // 2. Обновляем комиссию
+    const commType = fd.get('commission_type');
+    const commAmount = parseFloat(fd.get('commission_amount'));
+    const existingComm = cachedCommissions.find((c) => c.service_id === serviceId);
+    if (existingComm) {
+      // Удаляем старое правило
+      await salApi('DELETE', `/commissions/${existingComm.id}`);
+    }
+    if (commType && !isNaN(commAmount) && commAmount > 0) {
+      const r2 = await salApi('POST', '/commissions', {
+        service_id: serviceId,
+        commission_type: commType,
+        amount: commAmount,
+      });
+      if (!r2.ok) {
+        errEl.textContent = r2.data?.error || 'Услуга сохранена, ошибка комиссии';
+        errEl.hidden = false;
+      }
+    }
+    document.getElementById('svcEditBackdrop').hidden = true;
+    await Promise.all([loadServices(), salLoadCommissions()]);
+    renderServices();
+  });
 
   // ===== Masters =====
   async function loadMasters({ force = false } = {}) {
@@ -795,11 +965,16 @@
     e.preventDefault();
     const fd = new FormData(els.addMasterForm);
     const body = { display_name: String(fd.get('display_name') || '').trim() };
-    const spec = String(fd.get('specialization') || '').trim();
-    if (spec) body.specialization = spec;
+    const position = String(fd.get('position') || '').trim();
+    if (position) body.position = position;
+    const phone = String(fd.get('phone') || '').trim();
+    if (phone) body.phone = phone;
+    // Чекбокс: если снят — provides_services=false
+    body.provides_services = document.getElementById('mProvidesServices').checked;
     const { ok, data, status } = await apiCall('POST', '/api/salons/masters', body);
     if (!ok) { alert(`Ошибка создания сотрудника: ${data?.error || status}`); return; }
     els.addMasterForm.reset();
+    document.getElementById('mProvidesServices').checked = true; // reset checkbox
     els.addMasterBlock.open = false;
     await loadMasters();
   });
@@ -833,7 +1008,8 @@
 
   function getFilteredBookings() {
     return cachedBookings.filter((b) => {
-      if (journalFilters.master_id && b.master_id !== journalFilters.master_id) return false;
+      if (jrnSelectedMasters && !jrnSelectedMasters.has(b.master_id)) return false;
+      if (!jrnSelectedMasters && journalFilters.master_id && b.master_id !== journalFilters.master_id) return false;
       if (journalFilters.status && b.status !== journalFilters.status) return false;
       if (journalFilters.source && (b.source || '') !== journalFilters.source) return false;
       if (journalFilters.anon && b.client_phone) return false;
@@ -847,10 +1023,12 @@
   }
 
   function populateJournalFilters() {
+    jrnRenderMasterFilter();
     if (els.filterMaster) {
       const cur = journalFilters.master_id;
       els.filterMaster.innerHTML = '<option value="">Все</option>' +
-        cachedMasters.map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('');
+        cachedMasters.filter((m) => m.provides_services !== false)
+          .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('');
       els.filterMaster.value = cur;
     }
     if (els.filterSource) {
@@ -905,7 +1083,8 @@
 
   function renderCalendar() {
     if (!els.journalCalendar) return;
-    const masters = cachedMasters.filter((m) => m.is_active);
+    const masters = cachedMasters.filter((m) => m.is_active && m.provides_services !== false
+      && (!jrnSelectedMasters || jrnSelectedMasters.has(m.id)));
     if (masters.length === 0) {
       els.journalCalendar.innerHTML = `
         <div class="cal-empty">
@@ -1208,7 +1387,8 @@
 
   function _renderCalendarLegacy() {
     if (!els.journalCalendar) return;
-    const masters = cachedMasters.filter((m) => m.is_active);
+    const masters = cachedMasters.filter((m) => m.is_active && m.provides_services !== false
+      && (!jrnSelectedMasters || jrnSelectedMasters.has(m.id)));
     if (masters.length === 0) {
       els.journalCalendar.innerHTML = '<div class="empty">Сначала добавь хотя бы одного сотрудника.</div>';
       return;
@@ -1604,8 +1784,21 @@
       void Promise.all([loadMasters(), loadServices()]).then(populateBookingForm);
     }
     els.bMaster.innerHTML = cachedMasters
-      .filter((m) => m.is_active)
+      .filter((m) => m.is_active && m.provides_services !== false)
       .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('');
+    // Менеджеры: сотрудники с provides_services=false (не техничка) ИЛИ с должностью менеджер/администратор
+    const managerPositions = ['менеджер', 'администратор'];
+    const managers = cachedMasters.filter((m) => {
+      if (!m.is_active) return false;
+      const pos = (m.position || '').toLowerCase();
+      if (pos === 'техничка') return false;
+      if (m.provides_services === false) return true;
+      return managerPositions.some((p) => pos.includes(p));
+    });
+    if (els.bManager) {
+      els.bManager.innerHTML = '<option value="">— без менеджера —</option>' +
+        managers.map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}${m.position ? ' · ' + m.position : ''}</option>`).join('');
+    }
     els.bServices.innerHTML = cachedServices
       .filter((s) => s.is_active)
       .map((s) => `
@@ -1723,11 +1916,13 @@
       alert('Заполни сотрудника, время, телефон и хотя бы одну услугу');
       return;
     }
+    const manager_id = String(fd.get('manager_id') || '').trim() || null;
     const tz = '+03:00'; // соответствует COMPANY_TZ_OFFSET в booking-service
     const starts_at = `${startsLocal}:00${tz}`;
     const body = { master_id, service_ids, starts_at, client_phone };
     if (client_name) body.client_name = client_name;
     if (notes) body.notes = notes;
+    if (manager_id) body.manager_id = manager_id;
     const { ok, data, status } = await apiCall('POST', '/api/bookings', body);
     if (!ok) {
       alert(`Ошибка: ${data?.error || status}${data?.code ? ' · ' + data.code : ''}`);
@@ -1895,7 +2090,8 @@
         cell.style.gridColumn = String(d + 1);
 
         if (it && it.is_day_off) {
-          cell.innerHTML = '<div>выходной</div>';
+          // У DIKIDI выходная ячейка пустая, без текста — только подсветка через .is-off + .weekend
+          cell.innerHTML = '';
         } else if (it && it.start_time && it.end_time) {
           cell.innerHTML = `<div>${escapeHtml(it.start_time)}</div><div>${escapeHtml(it.end_time)}</div>`;
         } else {
@@ -1943,6 +2139,55 @@
     els.schGrid.innerHTML = '';
     els.schGrid.appendChild(grid);
     updateSaveBtn();
+    renderSchedulePreview();
+  }
+
+  // DIKIDI-style mini-preview: следующие 6 дней × все мастера
+  function renderSchedulePreview() {
+    const root = document.getElementById('schPreview');
+    if (!root) return;
+    const masters = cachedMasters.filter((m) => m.is_active).slice(0, 6);
+    if (masters.length === 0) { root.innerHTML = ''; return; }
+
+    // Берём ближайшие 6 дней начиная с завтра
+    const today = new Date(todayLocalISO() + 'T00:00:00');
+    const days = [];
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(today); d.setDate(d.getDate() + i);
+      days.push({
+        iso: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        num: d.getDate(),
+        dow: d.getDay(),
+        weekend: d.getDay() === 0 || d.getDay() === 6,
+      });
+    }
+
+    let html = '<div class="sch-preview-grid">';
+    // header row
+    html += '<div class="spc-corner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9h17M8 3.5v3M16 3.5v3"/></svg></div>';
+    days.forEach((d) => {
+      html += `<div class="spc${d.weekend ? ' weekend' : ''}"><div class="spc-num">${d.num}</div><div class="spc-dow">${WEEKDAYS_RU[d.dow].toLowerCase()}</div></div>`;
+    });
+    // master rows
+    masters.forEach((m) => {
+      const initials = (m.display_name || '?').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+      html += `<div class="spm"><div class="spm-avatar" style="background:${stringToColor(m.id)}">${escapeHtml(initials || '?')}</div></div>`;
+      const dayMap = scheduleByMaster.get(m.id) || new Map();
+      days.forEach((d) => {
+        const it = dayMap.get(d.iso);
+        const cls = ['spcell'];
+        if (d.weekend) cls.push('weekend');
+        if (it && it.is_day_off) cls.push('is-off');
+        if (!it || (!it.is_day_off && !it.start_time)) cls.push('empty');
+        let inner = '';
+        if (it && !it.is_day_off && it.start_time && it.end_time) {
+          inner = `<div>${escapeHtml(it.start_time)}</div><div>${escapeHtml(it.end_time)}</div>`;
+        }
+        html += `<div class="${cls.join(' ')}">${inner}</div>`;
+      });
+    });
+    html += '</div>';
+    root.innerHTML = html;
   }
 
   function updateSaveBtn() {
@@ -2019,6 +2264,253 @@
     void loadAllSchedules();
   });
   els.schAddMaster?.addEventListener('click', () => alert('Добавь сотрудника в разделе «Сотрудники».'));
+
+  // ===== Journal master filter (DIKIDI-style dropdown с группировкой) =====
+  function jrnGroupMasters() {
+    const groups = new Map();
+    cachedMasters.filter((m) => m.is_active && m.provides_services !== false).forEach((m) => {
+      const role = (m.specialization || '').trim() || 'Другие';
+      if (!groups.has(role)) groups.set(role, []);
+      groups.get(role).push(m);
+    });
+    return groups;
+  }
+  function jrnRenderMasterFilter() {
+    const root = document.getElementById('jrnMfGroups');
+    const allCb = document.getElementById('jrnMfAll');
+    const allCount = document.getElementById('jrnMfAllCount');
+    const trigger = document.getElementById('jrnMasterFilterLabel');
+    const triggerCount = document.getElementById('jrnMastersCount');
+    if (!root) return;
+    const groups = jrnGroupMasters();
+    const total = cachedMasters.filter((m) => m.is_active && m.provides_services !== false).length;
+    const selectedCount = jrnSelectedMasters ? jrnSelectedMasters.size : total;
+
+    if (allCb) allCb.checked = !jrnSelectedMasters || jrnSelectedMasters.size === total;
+    if (allCount) allCount.textContent = String(total);
+
+    if (selectedCount === total) {
+      if (trigger) trigger.textContent = 'Все сотрудники';
+      if (triggerCount) { triggerCount.textContent = String(total); triggerCount.hidden = false; }
+    } else if (selectedCount === 1) {
+      const id = [...jrnSelectedMasters][0];
+      const m = cachedMasters.find((x) => x.id === id);
+      if (trigger) trigger.textContent = m ? (m.display_name || '—') : '—';
+      if (triggerCount) triggerCount.hidden = true;
+    } else {
+      if (trigger) trigger.textContent = 'Выбрано';
+      if (triggerCount) { triggerCount.textContent = `${selectedCount} из ${total}`; triggerCount.hidden = false; }
+    }
+
+    let html = '';
+    groups.forEach((arr, role) => {
+      const selectedInGroup = arr.filter((m) => !jrnSelectedMasters || jrnSelectedMasters.has(m.id)).length;
+      const allChecked = selectedInGroup === arr.length;
+      html += `
+        <div class="sch-mf-row sch-mf-group" data-group="${escapeHtml(role)}">
+          <span class="sch-mf-name">${escapeHtml(role)}</span>
+          <span class="sch-mf-count">${arr.length}</span>
+          <input type="checkbox" data-jgrp-cb="${escapeHtml(role)}" ${allChecked ? 'checked' : ''} />
+        </div>
+      `;
+      arr.forEach((m) => {
+        const initials = (m.display_name || '?').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+        html += `
+          <div class="sch-mf-row sch-mf-master" data-master-id="${m.id}">
+            <div class="sch-mf-avatar" style="background:${stringToColor(m.id)}">${escapeHtml(initials || '?')}</div>
+            <span class="sch-mf-name">${escapeHtml(m.display_name || '—')}</span>
+            <span></span>
+            <input type="checkbox" data-jmaster-cb="${m.id}" ${!jrnSelectedMasters || jrnSelectedMasters.has(m.id) ? 'checked' : ''} />
+          </div>
+        `;
+      });
+    });
+    root.innerHTML = html;
+
+    root.querySelectorAll('[data-jmaster-cb]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.jmasterCb;
+        const all = cachedMasters.filter((m) => m.is_active && m.provides_services !== false);
+        if (jrnSelectedMasters === null) jrnSelectedMasters = new Set(all.map((m) => m.id));
+        if (cb.checked) jrnSelectedMasters.add(id); else jrnSelectedMasters.delete(id);
+        if (jrnSelectedMasters.size === all.length) jrnSelectedMasters = null;
+        jrnRenderMasterFilter();
+        renderJournal();
+      });
+    });
+    root.querySelectorAll('[data-jgrp-cb]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const role = cb.dataset.jgrpCb;
+        const groupMasters = (jrnGroupMasters().get(role) || []).map((m) => m.id);
+        const all = cachedMasters.filter((m) => m.is_active && m.provides_services !== false);
+        if (jrnSelectedMasters === null) jrnSelectedMasters = new Set(all.map((m) => m.id));
+        if (cb.checked) groupMasters.forEach((id) => jrnSelectedMasters.add(id));
+        else groupMasters.forEach((id) => jrnSelectedMasters.delete(id));
+        if (jrnSelectedMasters.size === all.length) jrnSelectedMasters = null;
+        jrnRenderMasterFilter();
+        renderJournal();
+      });
+    });
+  }
+
+  document.getElementById('jrnMasterFilterTrigger')?.addEventListener('click', () => {
+    const root = document.getElementById('jrnMasterFilter');
+    const panel = document.getElementById('jrnMasterFilterPanel');
+    if (!root || !panel) return;
+    const open = !panel.hidden;
+    panel.hidden = open;
+    root.classList.toggle('open', !open);
+    if (!open) jrnRenderMasterFilter();
+  });
+  document.addEventListener('click', (e) => {
+    const root = document.getElementById('jrnMasterFilter');
+    if (!root) return;
+    if (!root.contains(e.target)) {
+      const panel = document.getElementById('jrnMasterFilterPanel');
+      if (panel) panel.hidden = true;
+      root.classList.remove('open');
+    }
+  });
+  document.getElementById('jrnMfAll')?.addEventListener('change', (e) => {
+    jrnSelectedMasters = e.target.checked ? null : new Set();
+    jrnRenderMasterFilter();
+    renderJournal();
+  });
+
+  // ===== Schedule master filter (DIKIDI-style dropdown с группировкой) =====
+  let schSelectedMasters = null; // Set<id> — null означает «все»
+  function schGroupMasters() {
+    const groups = new Map();
+    cachedMasters.filter((m) => m.is_active).forEach((m) => {
+      const role = (m.specialization || '').trim() || 'Другие';
+      if (!groups.has(role)) groups.set(role, []);
+      groups.get(role).push(m);
+    });
+    return groups;
+  }
+  function schIsMasterSelected(id) {
+    return !schSelectedMasters || schSelectedMasters.has(id);
+  }
+  function schRenderMasterFilter() {
+    const root = document.getElementById('schMfGroups');
+    const allCb = document.getElementById('schMfAll');
+    const allCount = document.getElementById('schMfAllCount');
+    const trigger = document.getElementById('schMasterFilterLabel');
+    const triggerCount = document.getElementById('schMastersCount');
+    if (!root) return;
+    const groups = schGroupMasters();
+    const total = cachedMasters.filter((m) => m.is_active).length;
+    const selectedCount = schSelectedMasters ? schSelectedMasters.size : total;
+
+    if (allCb) allCb.checked = !schSelectedMasters || schSelectedMasters.size === total;
+    if (allCount) allCount.textContent = String(total);
+
+    // trigger label
+    if (selectedCount === total) {
+      trigger.textContent = 'Все сотрудники';
+      triggerCount.textContent = String(total);
+      triggerCount.hidden = false;
+    } else if (selectedCount === 1) {
+      const id = [...schSelectedMasters][0];
+      const m = cachedMasters.find((x) => x.id === id);
+      trigger.textContent = m ? (m.display_name || '—') : '—';
+      triggerCount.hidden = true;
+    } else {
+      trigger.textContent = 'Выбрано';
+      triggerCount.textContent = `${selectedCount} из ${total}`;
+      triggerCount.hidden = false;
+    }
+
+    let html = '';
+    groups.forEach((arr, role) => {
+      const selectedInGroup = arr.filter((m) => schIsMasterSelected(m.id)).length;
+      const allChecked = selectedInGroup === arr.length;
+      html += `
+        <div class="sch-mf-row sch-mf-group" data-group="${escapeHtml(role)}">
+          <span class="sch-mf-name">${escapeHtml(role)}</span>
+          <span class="sch-mf-count">${arr.length}</span>
+          <input type="checkbox" data-grp-cb="${escapeHtml(role)}" ${allChecked ? 'checked' : ''} />
+        </div>
+      `;
+      arr.forEach((m) => {
+        const initials = (m.display_name || '?').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+        html += `
+          <div class="sch-mf-row sch-mf-master" data-master-id="${m.id}">
+            <div class="sch-mf-avatar" style="background:${stringToColor(m.id)}">${escapeHtml(initials || '?')}</div>
+            <span class="sch-mf-name">${escapeHtml(m.display_name || '—')}</span>
+            <span></span>
+            <input type="checkbox" data-master-cb="${m.id}" ${schIsMasterSelected(m.id) ? 'checked' : ''} />
+          </div>
+        `;
+      });
+    });
+    root.innerHTML = html;
+
+    // wire handlers
+    root.querySelectorAll('[data-master-cb]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.masterCb;
+        if (schSelectedMasters === null) {
+          schSelectedMasters = new Set(cachedMasters.filter((m) => m.is_active).map((m) => m.id));
+        }
+        if (cb.checked) schSelectedMasters.add(id); else schSelectedMasters.delete(id);
+        const t = cachedMasters.filter((m) => m.is_active).length;
+        if (schSelectedMasters.size === t) schSelectedMasters = null;
+        schRenderMasterFilter();
+        renderSchedule();
+      });
+    });
+    root.querySelectorAll('[data-grp-cb]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const role = cb.dataset.grpCb;
+        const groupMasters = (schGroupMasters().get(role) || []).map((m) => m.id);
+        if (schSelectedMasters === null) {
+          schSelectedMasters = new Set(cachedMasters.filter((m) => m.is_active).map((m) => m.id));
+        }
+        if (cb.checked) groupMasters.forEach((id) => schSelectedMasters.add(id));
+        else groupMasters.forEach((id) => schSelectedMasters.delete(id));
+        const t = cachedMasters.filter((m) => m.is_active).length;
+        if (schSelectedMasters.size === t) schSelectedMasters = null;
+        schRenderMasterFilter();
+        renderSchedule();
+      });
+    });
+  }
+  // wire trigger + outside click + all checkbox
+  document.getElementById('schMasterFilterTrigger')?.addEventListener('click', () => {
+    const root = document.getElementById('schMasterFilter');
+    const panel = document.getElementById('schMasterFilterPanel');
+    if (!root || !panel) return;
+    const open = !panel.hidden;
+    panel.hidden = open;
+    root.classList.toggle('open', !open);
+    if (!open) schRenderMasterFilter();
+  });
+  document.addEventListener('click', (e) => {
+    const root = document.getElementById('schMasterFilter');
+    if (!root) return;
+    if (!root.contains(e.target)) {
+      document.getElementById('schMasterFilterPanel').hidden = true;
+      root.classList.remove('open');
+    }
+  });
+  document.getElementById('schMfAll')?.addEventListener('change', (e) => {
+    schSelectedMasters = e.target.checked ? null : new Set();
+    schRenderMasterFilter();
+    renderSchedule();
+  });
+
+  // hook in renderSchedule — фильтрует мастеров через schSelectedMasters
+  const _origRenderSchedule = renderSchedule;
+  renderSchedule = function() {
+    const all = cachedMasters.filter((m) => m.is_active);
+    const visible = schSelectedMasters ? all.filter((m) => schSelectedMasters.has(m.id)) : all;
+    // временно подменим cachedMasters для рендера
+    const backup = cachedMasters;
+    cachedMasters = backup.map((m) => ({ ...m, is_active: m.is_active && (schSelectedMasters ? schSelectedMasters.has(m.id) : true) }));
+    _origRenderSchedule();
+    cachedMasters = backup;
+  };
 
   // ===== Inventory =====
   async function loadInventoryAll() {
@@ -2493,11 +2985,11 @@
               <span class="client-phone-row">${escapeHtml(formatPhonePretty(c.phone))}</span>
             </span>
           </div>
-          <div class="ct-col ct-col-visits">${c.total_visits || 0}</div>
-          <div class="ct-col ct-col-last">${c.last_visit_at ? escapeHtml(formatRuDate(c.last_visit_at)) : '—'}</div>
-          <div class="ct-col ct-col-bonus">${priceOrZero(c.bonus_balance)}</div>
-          <div class="ct-col ct-col-avg">${priceOrZero(c.avg_check)}</div>
-          <div class="ct-col ct-col-total">${priceOrZero(c.total_paid)}</div>
+          <div class="ct-col ct-col-visits" data-label="Визиты">${c.total_visits || 0}</div>
+          <div class="ct-col ct-col-last" data-label="Последний визит">${c.last_visit_at ? escapeHtml(formatRuDate(c.last_visit_at)) : '—'}</div>
+          <div class="ct-col ct-col-bonus" data-label="Бонусы">${priceOrZero(c.bonus_balance)}</div>
+          <div class="ct-col ct-col-avg" data-label="Средний чек">${priceOrZero(c.avg_check)}</div>
+          <div class="ct-col ct-col-total" data-label="Итого">${priceOrZero(c.total_paid)}</div>
         </div>
       `;
     }).join('');
@@ -2551,44 +3043,164 @@
     });
     els.clientForm.hidden = tab !== 'info';
     els.clientHistoryTab.hidden = tab !== 'history';
-    if (tab === 'history') loadClientHistory();
+    if (els.clientAnalyzesTab) els.clientAnalyzesTab.hidden = tab !== 'analyzes';
+    if (tab === 'history') void loadClientHistory();
+    if (tab === 'analyzes') void loadClientFiles();
   }
 
   async function loadClientHistory() {
     const phone = els.clPhone.value.trim();
-    if (!phone) return;
-    els.clientHistoryList.innerHTML = '<div class="table-empty">Загрузка…</div>';
-    const res = await apiCall('GET', `/api/bookings?client_phone=${encodeURIComponent(phone)}&from=2000-01-01&to=2099-12-31&limit=100`);
-    if (!res.ok || !res.data?.items?.length) {
+    if (!phone) {
       els.clientHistoryList.innerHTML = '<div class="table-empty">Визитов не найдено</div>';
       return;
     }
-    const items = res.data.items;
-    items.sort((a, b) => (b.starts_at || '').localeCompare(a.starts_at || ''));
-    const masterMap = new Map(cachedMasters.map((m) => [m.id, m.display_name]));
-    els.clientHistoryList.innerHTML = items.map((b) => {
-      const d = new Date(b.starts_at);
-      const dateStr = isNaN(d.getTime()) ? '—' : `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
-      const services = (b.services || []).map((s) => s.service_name).join(', ') || '—';
-      const master = masterMap.get(b.master_id) || '—';
-      const amount = b.total_price != null ? formatPrice(b.total_price) : '—';
-      const st = STATUS_LABEL[b.status] || { ru: b.status, cls: '' };
-      return `<div class="cl-history-item" data-id="${b.id}">
-        <span class="cl-history-date">${dateStr}</span>
-        <span class="cl-history-master">${escapeHtml(master)}</span>
-        <span class="cl-history-services">${escapeHtml(services)}</span>
-        <span class="cl-history-amount">
-          <span class="cl-history-status pill ${st.cls}">${st.ru}</span>
-          ${amount}
-        </span>
-      </div>`;
-    }).join('');
-    els.clientHistoryList.querySelectorAll('.cl-history-item').forEach((row) => {
-      row.addEventListener('click', () => {
-        const bk = items.find((b) => b.id === row.dataset.id);
-        if (bk) { closeClientModal(); openBookingModal(bk); }
+    els.clientHistoryList.innerHTML = '<div class="table-empty">Загрузка…</div>';
+    try {
+      const res = await apiCall('GET', `/api/bookings?client_phone=${encodeURIComponent(phone)}&from=2000-01-01&to=2099-12-31&limit=100`);
+      if (!res.ok || !res.data?.items?.length) {
+        els.clientHistoryList.innerHTML = '<div class="table-empty">Визитов не найдено</div>';
+        return;
+      }
+      const items = res.data.items;
+      items.sort((a, b) => (b.starts_at || '').localeCompare(a.starts_at || ''));
+      const masterMap = new Map(cachedMasters.map((m) => [m.id, m.display_name]));
+      els.clientHistoryList.innerHTML = items.map((b) => {
+        const d = new Date(b.starts_at);
+        const dateStr = isNaN(d.getTime()) ? '—' : `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+        const services = (b.services || []).map((s) => s.service_name).join(', ') || '—';
+        const master = masterMap.get(b.master_id) || '—';
+        const amount = b.total_price != null ? formatPrice(b.total_price) : '—';
+        const st = STATUS_LABEL[b.status] || { ru: b.status, cls: '' };
+        return `<div class="cl-history-item" data-id="${b.id}">
+          <span class="cl-history-date">${dateStr}</span>
+          <span class="cl-history-master">${escapeHtml(master)}</span>
+          <span class="cl-history-services">${escapeHtml(services)}</span>
+          <span class="cl-history-amount">
+            <span class="cl-history-status pill ${st.cls}">${st.ru}</span>
+            ${amount}
+          </span>
+        </div>`;
+      }).join('');
+      els.clientHistoryList.querySelectorAll('.cl-history-item').forEach((row) => {
+        row.addEventListener('click', () => {
+          const bk = items.find((b) => b.id === row.dataset.id);
+          if (bk) { closeClientModal(); openBookingModal(bk); }
+        });
       });
-    });
+    } catch {
+      els.clientHistoryList.innerHTML = '<div class="table-empty">Ошибка загрузки истории</div>';
+    }
+  }
+
+  // ===== Client files (analyzes) =====
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' Б';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' КБ';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+  }
+
+  async function loadClientFiles() {
+    if (!_clCurrentId || !els.clFilesList) return;
+    els.clFilesList.innerHTML = '<div class="table-empty">Загрузка…</div>';
+    try {
+      const res = await apiCall('GET', `/api/clients/${_clCurrentId}/files`);
+      if (!res.ok) {
+        els.clFilesList.innerHTML = '<div class="table-empty">Ошибка загрузки</div>';
+        return;
+      }
+      const items = res.data?.items || [];
+      if (!items.length) {
+        els.clFilesList.innerHTML = '<div class="table-empty">Файлов нет. Попросите клиента загрузить анализы по ссылке или загрузите сами.</div>';
+        return;
+      }
+      els.clFilesList.innerHTML = items.map((f) => {
+        const date = new Date(f.created_at);
+        const dateStr = `${String(date.getDate()).padStart(2,'0')}.${String(date.getMonth()+1).padStart(2,'0')}.${date.getFullYear()}`;
+        const isImage = f.mime_type?.startsWith('image/');
+        const icon = f.mime_type === 'application/pdf' ? '📄' : (isImage ? '🖼' : '📎');
+        return `<div class="analyzes-file-row" data-file-id="${f.id}">
+          <span class="analyzes-file-icon">${icon}</span>
+          <div class="analyzes-file-info">
+            <span class="analyzes-file-name">${escapeHtml(f.file_name)}</span>
+            <span class="analyzes-file-meta">${formatFileSize(f.file_size)} · ${dateStr} · ${escapeHtml(f.uploaded_by)}</span>
+          </div>
+          <div class="analyzes-file-actions">
+            <a href="/api/clients/${_clCurrentId}/files/${f.id}" target="_blank" class="btn-ghost btn-sm" data-auth-link="${f.id}">Открыть</a>
+            <button type="button" class="btn-ghost btn-sm analyzes-del-btn" data-file-id="${f.id}" title="Удалить">✕</button>
+          </div>
+        </div>`;
+      }).join('');
+      // Authenticated download links need Authorization header — open via fetch blob
+      els.clFilesList.querySelectorAll('[data-auth-link]').forEach((a) => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          void openFileBlob(_clCurrentId, a.dataset.authLink);
+        });
+      });
+      // Delete buttons
+      els.clFilesList.querySelectorAll('.analyzes-del-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Удалить файл?')) return;
+          await apiCall('DELETE', `/api/clients/${_clCurrentId}/files/${btn.dataset.fileId}`);
+          void loadClientFiles();
+        });
+      });
+    } catch {
+      els.clFilesList.innerHTML = '<div class="table-empty">Ошибка загрузки</div>';
+    }
+  }
+
+  async function openFileBlob(clientId, fileId) {
+    const token = store.access;
+    try {
+      const r = await fetch(`/api/clients/${clientId}/files/${fileId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) return;
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch { /* noop */ }
+  }
+
+  async function uploadClientFiles(files) {
+    if (!_clCurrentId || !files.length) return;
+    const MAX = 15 * 1024 * 1024;
+    for (const file of files) {
+      if (file.size > MAX) {
+        alert(`Файл "${file.name}" слишком большой (макс. 15 МБ)`);
+        continue;
+      }
+      const reader = new FileReader();
+      const data_base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await apiCall('POST', `/api/clients/${_clCurrentId}/files`, {
+        file_name: file.name,
+        mime_type: file.type,
+        data_base64,
+      });
+    }
+    void loadClientFiles();
+  }
+
+  async function copyUploadLink() {
+    if (!_clCurrentId) return;
+    const res = await apiCall('GET', `/api/clients/${_clCurrentId}/upload-link`);
+    if (!res.ok) { alert('Не удалось получить ссылку'); return; }
+    const token = res.data?.upload_token;
+    const url = `${location.origin}/upload.html?token=${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      const btn = els.clCopyUploadLink;
+      if (btn) { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.innerHTML = '&#128279; Ссылка для клиента'; }, 2000); }
+    } catch {
+      prompt('Скопируйте ссылку:', url);
+    }
   }
 
   function openClientModal(id) {
@@ -2596,6 +3208,7 @@
     els.clientFormError.textContent = '';
     els.clientForm.reset();
     switchClientTab('info');
+    _clCurrentId = id || null;
     if (id) {
       const c = clientsState.items.find((x) => x.id === id);
       if (!c) return;
@@ -2609,11 +3222,25 @@
       els.clComment.value = c.comment || '';
       els.clientDelete.hidden = false;
       els.clientTabHistory.disabled = false;
+      if (els.clientTabAnalyzes) els.clientTabAnalyzes.disabled = false;
+      const waSendBtn = document.getElementById('clWaSendBtn');
+      if (waSendBtn) { waSendBtn.hidden = !c.phone; waSendBtn.dataset.phone = c.phone || ''; }
+      // Show bonus section
+      if (els.clBonusSection) {
+        els.clBonusSection.hidden = false;
+        if (els.clBonusDisplay) els.clBonusDisplay.textContent = formatPrice(Number(c.bonus_balance || 0)) + ' бонусов';
+        if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = true;
+        if (els.clBonusAdjAmount) els.clBonusAdjAmount.value = '';
+      }
     } else {
       els.clientModalTitle.textContent = 'Новый клиент';
       els.clientId.value = '';
       els.clientDelete.hidden = true;
       els.clientTabHistory.disabled = true;
+      if (els.clientTabAnalyzes) els.clientTabAnalyzes.disabled = true;
+      if (els.clBonusSection) els.clBonusSection.hidden = true;
+      const waSendBtnNew = document.getElementById('clWaSendBtn');
+      if (waSendBtnNew) waSendBtnNew.hidden = true;
     }
     els.clientModalBackdrop.hidden = false;
     els.clientModal.hidden = false;
@@ -2705,6 +3332,110 @@
     URL.revokeObjectURL(a.href);
   }
 
+  // ===== Bonus program =====
+  const BONUS_LS_KEY = 'samaya_bonus_settings_v1';
+
+  function loadBonusSettings() {
+    try { return JSON.parse(localStorage.getItem(BONUS_LS_KEY) || 'null') || { accrual_rate: 5, max_spend_pct: 30 }; }
+    catch { return { accrual_rate: 5, max_spend_pct: 30 }; }
+  }
+
+  function saveBonusSettings(s) {
+    localStorage.setItem(BONUS_LS_KEY, JSON.stringify(s));
+  }
+
+  function initBonusSettingsForm() {
+    const s = loadBonusSettings();
+    if (els.bonusAccrualRate) els.bonusAccrualRate.value = s.accrual_rate;
+    if (els.bonusMaxSpend) els.bonusMaxSpend.value = s.max_spend_pct;
+  }
+
+  els.bonusSettingsSave?.addEventListener('click', () => {
+    const s = {
+      accrual_rate: Math.max(0, Math.min(100, parseFloat(els.bonusAccrualRate?.value) || 0)),
+      max_spend_pct: Math.max(0, Math.min(100, parseFloat(els.bonusMaxSpend?.value) || 0)),
+    };
+    saveBonusSettings(s);
+    if (els.bonusSettingsSaved) {
+      els.bonusSettingsSaved.hidden = false;
+      setTimeout(() => { if (els.bonusSettingsSaved) els.bonusSettingsSaved.hidden = true; }, 2000);
+    }
+  });
+
+  async function activateBonusTab() {
+    initBonusSettingsForm();
+    const r = await apiCall('GET', '/api/clients?segment=all&limit=200');
+    if (!r.ok || !r.data) return;
+    const items = (r.data.items || [])
+      .filter((c) => Number(c.bonus_balance) > 0)
+      .sort((a, b) => Number(b.bonus_balance) - Number(a.bonus_balance))
+      .slice(0, 50);
+    if (els.bonusTopCounter) els.bonusTopCounter.textContent = String(items.length);
+    if (!els.bonusTopList) return;
+    if (!items.length) {
+      els.bonusTopList.innerHTML = '<div class="empty">Нет клиентов с бонусным балансом.</div>';
+      return;
+    }
+    els.bonusTopList.innerHTML = items.map((c) => `
+      <div class="row-item">
+        <div class="row-main">
+          <div class="row-name">${escapeHtml(c.full_name)}</div>
+          <div class="row-meta">${escapeHtml(c.phone)}${c.last_visit_at ? ' · Визит: ' + escapeHtml(c.last_visit_at.slice(0, 10)) : ''}</div>
+        </div>
+        <div class="row-stat fin-pos">${formatPrice(Number(c.bonus_balance))} бонусов</div>
+      </div>
+    `).join('');
+  }
+
+  // Clients sub-tab switching (list / bonus)
+  let clientsActiveTab = 'list';
+
+  function switchClientsTab(tab) {
+    clientsActiveTab = tab;
+    document.querySelectorAll('#clientsSubnav .subnav-item[data-clients-tab]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.clientsTab === tab);
+    });
+    const listEl = document.getElementById('clientsTabList');
+    if (listEl) listEl.hidden = (tab !== 'list');
+    if (els.clientsTabBonus) els.clientsTabBonus.hidden = (tab !== 'bonus');
+    if (tab === 'bonus') void activateBonusTab();
+  }
+
+  els.clientsSubnav?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-clients-tab]');
+    if (!btn || btn.classList.contains('disabled')) return;
+    switchClientsTab(btn.dataset.clientsTab);
+  });
+
+  // Client modal bonus section
+  let _clCurrentId = null; // set by openClientModal, used for bonus adj
+
+  els.clBonusAdjBtn?.addEventListener('click', () => {
+    if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = false;
+    els.clBonusAdjAmount?.focus();
+  });
+  els.clBonusAdjCancel?.addEventListener('click', () => {
+    if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = true;
+    if (els.clBonusAdjAmount) els.clBonusAdjAmount.value = '';
+    if (els.clBonusAdjNote) els.clBonusAdjNote.value = '';
+  });
+  els.clBonusAdjSave?.addEventListener('click', async () => {
+    if (!_clCurrentId) return;
+    const delta = parseFloat(els.clBonusAdjAmount?.value) || 0;
+    if (delta === 0) { alert('Введите сумму изменения.'); return; }
+    const existing = clientsState.items.find((c) => c.id === _clCurrentId);
+    const currentBalance = Number(existing?.bonus_balance || 0);
+    const newBalance = Math.max(0, currentBalance + delta);
+    const r = await apiCall('PATCH', `/api/clients/${_clCurrentId}`, { bonus_balance: newBalance });
+    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (els.clBonusDisplay) els.clBonusDisplay.textContent = formatPrice(newBalance) + ' бонусов';
+    if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = true;
+    if (els.clBonusAdjAmount) els.clBonusAdjAmount.value = '';
+    if (els.clBonusAdjNote) els.clBonusAdjNote.value = '';
+    // Update local cache
+    if (existing) existing.bonus_balance = String(newBalance);
+  });
+
   // Wire up clients view UI events (один раз при загрузке)
   if (els.clientsSearch) {
     els.clientsSearch.addEventListener('input', () => {
@@ -2724,11 +3455,41 @@
   if (els.clientModalClose) els.clientModalClose.addEventListener('click', closeClientModal);
   if (els.clientModalBackdrop) els.clientModalBackdrop.addEventListener('click', closeClientModal);
   if (els.clientDelete) els.clientDelete.addEventListener('click', deleteClient);
+
+  document.getElementById('clWaSendBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('clWaSendBtn');
+    const phone = btn?.dataset.phone || '';
+    if (!phone) return;
+    const message = prompt('Сообщение для клиента (WhatsApp):', '');
+    if (!message) return;
+    btn.disabled = true;
+    try {
+      const r = await apiCall('POST', '/api/whatsapp/send', { phone, message });
+      if (r.ok) {
+        alert('Сообщение отправлено!');
+      } else {
+        alert('Ошибка: ' + (r.data?.error || r.status));
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   if (els.clientTabBar) {
     els.clientTabBar.addEventListener('click', (e) => {
       const btn = e.target.closest('.tab-btn');
       if (btn && !btn.disabled) switchClientTab(btn.dataset.tab);
     });
+  }
+  if (els.clFileUpload) {
+    els.clFileUpload.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      void uploadClientFiles(files);
+    });
+  }
+  if (els.clCopyUploadLink) {
+    els.clCopyUploadLink.addEventListener('click', () => void copyUploadLink());
   }
   if (els.clientsMoreBtn) {
     els.clientsMoreBtn.addEventListener('click', (e) => {
@@ -2754,6 +3515,7 @@
   let cachedFinOps = [];
   let cachedFinCategories = { income: [], expense: [] };
   let cachedFinSummary = null;
+  let cachedFinCounterparties = [];
   let finMigrationDone = false;
   // Phase 2 state
   let finPeriod = localStorage.getItem('fin_period') || 'today';
@@ -2910,13 +3672,15 @@
   }
 
   async function renderFinanceView() {
-    ['overview', 'accounts', 'ops'].forEach((t) => {
+    ['overview', 'accounts', 'ops', 'categories', 'counterparties'].forEach((t) => {
       const panel = document.getElementById(`finTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
       if (panel) panel.hidden = t !== financeTab;
     });
     document.querySelectorAll('[data-fin-tab]').forEach((b) => {
       b.classList.toggle('active', b.dataset.finTab === financeTab);
     });
+    if (financeTab === 'categories') { await renderFinCategories(); return; }
+    if (financeTab === 'counterparties') { await renderFinCounterparties(); return; }
     await loadFinanceData();
     if (financeTab === 'overview') renderFinOverview();
     else if (financeTab === 'accounts') renderFinAccounts();
@@ -3058,15 +3822,192 @@
       <div class="row-item">
         <div class="row-main">
           <div class="row-name">${escapeHtml(opLabel(o))}</div>
-          <div class="row-meta">${escapeHtml(o.op_date.slice(0, 10))} · ${escapeHtml(o.account_name || '—')}${o.note ? ' · ' + escapeHtml(o.note) : ''}</div>
+          <div class="row-meta">${escapeHtml(o.op_date.slice(0, 10))} · ${escapeHtml(o.account_name || '—')}${o.counterparty_name ? ' · ' + escapeHtml(o.counterparty_name) : ''}${o.note ? ' · ' + escapeHtml(o.note) : ''}</div>
         </div>
         <div class="row-stat ${opCls(o.kind)}">${opSign(o.kind)} ${formatPrice(o.amount)}</div>
       </div>
     `).join('');
   }
 
+  // ===== Finance Categories tab =====
+  const FIN_CAT_KIND_LABELS = { income: 'Доход', expense: 'Расход' };
+
+  async function renderFinCategories() {
+    const [rIn, rEx] = await Promise.all([
+      finApi('GET', '/categories?kind=income'),
+      finApi('GET', '/categories?kind=expense'),
+    ]);
+    if (rIn.ok) cachedFinCategories.income = rIn.data?.items || [];
+    if (rEx.ok) cachedFinCategories.expense = rEx.data?.items || [];
+
+    function renderList(listEl, items, kind) {
+      if (!listEl) return;
+      if (!items.length) {
+        listEl.innerHTML = '<div class="empty" style="padding:12px 16px">Нет статей. Добавьте первую.</div>';
+        return;
+      }
+      listEl.innerHTML = items.map((c) => `
+        <div class="row-item fin-cat-row" data-id="${escapeHtml(c.id)}" data-kind="${kind}">
+          <div class="row-main"><div class="row-name">${escapeHtml(c.name)}</div></div>
+          <button type="button" class="btn-ghost btn-sm fin-cat-del" data-id="${escapeHtml(c.id)}" data-kind="${kind}" aria-label="Удалить">✕</button>
+        </div>
+      `).join('');
+      listEl.querySelectorAll('.fin-cat-del').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm(`Удалить статью "${items.find((x) => x.id === btn.dataset.id)?.name}"?`)) return;
+          const r = await finApi('DELETE', `/categories/${btn.dataset.id}`);
+          if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+          cachedFinCategories[btn.dataset.kind] = cachedFinCategories[btn.dataset.kind].filter((x) => x.id !== btn.dataset.id);
+          renderList(listEl, cachedFinCategories[btn.dataset.kind], kind);
+        });
+      });
+    }
+
+    renderList(els.finCatIncomeList, cachedFinCategories.income, 'income');
+    renderList(els.finCatExpenseList, cachedFinCategories.expense, 'expense');
+  }
+
+  function finCatWireAddForm(formEl, nameEl, cancelBtn, addBtn, kind, listElKey) {
+    if (!formEl) return;
+    addBtn?.addEventListener('click', () => { formEl.hidden = false; nameEl?.focus(); });
+    cancelBtn?.addEventListener('click', () => { formEl.hidden = true; formEl.reset(); });
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = nameEl?.value.trim();
+      if (!name) return;
+      const r = await finApi('POST', '/categories', { name, kind });
+      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      cachedFinCategories[kind] = [...cachedFinCategories[kind], r.data];
+      formEl.hidden = true;
+      formEl.reset();
+      const listEl = els[listElKey];
+      if (listEl) {
+        function renderListInline(items) {
+          listEl.innerHTML = items.map((c) => `
+            <div class="row-item fin-cat-row" data-id="${escapeHtml(c.id)}" data-kind="${kind}">
+              <div class="row-main"><div class="row-name">${escapeHtml(c.name)}</div></div>
+              <button type="button" class="btn-ghost btn-sm fin-cat-del" data-id="${escapeHtml(c.id)}" data-kind="${kind}" aria-label="Удалить">✕</button>
+            </div>
+          `).join('');
+          listEl.querySelectorAll('.fin-cat-del').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+              if (!confirm(`Удалить статью "${items.find((x) => x.id === btn.dataset.id)?.name}"?`)) return;
+              const res = await finApi('DELETE', `/categories/${btn.dataset.id}`);
+              if (!res.ok) { alert('Ошибка: ' + (res.data?.error || res.status)); return; }
+              cachedFinCategories[kind] = cachedFinCategories[kind].filter((x) => x.id !== btn.dataset.id);
+              renderListInline(cachedFinCategories[kind]);
+            });
+          });
+        }
+        renderListInline(cachedFinCategories[kind]);
+      }
+    });
+  }
+
+  finCatWireAddForm(els.finCatIncomeForm, els.finCatIncomeName, els.finCatIncomeCancel, els.finCatAddIncomeBtn, 'income', 'finCatIncomeList');
+  finCatWireAddForm(els.finCatExpenseForm, els.finCatExpenseName, els.finCatExpenseCancel, els.finCatAddExpenseBtn, 'expense', 'finCatExpenseList');
+
+  // ===== Finance Counterparties tab =====
+  const FIN_CPARTY_KIND_LABELS = { supplier: 'Поставщик', customer: 'Клиент', employee: 'Сотрудник', other: 'Другое' };
+
+  async function renderFinCounterparties() {
+    const r = await finApi('GET', '/counterparties');
+    if (r.ok) cachedFinCounterparties = r.data?.items || [];
+    if (els.finCpartyCounter) els.finCpartyCounter.textContent = String(cachedFinCounterparties.length);
+    if (!els.finCpartyList) return;
+    if (!cachedFinCounterparties.length) {
+      els.finCpartyList.innerHTML = '<div class="empty">Нет контрагентов.</div>';
+      return;
+    }
+    els.finCpartyList.innerHTML = cachedFinCounterparties.map((c) => `
+      <div class="row-item">
+        <div class="row-main">
+          <div class="row-name">${escapeHtml(c.name)}${!c.is_active ? ' <span class="badge-muted">неактивен</span>' : ''}</div>
+          <div class="row-meta">${escapeHtml(FIN_CPARTY_KIND_LABELS[c.kind] || c.kind)}${c.phone ? ' · ' + escapeHtml(c.phone) : ''}${c.inn ? ' · ИНН ' + escapeHtml(c.inn) : ''}</div>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn-ghost btn-sm" data-cparty-edit="${escapeHtml(c.id)}">✎</button>
+          <button type="button" class="btn-ghost btn-sm" data-cparty-del="${escapeHtml(c.id)}">✕</button>
+        </div>
+      </div>
+    `).join('');
+    els.finCpartyList.querySelectorAll('[data-cparty-edit]').forEach((btn) =>
+      btn.addEventListener('click', () => openCpartyModal(btn.dataset.cpartyEdit)));
+    els.finCpartyList.querySelectorAll('[data-cparty-del]').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const c = cachedFinCounterparties.find((x) => x.id === btn.dataset.cpartyDel);
+        if (!confirm(`Деактивировать контрагента "${c?.name}"?`)) return;
+        const res = await finApi('DELETE', `/counterparties/${btn.dataset.cpartyDel}`);
+        if (!res.ok) { alert('Ошибка: ' + (res.data?.error || res.status)); return; }
+        await renderFinCounterparties();
+      }));
+  }
+
+  function openCpartyModal(id) {
+    const c = id ? cachedFinCounterparties.find((x) => x.id === id) : null;
+    if (els.finCpartyId) els.finCpartyId.value = id || '';
+    if (els.finCpartyModalTitle) els.finCpartyModalTitle.textContent = c ? 'Редактировать контрагента' : 'Новый контрагент';
+    if (els.finCpartyForm) els.finCpartyForm.reset();
+    if (c) {
+      if (els.finCpartyName) els.finCpartyName.value = c.name || '';
+      if (els.finCpartyKind) els.finCpartyKind.value = c.kind || 'other';
+      if (els.finCpartyInn) els.finCpartyInn.value = c.inn || '';
+      if (els.finCpartyPhone) els.finCpartyPhone.value = c.phone || '';
+      if (els.finCpartyEmail) els.finCpartyEmail.value = c.email || '';
+      if (els.finCpartyNotes) els.finCpartyNotes.value = c.notes || '';
+    }
+    if (els.finCpartyBackdrop) els.finCpartyBackdrop.hidden = false;
+    if (els.finCpartyModal) {
+      els.finCpartyModal.hidden = false;
+      els.finCpartyName?.focus();
+    }
+  }
+
+  function closeCpartyModal() {
+    if (els.finCpartyBackdrop) els.finCpartyBackdrop.hidden = true;
+    if (els.finCpartyModal) els.finCpartyModal.hidden = true;
+    if (els.finCpartyForm) els.finCpartyForm.reset();
+  }
+
+  els.finCpartyAddBtn?.addEventListener('click', () => openCpartyModal(null));
+  els.finCpartyClose?.addEventListener('click', closeCpartyModal);
+  els.finCpartyCancel?.addEventListener('click', closeCpartyModal);
+  els.finCpartyBackdrop?.addEventListener('click', closeCpartyModal);
+
+  els.finCpartyForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = els.finCpartyId?.value;
+    const body = {
+      name: els.finCpartyName?.value.trim(),
+      kind: els.finCpartyKind?.value || 'other',
+      inn: els.finCpartyInn?.value.trim() || undefined,
+      phone: els.finCpartyPhone?.value.trim() || undefined,
+      email: els.finCpartyEmail?.value.trim() || undefined,
+      notes: els.finCpartyNotes?.value.trim() || undefined,
+    };
+    const r = id
+      ? await finApi('PATCH', `/counterparties/${id}`, body)
+      : await finApi('POST', '/counterparties', body);
+    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    closeCpartyModal();
+    await renderFinCounterparties();
+  });
+
+  async function finPopulateCounterpartySelects() {
+    if (!cachedFinCounterparties.length) {
+      const r = await finApi('GET', '/counterparties');
+      if (r.ok) cachedFinCounterparties = r.data?.items || [];
+    }
+    const opts = '<option value="">— не указан —</option>'
+      + cachedFinCounterparties.filter((c) => c.is_active).map((c) =>
+        `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+    if (els.finIncomeCparty) els.finIncomeCparty.innerHTML = opts;
+    if (els.finExpenseCparty) els.finExpenseCparty.innerHTML = opts;
+  }
+
   async function openFinModal(backdrop, modal, setupFn) {
     finPopulateAccountSelects();
+    await finPopulateCounterpartySelects();
     if (setupFn) await setupFn();
     backdrop.hidden = false;
     modal.hidden = false;
@@ -3167,6 +4108,7 @@
         amount: parseFloat(els.finIncomeAmount.value) || 0,
         op_date: els.finIncomeDate.value,
         category_id: els.finIncomeCategory.value || undefined,
+        counterparty_id: els.finIncomeCparty?.value || undefined,
         note: els.finIncomeNote.value.trim() || undefined,
       });
       if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
@@ -3195,6 +4137,7 @@
         amount: parseFloat(els.finExpenseAmount.value) || 0,
         op_date: els.finExpenseDate.value,
         category_id: els.finExpenseCategory.value || undefined,
+        counterparty_id: els.finExpenseCparty?.value || undefined,
         note: els.finExpenseNote.value.trim() || undefined,
       });
       if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
@@ -3339,7 +4282,10 @@
   // Backend (salary-service) уже учёл активную схему, продажи (completed bookings),
   // гарантированную сумму и rate-period нормализацию.
   function salCalcRow(master, range) {
-    const empty = { rate: 0, percent_services: 0, percent_salon: 0, guaranteed: 0, total: 0 };
+    const empty = {
+      rate: 0, percent_services: 0, percent_salon: 0, guaranteed: 0, total: 0,
+      commission_total: 0, worked_days: null, is_cleaner: false, is_manager: false,
+    };
     if (!cachedSalCalc || cachedSalCalc.from?.slice(0, 10) !== range.from || cachedSalCalc.to?.slice(0, 10) !== range.to) return empty;
     const item = cachedSalCalc.items?.find((x) => x.master_id === master.id);
     if (!item) return empty;
@@ -3348,6 +4294,10 @@
       percent_services: item.pct_services || 0,
       percent_salon: item.pct_salon || 0,
       guaranteed: item.guaranteed || 0,
+      commission_total: item.commission_total || 0,
+      worked_days: item.worked_days ?? null,
+      is_cleaner: !!item.is_cleaner,
+      is_manager: !!item.is_manager,
       total: item.total || 0,
     };
   }
@@ -3435,6 +4385,7 @@
       salLoadAccrualsApi(),
       salLoadFinAccounts(),
       salLoadSettlements(),
+      salLoadCommissions(),
     ]);
     await salLoadCalc(salPeriodRange(salPeriod));
     await migrateLocalStorageSalary();
@@ -3461,7 +4412,7 @@
     document.querySelectorAll('#salarySubnav .subnav-item').forEach((b) => {
       b.classList.toggle('active', b.dataset.salTab === tab);
     });
-    ['payroll', 'settlements', 'accruals', 'schemes'].forEach((k) => {
+    ['payroll', 'settlements', 'accruals', 'schemes', 'commissions'].forEach((k) => {
       const el = document.getElementById('salTab' + k.charAt(0).toUpperCase() + k.slice(1));
       if (el) el.hidden = (k !== tab);
     });
@@ -3471,6 +4422,7 @@
   function renderSalary() {
     if (salActiveTab === 'payroll') renderSalaryPayroll();
     if (salActiveTab === 'schemes') renderSalarySchemes();
+    if (salActiveTab === 'commissions') renderSalaryCommissions();
   }
 
   // ----- Tab 1: Payroll -----
@@ -3502,39 +4454,55 @@
       total: acc.total + r.calc.total,
     }), { rate: 0, percent_services: 0, percent_salon: 0, guaranteed: 0, total: 0 });
 
-    const fmtCell = (v) => v > 0
-      ? `<div class="sg-col sg-col-num">${fmtMoney(v)}</div>`
-      : `<div class="sg-col sg-col-num empty-val">—</div>`;
+    const fmtCell = (v, label = '') => v > 0
+      ? `<div class="sg-col sg-col-num" data-label="${label}">${fmtMoney(v)}</div>`
+      : `<div class="sg-col sg-col-num empty-val" data-label="${label}">—</div>`;
 
     const summary = `
       <div class="sal-row summary">
         <div class="sg-col sg-col-master"><b>Итого</b></div>
-        ${fmtCell(sum.percent_services)}
-        ${fmtCell(sum.percent_salon)}
-        ${fmtCell(sum.rate)}
-        ${fmtCell(sum.guaranteed)}
-        <div class="sg-col sg-col-num sg-col-total">${fmtMoney(sum.total)}</div>
+        ${fmtCell(sum.percent_services, '% с продаж')}
+        ${fmtCell(sum.percent_salon, '% с продаж салона')}
+        ${fmtCell(sum.rate, 'Оклад / Повременная')}
+        ${fmtCell(sum.guaranteed, 'Гарантированная')}
+        <div class="sg-col sg-col-num sg-col-total" data-label="К начислению">${fmtMoney(sum.total)}</div>
       </div>
     `;
 
     const body = rows.map(({ master, calc }) => {
       const initials = (master.display_name || '?').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+      const roleLabel = master.provides_services === false
+        ? (master.position || master.specialization || (calc.is_cleaner ? 'Техничка' : 'Менеджер'))
+        : (master.specialization || '');
+      const isCleaner = calc.is_cleaner;
+      const isManager = calc.is_manager;
       return `
-        <div class="sal-row" data-master-id="${master.id}">
+        <div class="sal-row${isCleaner ? ' sal-row-cleaner' : isManager ? ' sal-row-manager' : ''}" data-master-id="${master.id}">
           <div class="sg-col sg-col-master">
             <div class="sal-master-cell">
               <div class="user-avatar small" style="background:${stringToColor(master.id)}">${escapeHtml(initials || '?')}</div>
               <div class="sal-master-info">
                 <div class="sal-master-name">${escapeHtml(master.display_name || '—')}</div>
-                <div class="sal-master-role">${escapeHtml(master.specialization || '')}</div>
+                <div class="sal-master-role">${escapeHtml(roleLabel)}</div>
               </div>
             </div>
           </div>
-          ${fmtCell(calc.percent_services)}
-          ${fmtCell(calc.percent_salon)}
-          ${fmtCell(calc.rate)}
-          ${fmtCell(calc.guaranteed)}
-          <div class="sg-col sg-col-num sg-col-total">${fmtMoney(calc.total)}</div>
+          ${isCleaner
+            ? `${fmtCell(calc.worked_days != null ? calc.worked_days : 0, 'Смен')}
+               <div class="sg-col sg-col-num empty-val" data-label="% с продаж">—</div>
+               ${fmtCell(calc.rate, 'Оклад / Повременная')}
+               ${fmtCell(calc.guaranteed, 'Гарантированная')}`
+            : isManager
+            ? `${fmtCell(calc.commission_total, 'Комиссии')}
+               <div class="sg-col sg-col-num empty-val" data-label="% с продаж">—</div>
+               ${fmtCell(calc.rate, 'Оклад / Повременная')}
+               ${fmtCell(calc.guaranteed, 'Гарантированная')}`
+            : `${fmtCell(calc.percent_services, '% с продаж')}
+               ${fmtCell(calc.percent_salon, '% с продаж салона')}
+               ${fmtCell(calc.rate, 'Оклад / Повременная')}
+               ${fmtCell(calc.guaranteed, 'Гарантированная')}`
+          }
+          <div class="sg-col sg-col-num sg-col-total" data-label="К начислению">${fmtMoney(calc.total)}</div>
         </div>
       `;
     }).join('');
@@ -4083,6 +5051,7 @@
     _origSalSwitchTab(tab);
     if (tab === 'settlements') renderSalarySettlements();
     if (tab === 'accruals') renderSalaryAccruals();
+    if (tab === 'commissions') renderSalaryCommissions();
   };
   // и activate тоже — обёртка дожидается загрузку данных и потом дорисовывает settlements/accruals
   const _origActivateSalary = activateSalaryView;
@@ -4172,6 +5141,159 @@
     if (!document.getElementById('salPayrollModalBackdrop')?.hidden) salClosePayrollModal();
     if (!document.getElementById('salPayoutModalBackdrop')?.hidden) salClosePayoutModal();
     if (!document.getElementById('salAccrualModalBackdrop')?.hidden) salCloseAccrualModal();
+    if (!document.getElementById('salCommModalBackdrop')?.hidden) salCommCloseModal();
+  });
+
+  // ===== Commission rules (менеджерские комиссии по услугам) =====
+  let cachedCommissions = [];
+
+  async function salLoadCommissions() {
+    const r = await salApi('GET', '/commissions');
+    cachedCommissions = r.ok ? (r.data?.items || []) : [];
+  }
+
+  const COMM_TYPE_LABELS = {
+    percent: '% всем менеджерам',
+    fixed: 'Фикс. оформившему',
+  };
+
+  function renderSalaryCommissions() {
+    // --- Секция: участники % пула ---
+    const poolSection = document.getElementById('salCommPoolSection');
+    if (poolSection) {
+      const nonServiceStaff = cachedMasters.filter((m) => m.is_active && m.provides_services === false);
+      if (nonServiceStaff.length === 0) {
+        poolSection.innerHTML = '<div class="empty">Нет сотрудников с is_service=false.</div>';
+      } else {
+        poolSection.innerHTML = nonServiceStaff.map((m) => {
+          const inPool = !!m.in_commission_pool;
+          const pos = m.position || m.specialization || '—';
+          return `
+            <div class="sal-row" style="align-items:center;">
+              <div class="sg-col sg-col-master">
+                <div class="sal-master-cell">
+                  <div class="user-avatar small" style="background:${stringToColor(m.id)}">${escapeHtml((m.display_name||'?').split(' ').map(p=>p[0]).filter(Boolean).slice(0,2).join('').toUpperCase())}</div>
+                  <div class="sal-master-info">
+                    <div class="sal-master-name">${escapeHtml(m.display_name)}</div>
+                    <div class="sal-master-role">${escapeHtml(pos)}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="sg-col">
+                <label class="toggle-switch" title="${inPool ? 'Убрать из пула' : 'Добавить в пул'}">
+                  <input type="checkbox" class="pool-toggle" data-master-id="${m.id}" ${inPool ? 'checked' : ''} />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="sg-col" style="color:var(--text-muted);font-size:12px;">
+                ${inPool ? '<span class="badge badge-green">в пуле</span>' : '<span class="badge badge-gray">не в пуле</span>'}
+              </div>
+            </div>`;
+        }).join('');
+        poolSection.querySelectorAll('.pool-toggle').forEach((cb) => {
+          cb.addEventListener('change', async () => {
+            const masterId = cb.dataset.masterId;
+            const r = await apiCall('PATCH', `/api/salons/masters/${masterId}`, { in_commission_pool: cb.checked });
+            if (r.ok) {
+              const m = cachedMasters.find((x) => x.id === masterId);
+              if (m) m.in_commission_pool = cb.checked;
+              renderSalaryCommissions();
+            } else {
+              cb.checked = !cb.checked;
+              alert('Ошибка: ' + (r.data?.error || r.status));
+            }
+          });
+        });
+      }
+    }
+
+    // --- Секция: правила комиссий ---
+    const list = document.getElementById('salCommList');
+    if (!list) return;
+    if (cachedCommissions.length === 0) {
+      list.innerHTML = '<div class="empty">Правил комиссий пока нет. Кнопка «+ Добавить правило» — справа сверху.</div>';
+      return;
+    }
+    list.innerHTML = cachedCommissions.map((c) => `
+      <div class="sal-row" data-comm-id="${c.id}">
+        <div class="sg-col sg-col-master">${escapeHtml(c.service_name || '— все услуги —')}</div>
+        <div class="sg-col">${escapeHtml(COMM_TYPE_LABELS[c.commission_type] || c.commission_type)}</div>
+        <div class="sg-col sg-col-num">${c.commission_type === 'percent' ? c.amount + '%' : fmtMoney(c.amount) + ' ₽'}</div>
+        <div class="sg-col sg-col-date">${escapeHtml((c.effective_from || '').slice(0, 10))}</div>
+        <div class="sg-col sg-col-action">
+          <button type="button" class="sal-row-action danger" data-comm-del="${c.id}" title="Удалить">×</button>
+        </div>
+      </div>
+    `).join('');
+    list.querySelectorAll('[data-comm-del]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Удалить правило комиссии?')) return;
+        const r = await salApi('DELETE', `/commissions/${btn.dataset.commDel}`);
+        if (r.ok) { await salLoadCommissions(); renderSalaryCommissions(); }
+        else alert('Ошибка: ' + (r.data?.error || r.status));
+      });
+    });
+  }
+
+  function salCommOpenModal() {
+    const back = document.getElementById('salCommModalBackdrop');
+    if (!back) return;
+    document.getElementById('salCommForm')?.reset();
+    document.getElementById('salCommError').hidden = true;
+    // Заполняем услуги
+    const sel = document.getElementById('salCommService');
+    if (sel) {
+      sel.innerHTML = '<option value="">— все услуги —</option>' +
+        cachedServices.filter((s) => s.is_active).map((s) =>
+          `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    }
+    // Дефолтная дата — сегодня
+    const fromField = document.getElementById('salCommFrom');
+    if (fromField && !fromField.value) fromField.value = todayLocalISO();
+    // Обновляем label Amount при смене типа
+    const typeEl = document.getElementById('salCommType');
+    const amtLabel = document.getElementById('salCommAmountLabel');
+    const updateLabel = () => {
+      if (amtLabel) amtLabel.textContent = (typeEl?.value === 'percent') ? 'Размер (%)' : 'Сумма (₽)';
+    };
+    typeEl?.removeEventListener('change', updateLabel);
+    typeEl?.addEventListener('change', updateLabel);
+    updateLabel();
+    back.hidden = false;
+  }
+
+  function salCommCloseModal() {
+    const back = document.getElementById('salCommModalBackdrop');
+    if (back) back.hidden = true;
+  }
+
+  document.getElementById('salCommAddBtn')?.addEventListener('click', salCommOpenModal);
+  document.getElementById('salCommModalClose')?.addEventListener('click', salCommCloseModal);
+  document.getElementById('salCommModalCancel')?.addEventListener('click', salCommCloseModal);
+  document.getElementById('salCommModalBackdrop')?.addEventListener('click', (e) => {
+    if (e.target.id === 'salCommModalBackdrop') salCommCloseModal();
+  });
+  document.getElementById('salCommForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('salCommError');
+    errEl.hidden = true;
+    const fd = new FormData(document.getElementById('salCommForm'));
+    const payload = {
+      service_id: fd.get('service_id') || null,
+      commission_type: fd.get('commission_type'),
+      amount: parseFloat(fd.get('amount')),
+      effective_from: fd.get('effective_from') || undefined,
+      notes: fd.get('notes') || null,
+    };
+    const r = await salApi('POST', '/commissions', payload);
+    if (!r.ok) {
+      errEl.textContent = r.data?.error || 'Ошибка сохранения';
+      errEl.hidden = false;
+      return;
+    }
+    salCommCloseModal();
+    await salLoadCommissions();
+    renderSalaryCommissions();
   });
 
   // ===== Settings (Sprint C — backed by salon-service /company + /schedule-templates) =====
@@ -5000,6 +6122,9 @@
   let salesPeriod = 'today';
   let salesCurrentBookingId = null;
   let salesCurrentBookingPrice = 0;
+  let salesCurrentClientId = null;
+  let salesCurrentClientPhone = null;
+  let salesCurrentBonusBalance = 0;
 
   function getSalesRange(period) {
     const today = todayLocalISO();
@@ -5071,14 +6196,55 @@
   }
 
   // ===== Sale modal (complete booking) =====
-  function openSaleModal(bookingId, bookingPrice, servicesHtml) {
+  function updateSaleTotal() {
+    const pct = Math.min(100, Math.max(0, Number(document.getElementById('saleDiscount')?.value) || 0));
+    const afterDiscount = salesCurrentBookingPrice * (1 - pct / 100);
+    const bonusSpend = Math.min(
+      Number(els.saleBonusSpend?.value) || 0,
+      salesCurrentBonusBalance,
+      salesCurrentBookingPrice * (loadBonusSettings().max_spend_pct / 100),
+    );
+    const finalTotal = Math.max(0, afterDiscount - bonusSpend);
+    document.getElementById('saleTotalDisplay').textContent = formatPrice(finalTotal);
+    if (els.saleBonusHint && salesCurrentBonusBalance > 0) {
+      const maxBonus = Math.floor(salesCurrentBookingPrice * loadBonusSettings().max_spend_pct / 100);
+      els.saleBonusHint.textContent = `Доступно: ${formatPrice(salesCurrentBonusBalance)} · Макс. ${loadBonusSettings().max_spend_pct}% от чека = ${formatPrice(Math.min(maxBonus, salesCurrentBonusBalance))}`;
+    }
+  }
+
+  async function openSaleModal(bookingId, bookingPrice, servicesHtml, clientId, clientPhone) {
     salesCurrentBookingId = bookingId;
     salesCurrentBookingPrice = bookingPrice;
+    salesCurrentClientId = clientId || null;
+    salesCurrentClientPhone = clientPhone || null;
+    salesCurrentBonusBalance = 0;
     document.getElementById('saleModalServices').innerHTML = servicesHtml;
     document.getElementById('saleDiscount').value = '0';
-    document.getElementById('saleTotalDisplay').textContent = formatPrice(bookingPrice);
     if (els.salePromoCode) els.salePromoCode.value = '';
     if (els.salePromoMsg) els.salePromoMsg.textContent = '';
+    if (els.saleBonusSpend) els.saleBonusSpend.value = '0';
+    // Hide bonus section by default, show if client has bonuses
+    if (els.saleBonusSection) els.saleBonusSection.hidden = true;
+    const bonusSettings = loadBonusSettings();
+    if (bonusSettings.accrual_rate > 0 || bonusSettings.max_spend_pct > 0) {
+      // Try to find client bonus balance
+      let balance = 0;
+      if (clientId) {
+        const found = clientsState.items.find((c) => c.id === clientId);
+        if (found) balance = Number(found.bonus_balance || 0);
+      }
+      if (!balance && clientPhone) {
+        const r = await apiCall('GET', `/api/clients?search=${encodeURIComponent(clientPhone)}&limit=1`);
+        if (r.ok && r.data?.items?.length) balance = Number(r.data.items[0].bonus_balance || 0);
+        if (balance > 0 && !salesCurrentClientId) salesCurrentClientId = r.data.items[0].id;
+      }
+      salesCurrentBonusBalance = balance;
+      if (balance > 0 && bonusSettings.max_spend_pct > 0) {
+        if (els.saleBonusSection) els.saleBonusSection.hidden = false;
+        if (els.saleBonusBalance) els.saleBonusBalance.textContent = formatPrice(balance) + ' бонусов';
+      }
+    }
+    updateSaleTotal();
     document.getElementById('saleModalBackdrop').hidden = false;
     document.getElementById('saleModal').hidden = false;
   }
@@ -5087,13 +6253,12 @@
     document.getElementById('saleModalBackdrop').hidden = true;
     document.getElementById('saleModal').hidden = true;
     salesCurrentBookingId = null;
+    salesCurrentClientId = null;
+    salesCurrentBonusBalance = 0;
   }
 
-  document.getElementById('saleDiscount')?.addEventListener('input', (e) => {
-    const pct = Math.min(100, Math.max(0, Number(e.target.value) || 0));
-    const paid = salesCurrentBookingPrice * (1 - pct / 100);
-    document.getElementById('saleTotalDisplay').textContent = formatPrice(paid);
-  });
+  document.getElementById('saleDiscount')?.addEventListener('input', updateSaleTotal);
+  els.saleBonusSpend?.addEventListener('input', updateSaleTotal);
 
   document.getElementById('saleForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -5116,6 +6281,20 @@
       alert('Ошибка: ' + (data?.error || 'неизвестная ошибка'));
       return;
     }
+    // Handle bonus: spend + accrue
+    const bonusSpend = Math.min(
+      Number(els.saleBonusSpend?.value) || 0,
+      salesCurrentBonusBalance,
+      salesCurrentBookingPrice * (loadBonusSettings().max_spend_pct / 100),
+    );
+    const paidAmount = salesCurrentBookingPrice * (1 - discountPct / 100) - bonusSpend;
+    const bonusAccrual = Math.floor(Math.max(0, paidAmount) * loadBonusSettings().accrual_rate / 100);
+    const clientIdForBonus = salesCurrentClientId;
+    const oldBalance = salesCurrentBonusBalance;
+    if (clientIdForBonus && (bonusSpend > 0 || bonusAccrual > 0)) {
+      const newBalance = Math.max(0, oldBalance - bonusSpend) + bonusAccrual;
+      void apiCall('PATCH', `/api/clients/${clientIdForBonus}`, { bonus_balance: newBalance });
+    }
     closeSaleModal();
     closeBookingModal();
     // Refresh journal and sales
@@ -5134,7 +6313,7 @@
     const servicesHtml = (b.services || [])
       .map((s) => `<div>${escapeHtml(s.service_name)} — <strong>${formatPrice(s.price)}</strong></div>`)
       .join('') || '<div>Услуги не указаны</div>';
-    openSaleModal(b.id, b.total_price || 0, servicesHtml);
+    void openSaleModal(b.id, b.total_price || 0, servicesHtml, b.client_id, b.client_phone);
   });
 
   // Sales period pills
@@ -5298,6 +6477,242 @@
 
   // Also send promo_code when completing booking via sale modal
   // (handled inside submitSaleForm — need to pass salePromoCode.value)
+
+  // ===== WhatsApp Settings Panel =====
+  let waPollingTimer = null;
+
+  async function loadWaStatus() {
+    const badge = document.getElementById('waStatusBadge');
+    const qrWrap = document.getElementById('waQrWrap');
+    const qrImg = document.getElementById('waQrImg');
+    const readyMsg = document.getElementById('waReadyMsg');
+    const testMode = document.getElementById('waTestMode');
+    if (!badge) return;
+
+    const r = await fetch('/api/whatsapp/status');
+    if (!r.ok) {
+      badge.className = 'pill pill-danger';
+      badge.textContent = 'Ошибка';
+      return;
+    }
+    const s = await r.json();
+
+    if (s.test_mode) {
+      badge.className = 'pill pill-mute';
+      badge.textContent = 'Тест-режим';
+      if (qrWrap) qrWrap.hidden = true;
+      if (readyMsg) readyMsg.hidden = true;
+      if (testMode) testMode.hidden = false;
+      return;
+    }
+
+    if (s.ready) {
+      badge.className = 'pill pill-success';
+      badge.textContent = 'Подключён';
+      if (qrWrap) qrWrap.hidden = true;
+      if (readyMsg) readyMsg.hidden = false;
+      if (testMode) testMode.hidden = true;
+      clearInterval(waPollingTimer);
+      waPollingTimer = null;
+      return;
+    }
+
+    badge.className = 'pill pill-warn';
+    badge.textContent = s.status === 'qr_pending' ? 'Ожидание QR' : s.status || 'Инициализация';
+    if (readyMsg) readyMsg.hidden = true;
+    if (testMode) testMode.hidden = true;
+
+    // fetch QR
+    const qrRes = await fetch('/api/whatsapp/qr');
+    if (qrRes.ok) {
+      const qd = await qrRes.json();
+      if (qd.qr && qrWrap && qrImg) {
+        qrImg.src = qd.qr;
+        qrWrap.hidden = false;
+      } else if (qrWrap) {
+        qrWrap.hidden = true;
+      }
+    }
+
+    // start polling if not already
+    if (!waPollingTimer) {
+      waPollingTimer = setInterval(() => { void loadWaStatus(); }, 5000);
+    }
+  }
+
+  document.getElementById('waRefreshBtn')?.addEventListener('click', () => { void loadWaStatus(); });
+
+  document.getElementById('waRestartBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('waRestartBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Перезапуск…'; }
+    try {
+      await fetch('/api/whatsapp/restart', { method: 'POST' });
+      clearInterval(waPollingTimer);
+      waPollingTimer = null;
+      await loadWaStatus();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Перезапустить'; }
+    }
+  });
+
+  // load WA status when navigating to notifications tab
+  document.querySelectorAll('[data-tab="notifications"]').forEach((btn) => {
+    btn.addEventListener('click', () => { void loadWaStatus(); });
+  });
+
+  // ===== Messages / WhatsApp Broadcast =====
+  const SEGMENT_LABELS = {
+    sleeping: 'Спящие (3+ мес.)',
+    missing:  'Пропавшие (6+ мес.)',
+    regular:  'Постоянные',
+    new:      'Новые',
+    never:    'Не посещали',
+    all:      'Все клиенты',
+  };
+
+  let _broadcastRecipients = []; // [{phone, name}]
+
+  async function loadBroadcastSegment() {
+    const seg = document.getElementById('broadcastSegment')?.value || 'sleeping';
+    const countEl = document.getElementById('broadcastCount');
+    if (countEl) countEl.textContent = '…';
+
+    const { ok, data } = await apiCall('GET', `/api/clients?segment=${seg}&limit=2000`);
+    if (!ok) { if (countEl) countEl.textContent = '?'; return; }
+
+    const clients = data?.items || [];
+    _broadcastRecipients = clients
+      .filter((c) => c.phone)
+      .map((c) => ({ phone: c.phone, name: (c.full_name || '').split(' ')[0] || 'клиент' }));
+
+    if (countEl) countEl.textContent = String(_broadcastRecipients.length);
+    updateBroadcastPreview();
+  }
+
+  function updateBroadcastPreview() {
+    const msg = document.getElementById('broadcastMessage')?.value || '';
+    const charEl = document.getElementById('broadcastCharCount');
+    if (charEl) charEl.textContent = `${msg.length} символов`;
+
+    const wrap = document.getElementById('broadcastPreviewWrap');
+    const textEl = document.getElementById('broadcastPreviewText');
+    if (!wrap || !textEl) return;
+    if (!msg.trim() || _broadcastRecipients.length === 0) { wrap.hidden = true; return; }
+    const first = _broadcastRecipients[0];
+    textEl.textContent = msg.replace(/\{name\}/g, first?.name || 'клиент');
+    wrap.hidden = false;
+  }
+
+  async function sendBroadcast() {
+    const msg = document.getElementById('broadcastMessage')?.value?.trim();
+    const segEl = document.getElementById('broadcastSegment');
+    const seg = segEl?.value || 'sleeping';
+    const btn = document.getElementById('broadcastSendBtn');
+    const resultEl = document.getElementById('broadcastResult');
+    const progressEl = document.getElementById('broadcastProgress');
+    const progressBar = document.getElementById('broadcastProgressBar');
+    const progressLabel = document.getElementById('broadcastProgressLabel');
+
+    if (!msg) { alert('Напишите сообщение'); return; }
+    if (_broadcastRecipients.length === 0) { alert('Нет клиентов в выбранном сегменте с номером телефона'); return; }
+    if (!confirm(`Отправить рассылку ${_broadcastRecipients.length} клиентам (${SEGMENT_LABELS[seg] || seg})?`)) return;
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Отправка…'; }
+    if (resultEl) resultEl.hidden = true;
+    if (progressEl) progressEl.hidden = false;
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressLabel) progressLabel.textContent = `0 / ${_broadcastRecipients.length}`;
+
+    const startedAt = new Date();
+    try {
+      const { ok, data, status } = await apiCall('POST', '/api/whatsapp/broadcast', {
+        recipients: _broadcastRecipients,
+        message: msg,
+      });
+
+      if (progressBar) progressBar.style.width = '100%';
+      if (progressLabel) {
+        progressLabel.textContent = ok
+          ? `Готово: ${data.sent} / ${data.total}`
+          : `Ошибка (${status})`;
+      }
+
+      if (resultEl) {
+        resultEl.hidden = false;
+        if (ok) {
+          const hasFail = data.failed_count > 0;
+          resultEl.className = `broadcast-result ${hasFail ? 'partial' : 'success'}`;
+          resultEl.textContent = hasFail
+            ? `Отправлено ${data.sent} из ${data.total}. Не доставлено: ${data.failed_count}.`
+            : `Рассылка завершена. Отправлено ${data.sent} сообщений.`;
+        } else {
+          resultEl.className = 'broadcast-result error';
+          resultEl.textContent = data?.error || data?.message || `Ошибка сервера (${status})`;
+        }
+      }
+
+      // Append to history
+      if (ok) addBroadcastHistory(seg, _broadcastRecipients.length, data.sent, data.failed_count, startedAt);
+
+    } catch (e) {
+      if (resultEl) { resultEl.hidden = false; resultEl.className = 'broadcast-result error'; resultEl.textContent = e.message; }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Отправить рассылку'; }
+    }
+  }
+
+  function addBroadcastHistory(seg, total, sent, failedCount, startedAt) {
+    const histEl = document.getElementById('broadcastHistory');
+    if (!histEl) return;
+    const emptyEl = histEl.querySelector('.empty');
+    if (emptyEl) emptyEl.remove();
+
+    const timeStr = startedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = startedAt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const item = document.createElement('div');
+    item.className = 'broadcast-hist-item';
+    item.innerHTML = `
+      <div class="broadcast-hist-head">
+        <span class="broadcast-hist-seg">${escapeHtml(SEGMENT_LABELS[seg] || seg)}</span>
+        <span class="broadcast-hist-time">${dateStr}, ${timeStr}</span>
+      </div>
+      <div class="broadcast-hist-stats">
+        Отправлено: <b>${sent}</b> / ${total}
+        ${failedCount > 0 ? `<span class="fail"> · Не доставлено: ${failedCount}</span>` : ''}
+      </div>
+    `;
+    histEl.insertBefore(item, histEl.firstChild);
+  }
+
+  // Wire up events
+  document.getElementById('broadcastSegment')?.addEventListener('change', () => { void loadBroadcastSegment(); });
+  document.getElementById('broadcastMessage')?.addEventListener('input', updateBroadcastPreview);
+  document.getElementById('broadcastPreviewBtn')?.addEventListener('click', updateBroadcastPreview);
+  document.getElementById('broadcastSendBtn')?.addEventListener('click', () => { void sendBroadcast(); });
+
+  // Load WA status badge in messages view
+  async function loadWaBroadcastStatus() {
+    const badge = document.getElementById('waBroadcastStatusBadge');
+    if (!badge) return;
+    try {
+      const r = await fetch('/api/whatsapp/status');
+      if (!r.ok) { badge.className = 'pill pill-danger'; badge.textContent = 'WA недоступен'; return; }
+      const s = await r.json();
+      if (s.test_mode) { badge.className = 'pill pill-mute'; badge.textContent = 'Тест-режим'; }
+      else if (s.ready) { badge.className = 'pill pill-success'; badge.textContent = 'WhatsApp подключён'; }
+      else { badge.className = 'pill pill-warn'; badge.textContent = 'WA не подключён'; }
+    } catch { badge.className = 'pill pill-danger'; badge.textContent = 'Ошибка'; }
+  }
+
+  // Hook into setView to load data when navigating to messages
+  const _origSetView = setView;
+  setView = function(v) {
+    _origSetView(v);
+    if (v === 'messages') {
+      void loadWaBroadcastStatus();
+      void loadBroadcastSegment();
+    }
+  };
 
   // ===== Init =====
   renderAuth();

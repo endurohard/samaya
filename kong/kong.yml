@@ -72,6 +72,15 @@ services:
         strip_path: false
         methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
 
+  - name: whatsapp-service
+    url: http://whatsapp-service:3008
+    routes:
+      - name: whatsapp
+        paths:
+          - /api/whatsapp
+        strip_path: false
+        methods: [GET, POST, DELETE, OPTIONS]
+
 routes: []
 
 plugins:

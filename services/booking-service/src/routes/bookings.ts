@@ -44,7 +44,7 @@ router.get('/', async (req, res, next) => {
     const limitClause = q.limit ? ` LIMIT ${q.limit}` : '';
 
     const { rows } = await pool.query(
-      `SELECT b.id, b.master_id, b.client_id, b.client_phone, b.client_name,
+      `SELECT b.id, b.master_id, b.manager_id, b.client_id, b.client_phone, b.client_name,
               b.starts_at, b.ends_at, b.status, b.notes, b.total_price::float8 AS total_price,
               b.source, b.created_at, b.updated_at, b.canceled_at, b.completed_at,
               COALESCE(
@@ -192,7 +192,10 @@ router.get('/analytics', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT b.*, b.total_price::float8 AS total_price,
+      `SELECT b.id, b.master_id, b.manager_id, b.client_id, b.client_phone, b.client_name,
+              b.starts_at, b.ends_at, b.status, b.notes, b.source,
+              b.created_at, b.updated_at, b.canceled_at, b.completed_at, b.cancel_reason,
+              b.total_price::float8 AS total_price,
               COALESCE(
                 (SELECT json_agg(json_build_object(
                     'service_id', bs.service_id,
@@ -221,6 +224,7 @@ const createSchema = z.object({
   client_name: z.string().max(200).optional(),
   client_id: z.string().uuid().optional(),
   notes: z.string().max(2000).optional(),
+  manager_id: z.string().uuid().nullable().optional(),
 }).refine((d) => d.client_phone || d.client_id, {
   message: 'client_phone or client_id required',
 });
@@ -243,8 +247,8 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     const ins = await client.query(
       `INSERT INTO bookings.bookings
          (company_id, master_id, client_id, client_phone, client_name,
-          starts_at, ends_at, status, total_price, source, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,'admin',$9)
+          starts_at, ends_at, status, total_price, source, notes, manager_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,'admin',$9,$10)
        RETURNING *, total_price::float8 AS total_price`,
       [
         companyId, input.master_id,
@@ -254,6 +258,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
         startsAt.toISOString(), endsAt.toISOString(),
         totalPrice,
         input.notes ?? null,
+        input.manager_id ?? null,
       ],
     );
     const booking = ins.rows[0];
