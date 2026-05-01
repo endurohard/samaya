@@ -623,6 +623,131 @@ test.describe('T12 — Client modal: История tab', () => {
   });
 });
 
+// ─── T14 — Journal master filter ─────────────────────────────────────────────
+
+test.describe('T14 — Journal master filter', () => {
+  test.setTimeout(30_000);
+  test.beforeEach(async ({ page }) => { await loginViaApi(page); });
+
+  test('master filter button is visible in journal toolbar', async ({ page }) => {
+    await navTo(page, 'journal');
+    const trigger = page.locator('#jrnMasterFilterTrigger');
+    await expect(trigger).toBeVisible();
+    // Label should say «Все сотрудники»
+    await expect(page.locator('#jrnMasterFilterLabel')).toHaveText('Все сотрудники');
+    // Count badge should show a positive number
+    const countText = await page.locator('#jrnMastersCount').textContent();
+    expect(Number(countText)).toBeGreaterThan(0);
+  });
+
+  test('clicking master filter opens dropdown panel with master list', async ({ page }) => {
+    await navTo(page, 'journal');
+    await page.click('#jrnMasterFilterTrigger');
+    const panel = page.locator('#jrnMasterFilterPanel');
+    await expect(panel).toBeVisible();
+    // «Все сотрудники» row with checkbox
+    await expect(page.locator('#jrnMfAll')).toBeVisible();
+    // At least one master row rendered
+    const masterRows = page.locator('#jrnMfGroups .sch-mf-row.sch-mf-master');
+    await expect(masterRows.first()).toBeVisible();
+  });
+
+  test('unchecking a master filters calendar columns', async ({ page }) => {
+    await navTo(page, 'journal');
+
+    // Count columns before opening filter
+    const colsBefore = await page.locator('.cal-master-head').count();
+    expect(colsBefore).toBeGreaterThan(0);
+
+    // Open panel and uncheck first master
+    await page.click('#jrnMasterFilterTrigger');
+    await expect(page.locator('#jrnMasterFilterPanel')).toBeVisible();
+    const firstMasterCb = page.locator('#jrnMfGroups [data-jmaster-cb]').first();
+    await firstMasterCb.uncheck();
+
+    // Close panel by clicking safe area (journal date label, outside the dropdown)
+    await page.locator('#journalDateLabel').click();
+    await page.waitForTimeout(200);
+
+    // Calendar should now have one fewer column
+    const colsAfter = await page.locator('.cal-master-head').count();
+    expect(colsAfter).toBeLessThan(colsBefore);
+  });
+
+  test('unchecking all masters via «Все сотрудники» clears calendar', async ({ page }) => {
+    await navTo(page, 'journal');
+    await page.click('#jrnMasterFilterTrigger');
+    await expect(page.locator('#jrnMasterFilterPanel')).toBeVisible();
+
+    // Uncheck «Все сотрудники»
+    await page.locator('#jrnMfAll').uncheck();
+
+    // Close by clicking safe area (journal date label, outside the dropdown)
+    await page.locator('#journalDateLabel').click();
+    await page.waitForTimeout(200);
+
+    // Label should show «Выбрано»
+    const label = await page.locator('#jrnMasterFilterLabel').textContent();
+    expect(label).toMatch(/Выбрано/);
+
+    // No master columns in calendar
+    const cols = await page.locator('.cal-master-head').count();
+    expect(cols).toBe(0);
+  });
+
+  test('re-checking «Все сотрудники» restores all columns', async ({ page }) => {
+    await navTo(page, 'journal');
+
+    // Note: total before
+    const totalBefore = await page.locator('.cal-master-head').count();
+
+    // Open, uncheck all, close programmatically
+    await page.click('#jrnMasterFilterTrigger');
+    await expect(page.locator('#jrnMasterFilterPanel')).toBeVisible();
+    await page.locator('#jrnMfAll').uncheck();
+    await page.evaluate(() => {
+      document.getElementById('jrnMasterFilterPanel')!.hidden = true;
+      document.getElementById('jrnMasterFilter')!.classList.remove('open');
+    });
+    await page.waitForTimeout(200);
+
+    // Re-open, check all, close programmatically
+    await page.click('#jrnMasterFilterTrigger');
+    await expect(page.locator('#jrnMasterFilterPanel')).toBeVisible();
+    await page.locator('#jrnMfAll').check();
+    await page.evaluate(() => {
+      document.getElementById('jrnMasterFilterPanel')!.hidden = true;
+      document.getElementById('jrnMasterFilter')!.classList.remove('open');
+    });
+    await page.waitForTimeout(200);
+
+    // Label should be back to «Все сотрудники»
+    await expect(page.locator('#jrnMasterFilterLabel')).toHaveText('Все сотрудники');
+
+    // Columns should be back
+    const cols = await page.locator('.cal-master-head').count();
+    expect(cols).toBe(totalBefore);
+  });
+
+  test('selecting single master shows their name in trigger label', async ({ page }) => {
+    await navTo(page, 'journal');
+    await page.click('#jrnMasterFilterTrigger');
+
+    // Uncheck all first
+    await page.locator('#jrnMfAll').uncheck();
+
+    // Check only the first master
+    const firstCb = page.locator('#jrnMfGroups [data-jmaster-cb]').first();
+    await firstCb.check();
+
+    const label = await page.locator('#jrnMasterFilterLabel').textContent();
+    // Label should be master name, not «Все сотрудники» or «Выбрано»
+    expect(label).not.toBe('Все сотрудники');
+    expect(label).not.toBe('Выбрано');
+    expect(label!.length).toBeGreaterThan(1);
+  });
+});
+
 // ─── T13 — Booking list API filters ──────────────────────────────────────────
 
 test.describe('T13 — Booking API: client_phone filter', () => {
