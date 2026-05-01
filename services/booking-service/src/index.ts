@@ -9,6 +9,7 @@ import bookingsRoutes from './routes/bookings';
 import promosRoutes from './routes/promos';
 import slotsRoutes from './routes/slots';
 import publicRoutes from './routes/public';
+import { startReminderScheduler } from './reminders';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -39,6 +40,7 @@ app.use(errorHandler);
 
 const server = app.listen(config.PORT, () => {
   log.info({ port: config.PORT, env: config.NODE_ENV, tz: config.COMPANY_TZ_OFFSET }, 'booking-service listening');
+  startReminderScheduler();
 });
 
 const shutdown = (signal: string) => {

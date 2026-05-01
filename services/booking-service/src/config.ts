@@ -11,6 +11,9 @@ const schema = z.object({
   COMPANY_TZ_OFFSET: z.string().regex(/^[+-]\d{2}:\d{2}$/).default('+03:00'),
   SLOT_STEP_MINUTES: z.coerce.number().int().positive().default(15),
   LOG_LEVEL: z.string().default('info'),
+  WHATSAPP_SERVICE_URL: z.string().url().default('http://whatsapp-service:3008'),
+  // Интервал проверки напоминаний (мс). По умолчанию 10 минут.
+  REMINDER_INTERVAL_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
 });
 
 const parsed = schema.safeParse(process.env);

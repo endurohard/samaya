@@ -137,6 +137,7 @@ services:
       COMPANY_TZ_OFFSET: ${COMPANY_TZ_OFFSET:-+03:00}
       SLOT_STEP_MINUTES: ${SLOT_STEP_MINUTES:-15}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      WHATSAPP_SERVICE_URL: http://whatsapp-service:3008
     expose:
       - "3003"
     networks:

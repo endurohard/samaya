@@ -5353,11 +5353,21 @@
   function renderNotificationsForm() {
     const s = cachedCompanyProfile?.settings_jsonb || {};
     const n = s.notifications || {};
-    const set = (id, k) => { const e = document.getElementById(id); if (e) e.checked = !!n[k]; };
-    set('setNotifyWaReminder', 'wa_reminder');
-    set('setNotifySmsConfirm', 'sms_confirm');
-    set('setNotifyTgMaster', 'tg_master');
-    set('setNotifyEmailOwner', 'email_owner');
+    const setChk = (id, k) => { const e = document.getElementById(id); if (e) e.checked = !!n[k]; };
+    setChk('setNotifyWaReminder', 'wa_reminder');
+    setChk('setNotifySmsConfirm', 'sms_confirm');
+    setChk('setNotifyTgMaster', 'tg_master');
+    setChk('setNotifyEmailOwner', 'email_owner');
+    const tplBlock = document.getElementById('setReminderTplBlock');
+    const cb = document.getElementById('setNotifyWaReminder');
+    if (tplBlock && cb) {
+      tplBlock.style.display = cb.checked ? 'flex' : 'none';
+      cb.addEventListener('change', () => { tplBlock.style.display = cb.checked ? 'flex' : 'none'; });
+    }
+    const t24 = document.getElementById('setReminderTpl24h');
+    const t2h = document.getElementById('setReminderTpl2h');
+    if (t24) t24.value = n.wa_reminder_tpl_24h || '';
+    if (t2h) t2h.value = n.wa_reminder_tpl_2h || '';
   }
 
   const DOW_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -5484,6 +5494,8 @@
       sms_confirm: document.getElementById('setNotifySmsConfirm')?.checked || false,
       tg_master: document.getElementById('setNotifyTgMaster')?.checked || false,
       email_owner: document.getElementById('setNotifyEmailOwner')?.checked || false,
+      wa_reminder_tpl_24h: (document.getElementById('setReminderTpl24h')?.value || '').trim() || null,
+      wa_reminder_tpl_2h: (document.getElementById('setReminderTpl2h')?.value || '').trim() || null,
     };
     const r = await setApi('PUT', '/company', { settings_jsonb: settings });
     if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }

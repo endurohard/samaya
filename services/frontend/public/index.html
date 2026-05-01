@@ -1691,7 +1691,13 @@
                 </div>
                 <div class="set-notify-row">
                   <label><input type="checkbox" name="wa_reminder" id="setNotifyWaReminder" />
-                    WhatsApp: напоминание клиенту за 1 день до визита</label>
+                    WhatsApp: напоминание клиенту за 24 часа до визита</label>
+                </div>
+                <div class="set-notify-row" id="setReminderTplBlock" style="display:none;margin-left:20px;flex-direction:column;gap:6px;">
+                  <label style="font-size:12px;color:var(--muted);">Шаблон (за 24ч): <code>{client_name} {master_name} {services} {time}</code></label>
+                  <textarea id="setReminderTpl24h" name="wa_reminder_tpl_24h" rows="2" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:6px;resize:vertical;" placeholder="Привет, {client_name}! Напоминаем: завтра в {time} запись к {master_name}. Услуги: {services}."></textarea>
+                  <label style="font-size:12px;color:var(--muted);margin-top:4px;">Шаблон (за 2ч):</label>
+                  <textarea id="setReminderTpl2h" name="wa_reminder_tpl_2h" rows="2" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:6px;resize:vertical;" placeholder="Напоминаем: через 2 часа ({time}) запись к {master_name}. Услуги: {services}."></textarea>
                 </div>
                 <div id="setNotificationsSaved" class="empty" hidden style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;margin-top:8px;">Сохранено ✓</div>
               </form>
