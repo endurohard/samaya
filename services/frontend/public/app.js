@@ -3704,7 +3704,7 @@
   }
 
   async function renderFinanceView() {
-    ['overview', 'accounts', 'ops', 'categories', 'counterparties'].forEach((t) => {
+    ['overview', 'accounts', 'ops', 'categories', 'counterparties', 'certificates'].forEach((t) => {
       const panel = document.getElementById(`finTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
       if (panel) panel.hidden = t !== financeTab;
     });
@@ -3713,6 +3713,7 @@
     });
     if (financeTab === 'categories') { await renderFinCategories(); return; }
     if (financeTab === 'counterparties') { await renderFinCounterparties(); return; }
+    if (financeTab === 'certificates') { await renderCertificates(); return; }
     await loadFinanceData();
     if (financeTab === 'overview') renderFinOverview();
     else if (financeTab === 'accounts') renderFinAccounts();
@@ -4036,6 +4037,149 @@
     if (els.finIncomeCparty) els.finIncomeCparty.innerHTML = opts;
     if (els.finExpenseCparty) els.finExpenseCparty.innerHTML = opts;
   }
+
+  // ===== GIFT CERTIFICATES =====
+  const CERT_STATUS_LABELS = { active: 'Активен', used: 'Использован', expired: 'Истёк', cancelled: 'Аннулирован' };
+  let _certCurrentId = null;
+
+  async function renderCertificates() {
+    const status = document.getElementById('certStatusFilter')?.value || 'active';
+    const { ok, data } = await finApi('GET', `/certificates?status=${status}`);
+    const items = ok ? (data?.items || []) : [];
+    const counterEl = document.getElementById('certCounter');
+    if (counterEl) counterEl.textContent = String(items.length);
+    const list = document.getElementById('certList');
+    if (!list) return;
+    if (!items.length) {
+      list.innerHTML = '<div class="empty">Сертификатов нет</div>';
+      return;
+    }
+    list.innerHTML = items.map((c) => {
+      const statusCls = c.status === 'active' ? 'badge-green' : c.status === 'used' ? 'badge-gray' : 'badge-red';
+      const pct = Math.round((c.balance / c.amount) * 100);
+      const exp = c.expires_at ? ` · до ${c.expires_at.slice(0,10)}` : '';
+      return `<div class="row-item" style="gap:12px;">
+        <div style="flex:1;">
+          <div class="row-name" style="font-family:monospace;font-size:15px;font-weight:800;letter-spacing:.06em;">${escapeHtml(c.code)}</div>
+          <div class="row-meta">${c.client_name ? escapeHtml(c.client_name) + ' · ' : ''}${fmtMoney(c.balance)} из ${fmtMoney(c.amount)}${exp}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:60px;height:6px;border-radius:3px;background:var(--border);">
+            <div style="width:${pct}%;height:100%;border-radius:3px;background:var(--primary);"></div>
+          </div>
+          <span class="badge ${statusCls}">${CERT_STATUS_LABELS[c.status]||c.status}</span>
+          ${c.status === 'active' ? `<button type="button" class="btn-ghost btn-xs cert-cancel-btn" data-cert-id="${c.id}">×</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.cert-cancel-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Аннулировать сертификат?')) return;
+        await finApi('PATCH', `/certificates/${btn.dataset.certId}/cancel`);
+        await renderCertificates();
+      });
+    });
+  }
+
+  function openCertModal() {
+    document.getElementById('certForm').reset();
+    document.getElementById('certForm').hidden = false;
+    document.getElementById('certResult').hidden = true;
+    document.getElementById('certFormError').hidden = true;
+    document.getElementById('certModalBackdrop').hidden = false;
+    document.getElementById('certModal').hidden = false;
+    document.getElementById('certAmount')?.focus();
+  }
+
+  function closeCertModal() {
+    document.getElementById('certModalBackdrop').hidden = true;
+    document.getElementById('certModal').hidden = true;
+  }
+
+  document.getElementById('certAddBtn')?.addEventListener('click', openCertModal);
+  document.getElementById('certModalClose')?.addEventListener('click', closeCertModal);
+  document.getElementById('certModalCancel')?.addEventListener('click', closeCertModal);
+  document.getElementById('certModalBackdrop')?.addEventListener('click', closeCertModal);
+  document.getElementById('certStatusFilter')?.addEventListener('change', () => void renderCertificates());
+
+  document.getElementById('certForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('certFormError');
+    errEl.hidden = true;
+    const btn = document.getElementById('certSubmitBtn');
+    btn.disabled = true; btn.textContent = 'Оформляем…';
+
+    const fd = new FormData(e.target);
+    const payload = {
+      amount: parseFloat(fd.get('amount')),
+      client_name: fd.get('client_name')?.trim() || null,
+      expires_at: fd.get('expires_at') || null,
+      notes: fd.get('notes')?.trim() || null,
+    };
+
+    const { ok, data } = await finApi('POST', '/certificates', payload);
+    btn.disabled = false; btn.textContent = 'Продать';
+
+    if (!ok) {
+      errEl.textContent = data?.error || 'Ошибка создания сертификата';
+      errEl.hidden = false;
+      return;
+    }
+
+    document.getElementById('certForm').hidden = true;
+    const resultEl = document.getElementById('certResult');
+    resultEl.hidden = false;
+    document.getElementById('certResultCode').textContent = data.code;
+    const exp = data.expires_at ? ` · действует до ${data.expires_at}` : '';
+    document.getElementById('certResultInfo').textContent = `Номинал: ${fmtMoney(data.amount)}${exp}`;
+
+    document.getElementById('certResultCopy').onclick = () => {
+      navigator.clipboard.writeText(data.code).catch(() => {});
+      document.getElementById('certResultCopy').textContent = 'Скопировано ✓';
+    };
+    document.getElementById('certResultClose').onclick = () => {
+      closeCertModal();
+      void renderCertificates();
+    };
+  });
+
+  // ── Certificate in sale modal ──
+  let _saleCertId = null;
+  let _saleCertBalance = 0;
+  let _saleCertSpend = 0;
+
+  document.getElementById('saleCertApply')?.addEventListener('click', async () => {
+    const code = (document.getElementById('saleCertCode')?.value || '').trim().toUpperCase();
+    const msg = document.getElementById('saleCertMsg');
+    msg.textContent = '';
+    msg.style.color = 'var(--text-dim)';
+    if (!code) return;
+    msg.textContent = 'Проверяем…';
+    const { ok, data } = await finApi('GET', `/certificates/check?code=${encodeURIComponent(code)}`);
+    if (!ok) {
+      _saleCertId = null; _saleCertBalance = 0;
+      msg.style.color = 'var(--danger)';
+      msg.textContent = data?.message || 'Сертификат не найден';
+      updateSaleTotal();
+      return;
+    }
+    _saleCertId = data.id;
+    _saleCertBalance = Number(data.balance) || 0;
+    msg.style.color = 'var(--success)';
+    msg.textContent = `✓ Баланс: ${fmtMoney(_saleCertBalance)}`;
+    updateSaleTotal();
+  });
+
+  // Reset cert state when sale modal opens/closes
+  const _origOpenSaleModal = openSaleModal;
+  openSaleModal = async function(...args) {
+    _saleCertId = null; _saleCertBalance = 0; _saleCertSpend = 0;
+    const codeEl = document.getElementById('saleCertCode');
+    const msgEl = document.getElementById('saleCertMsg');
+    if (codeEl) codeEl.value = '';
+    if (msgEl) msgEl.textContent = '';
+    return _origOpenSaleModal(...args);
+  };
 
   async function openFinModal(backdrop, modal, setupFn) {
     finPopulateAccountSelects();
@@ -6298,7 +6442,8 @@
       salesCurrentBonusBalance,
       salesCurrentBookingPrice * (loadBonusSettings().max_spend_pct / 100),
     );
-    const finalTotal = Math.max(0, afterDiscount - bonusSpend);
+    _saleCertSpend = Math.min(_saleCertBalance, Math.max(0, afterDiscount - bonusSpend));
+    const finalTotal = Math.max(0, afterDiscount - bonusSpend - _saleCertSpend);
     document.getElementById('saleTotalDisplay').textContent = formatPrice(finalTotal);
     if (els.saleBonusHint && salesCurrentBonusBalance > 0) {
       const maxBonus = Math.floor(salesCurrentBookingPrice * loadBonusSettings().max_spend_pct / 100);
@@ -6392,6 +6537,13 @@
     if (clientIdForBonus && (bonusSpend > 0 || bonusAccrual > 0)) {
       const newBalance = Math.max(0, oldBalance - bonusSpend) + bonusAccrual;
       void apiCall('PATCH', `/api/clients/${clientIdForBonus}`, { bonus_balance: newBalance });
+    }
+    // Redeem certificate if used
+    if (_saleCertId && _saleCertSpend > 0) {
+      void finApi('POST', `/certificates/${_saleCertId}/redeem`, {
+        amount: _saleCertSpend,
+        booking_id: salesCurrentBookingId,
+      });
     }
     closeSaleModal();
     closeBookingModal();

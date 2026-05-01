@@ -1370,6 +1370,7 @@
             <button type="button" class="subnav-item" data-fin-tab="ops">Кассовые операции</button>
             <button type="button" class="subnav-item" data-fin-tab="categories">Статьи</button>
             <button type="button" class="subnav-item" data-fin-tab="counterparties">Контрагенты</button>
+            <button type="button" class="subnav-item" data-fin-tab="certificates">Сертификаты</button>
           </nav>
 
           <!-- Доходы и расходы -->
@@ -1532,7 +1533,69 @@
               <div id="finCpartyList" class="data-list"></div>
             </div>
           </div>
+
+          <!-- ===== CERTIFICATES TAB ===== -->
+          <div id="finTabCertificates" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Подарочные сертификаты</h2>
+                <span class="counter" id="certCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <select id="certStatusFilter" class="input-sm" style="width:130px;">
+                    <option value="active">Активные</option>
+                    <option value="used">Использованные</option>
+                    <option value="all">Все</option>
+                  </select>
+                  <button type="button" class="btn-primary btn-sm" id="certAddBtn">+ Продать сертификат</button>
+                </div>
+              </div>
+              <div id="certList" class="data-list"></div>
+            </div>
+          </div>
         </section>
+
+        <!-- Modal: sell certificate -->
+        <div class="modal-backdrop" id="certModalBackdrop" hidden></div>
+        <div class="modal" id="certModal" hidden role="dialog" aria-modal="true" style="max-width:480px;">
+          <div class="modal-head">
+            <h3>Продать сертификат</h3>
+            <button type="button" class="modal-close" id="certModalClose">×</button>
+          </div>
+          <form class="modal-body" id="certForm">
+            <div class="form-grid">
+              <div>
+                <label for="certAmount">Номинал, ₽ *</label>
+                <input id="certAmount" name="amount" type="number" min="100" step="500" required placeholder="3000" />
+              </div>
+              <div>
+                <label for="certExpires">Действует до</label>
+                <input id="certExpires" name="expires_at" type="date" />
+              </div>
+              <div class="form-grid-full">
+                <label for="certClientName">Получатель (необязательно)</label>
+                <input id="certClientName" name="client_name" type="text" maxlength="200" placeholder="Имя получателя" />
+              </div>
+              <div class="form-grid-full">
+                <label for="certNotes">Примечание</label>
+                <input id="certNotes" name="notes" type="text" maxlength="500" />
+              </div>
+            </div>
+            <div class="form-actions" style="margin-top:16px;">
+              <button type="submit" class="btn-primary" id="certSubmitBtn">Продать</button>
+              <button type="button" class="btn-ghost" id="certModalCancel">Отмена</button>
+            </div>
+            <div id="certFormError" class="form-error" hidden></div>
+          </form>
+          <!-- Result after creation -->
+          <div id="certResult" hidden style="padding:20px;text-align:center;">
+            <div style="font-size:48px;margin-bottom:8px;">🎁</div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:.08em;color:var(--primary);margin-bottom:4px;" id="certResultCode"></div>
+            <div style="font-size:14px;color:var(--text-dim);margin-bottom:16px;" id="certResultInfo"></div>
+            <button type="button" class="btn-primary" id="certResultCopy">Скопировать код</button>
+            <button type="button" class="btn-ghost" style="margin-left:8px;" id="certResultClose">Закрыть</button>
+          </div>
+        </div>
 
         <!-- Modal: counterparty create/edit -->
         <div class="modal-backdrop" id="finCpartyBackdrop" hidden></div>
@@ -2075,6 +2138,15 @@
             <div id="salePromoMsg" style="font-size:12px;margin-top:-6px;min-height:16px;"></div>
             <label for="saleDiscount">Скидка, %</label>
             <input id="saleDiscount" name="discount_pct" type="number" min="0" max="100" step="1" value="0" />
+            <!-- Certificate section -->
+            <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:flex-end;">
+              <div>
+                <label for="saleCertCode">Сертификат</label>
+                <input id="saleCertCode" type="text" placeholder="GIFT-XXXXXXXX" style="text-transform:uppercase" autocomplete="off" />
+              </div>
+              <button type="button" class="btn-ghost btn-sm" id="saleCertApply" style="margin-bottom:1px">Проверить</button>
+            </div>
+            <div id="saleCertMsg" style="font-size:12px;margin-top:-6px;min-height:16px;"></div>
             <!-- Bonus section (shown only if client has bonuses and bonus program is enabled) -->
             <div id="saleBonusSection" hidden>
               <div class="sale-bonus-row">

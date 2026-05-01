@@ -10,6 +10,7 @@ import categoriesRoutes from './routes/categories';
 import counterpartiesRoutes from './routes/counterparties';
 import operationsRoutes from './routes/operations';
 import summaryRoutes from './routes/summary';
+import certificatesRoutes from './routes/certificates';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -34,6 +35,7 @@ app.use('/api/finance/categories', categoriesRoutes);
 app.use('/api/finance/counterparties', counterpartiesRoutes);
 app.use('/api/finance/operations', operationsRoutes);
 app.use('/api/finance/summary', summaryRoutes);
+app.use('/api/finance/certificates', certificatesRoutes);
 
 app.use(errorHandler);
 
