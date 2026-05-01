@@ -447,6 +447,8 @@ const completeSchema = z.object({
   payment_method: z.enum(['cash', 'card', 'online']).default('cash'),
   discount_pct: z.number().min(0).max(100).default(0),
   promo_code: z.string().optional(),
+  bonus_spend: z.number().min(0).default(0),
+  bonus_accrual: z.number().min(0).default(0),
 });
 
 router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
@@ -485,13 +487,21 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
            discount_pct = $4,
            discount_amount = ROUND(total_price * $4 / 100, 2),
            promo_id = $5,
-           promo_code = $6
+           promo_code = $6,
+           bonus_spend   = $7,
+           bonus_accrual = $8
        WHERE company_id = $1 AND id = $2 AND status IN ('confirmed', 'pending')
        RETURNING *,
          total_price::float8 AS total_price,
          discount_amount::float8 AS discount_amount,
-         (total_price - discount_amount)::float8 AS paid_amount`,
-      [req.auth!.company_id, req.params.id, input.payment_method, discountPct, promoId, input.promo_code?.toUpperCase() ?? null],
+         bonus_spend::float8   AS bonus_spend,
+         bonus_accrual::float8 AS bonus_accrual,
+         (total_price - discount_amount - bonus_spend)::float8 AS paid_amount`,
+      [
+        req.auth!.company_id, req.params.id, input.payment_method, discountPct,
+        promoId, input.promo_code?.toUpperCase() ?? null,
+        input.bonus_spend, input.bonus_accrual,
+      ],
     );
     if (!upd.rows[0]) {
       await client.query('ROLLBACK');

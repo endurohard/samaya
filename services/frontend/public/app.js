@@ -3333,15 +3333,44 @@
   }
 
   // ===== Bonus program =====
-  const BONUS_LS_KEY = 'samaya_bonus_settings_v1';
+
+  // Cached bonus settings from company profile (single source of truth = settings_jsonb.bonus)
+  let _bonusSettingsCache = null;
+  const BONUS_DEFAULTS = { accrual_rate: 5, max_spend_pct: 30, enabled: true };
 
   function loadBonusSettings() {
-    try { return JSON.parse(localStorage.getItem(BONUS_LS_KEY) || 'null') || { accrual_rate: 5, max_spend_pct: 30 }; }
-    catch { return { accrual_rate: 5, max_spend_pct: 30 }; }
+    // If company profile already loaded (from Settings view), use it
+    if (cachedCompanyProfile?.settings_jsonb?.bonus) {
+      return { ...BONUS_DEFAULTS, ...cachedCompanyProfile.settings_jsonb.bonus };
+    }
+    // Fallback: use local cache if populated this session
+    if (_bonusSettingsCache) return _bonusSettingsCache;
+    // Last resort: old localStorage key for backwards compatibility
+    try {
+      const ls = JSON.parse(localStorage.getItem('samaya_bonus_settings_v1') || 'null');
+      return ls ? { ...BONUS_DEFAULTS, ...ls } : BONUS_DEFAULTS;
+    } catch { return BONUS_DEFAULTS; }
   }
 
-  function saveBonusSettings(s) {
-    localStorage.setItem(BONUS_LS_KEY, JSON.stringify(s));
+  async function ensureBonusSettings() {
+    if (cachedCompanyProfile?.settings_jsonb) return;
+    const r = await setApi('GET', '/company');
+    if (r.ok) {
+      cachedCompanyProfile = r.data;
+      _bonusSettingsCache = cachedCompanyProfile?.settings_jsonb?.bonus || null;
+    }
+  }
+
+  async function saveBonusSettingsToDb(s) {
+    await ensureBonusSettings();
+    const settings = { ...(cachedCompanyProfile?.settings_jsonb || {}) };
+    settings.bonus = s;
+    const r = await setApi('PUT', '/company', { settings_jsonb: settings });
+    if (r.ok) {
+      cachedCompanyProfile = r.data;
+      _bonusSettingsCache = s;
+    }
+    return r.ok;
   }
 
   function initBonusSettingsForm() {
@@ -3350,19 +3379,22 @@
     if (els.bonusMaxSpend) els.bonusMaxSpend.value = s.max_spend_pct;
   }
 
-  els.bonusSettingsSave?.addEventListener('click', () => {
+  els.bonusSettingsSave?.addEventListener('click', async () => {
     const s = {
       accrual_rate: Math.max(0, Math.min(100, parseFloat(els.bonusAccrualRate?.value) || 0)),
       max_spend_pct: Math.max(0, Math.min(100, parseFloat(els.bonusMaxSpend?.value) || 0)),
+      enabled: true,
     };
-    saveBonusSettings(s);
+    const ok = await saveBonusSettingsToDb(s);
     if (els.bonusSettingsSaved) {
+      els.bonusSettingsSaved.textContent = ok ? 'Сохранено ✓' : 'Ошибка сохранения';
       els.bonusSettingsSaved.hidden = false;
-      setTimeout(() => { if (els.bonusSettingsSaved) els.bonusSettingsSaved.hidden = true; }, 2000);
+      setTimeout(() => { if (els.bonusSettingsSaved) els.bonusSettingsSaved.hidden = true; }, 2500);
     }
   });
 
   async function activateBonusTab() {
+    await ensureBonusSettings();
     initBonusSettingsForm();
     const r = await apiCall('GET', '/api/clients?segment=all&limit=200');
     if (!r.ok || !r.data) return;
@@ -6331,10 +6363,21 @@
     const btn = document.getElementById('saleModalSubmit');
     btn.disabled = true; btn.textContent = 'Проводим…';
 
+    const bonusSettings = loadBonusSettings();
+    const bonusSpend = Math.min(
+      Number(els.saleBonusSpend?.value) || 0,
+      salesCurrentBonusBalance,
+      salesCurrentBookingPrice * (bonusSettings.max_spend_pct / 100),
+    );
+    const paidAmount = salesCurrentBookingPrice * (1 - discountPct / 100) - bonusSpend;
+    const bonusAccrual = Math.floor(Math.max(0, paidAmount) * (bonusSettings.accrual_rate / 100));
+
     const { ok, data } = await apiCall('POST', `/api/bookings/${salesCurrentBookingId}/complete`, {
       payment_method: method,
       discount_pct: discountPct,
       ...(promoCode ? { promo_code: promoCode } : {}),
+      bonus_spend: Math.round(bonusSpend * 100) / 100,
+      bonus_accrual: bonusAccrual,
     });
 
     btn.disabled = false; btn.textContent = 'Провести оплату';
@@ -6343,14 +6386,7 @@
       alert('Ошибка: ' + (data?.error || 'неизвестная ошибка'));
       return;
     }
-    // Handle bonus: spend + accrue
-    const bonusSpend = Math.min(
-      Number(els.saleBonusSpend?.value) || 0,
-      salesCurrentBonusBalance,
-      salesCurrentBookingPrice * (loadBonusSettings().max_spend_pct / 100),
-    );
-    const paidAmount = salesCurrentBookingPrice * (1 - discountPct / 100) - bonusSpend;
-    const bonusAccrual = Math.floor(Math.max(0, paidAmount) * loadBonusSettings().accrual_rate / 100);
+    // Update client bonus balance
     const clientIdForBonus = salesCurrentClientId;
     const oldBalance = salesCurrentBonusBalance;
     if (clientIdForBonus && (bonusSpend > 0 || bonusAccrual > 0)) {
