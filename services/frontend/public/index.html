@@ -1941,6 +1941,37 @@
               <div id="anByMaster" class="an-master-list"></div>
             </div>
           </div>
+
+          <!-- Retention analytics row -->
+          <div class="analytics-grid" style="margin-top:16px;" id="retentionSection">
+            <!-- Funnel -->
+            <div class="card analytics-card">
+              <div class="analytics-card-title">Возвращаемость клиентов</div>
+              <div id="anRetentionKpi" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+                <div class="kpi-card" style="flex:1;min-width:120px;">
+                  <div class="kpi-label">Возвращаемость</div>
+                  <div class="kpi-value" id="anReturnRate">—</div>
+                </div>
+                <div class="kpi-card" style="flex:1;min-width:120px;">
+                  <div class="kpi-label">Ср. визитов</div>
+                  <div class="kpi-value" id="anAvgVisits">—</div>
+                </div>
+                <div class="kpi-card" style="flex:1;min-width:120px;">
+                  <div class="kpi-label">Всего клиентов</div>
+                  <div class="kpi-value" id="anTotalClients">—</div>
+                </div>
+              </div>
+              <div id="anFunnel" class="an-bars"></div>
+            </div>
+            <!-- At-risk clients -->
+            <div class="card analytics-card" style="grid-column:span 2;">
+              <div class="analytics-card-title" style="display:flex;align-items:center;gap:10px;">
+                Клиенты под риском (не приходили 30+ дней)
+                <span class="badge badge-red" id="anAtRiskCount">0</span>
+              </div>
+              <div id="anAtRiskList" style="max-height:320px;overflow-y:auto;"></div>
+            </div>
+          </div>
         </section>
 
         <!-- ===== VIEW: SALES ===== -->

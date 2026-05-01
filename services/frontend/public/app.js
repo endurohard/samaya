@@ -6055,12 +6055,62 @@
 
   async function loadAnalytics() {
     const { from, to } = getAnalyticsRange(analyticsPeriod);
-    const { ok, data } = await apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`);
-    if (!ok) return;
-    renderAnalyticsKpi(data.kpi);
-    renderAnalyticsByDay(data.by_day);
-    renderAnalyticsTopServices(data.top_services);
-    renderAnalyticsByMaster(data.by_master);
+    const [main, retention] = await Promise.all([
+      apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`),
+      apiCall('GET', '/api/bookings/retention'),
+    ]);
+    if (main.ok) {
+      renderAnalyticsKpi(main.data.kpi);
+      renderAnalyticsByDay(main.data.by_day);
+      renderAnalyticsTopServices(main.data.top_services);
+      renderAnalyticsByMaster(main.data.by_master);
+    }
+    if (retention.ok) renderRetention(retention.data);
+  }
+
+  function renderRetention({ summary, at_risk }) {
+    if (!summary) return;
+    const pct = (n) => `${n ?? 0}%`;
+    document.getElementById('anReturnRate').textContent = pct(summary.return_rate);
+    document.getElementById('anAvgVisits').textContent = summary.avg_visits ?? '—';
+    document.getElementById('anTotalClients').textContent = summary.total ?? 0;
+
+    const total = Number(summary.total) || 1;
+    const funnel = [
+      { label: '1 визит (разовые)', count: summary.one_time, cls: 'an-bar-fill--red' },
+      { label: '2–3 визита', count: summary.two_three, cls: 'an-bar-fill--yellow' },
+      { label: '4+ визитов (лояльные)', count: summary.loyal, cls: '' },
+    ];
+    document.getElementById('anFunnel').innerHTML = funnel.map(({ label, count, cls }) => {
+      const n = Number(count) || 0;
+      const pctW = Math.round((n / total) * 100);
+      return `<div class="an-bar-row" title="${label}: ${n}">
+        <div class="an-bar-label">${label}</div>
+        <div class="an-bar-track"><div class="an-bar-fill ${cls}" style="width:${pctW}%"></div></div>
+        <div class="an-bar-val">${n} <span style="color:var(--muted);font-size:11px;">(${pctW}%)</span></div>
+      </div>`;
+    }).join('');
+
+    const list = document.getElementById('anAtRiskList');
+    const countEl = document.getElementById('anAtRiskCount');
+    if (countEl) countEl.textContent = String(summary.at_risk_30 ?? 0);
+    if (!at_risk || !at_risk.length) {
+      list.innerHTML = '<div class="empty" style="padding:16px;">Все клиенты активны</div>';
+      return;
+    }
+    list.innerHTML = at_risk.map((c) => {
+      const phone = c.client_phone || '';
+      const days = c.days_since;
+      const urgency = days >= 90 ? 'badge-red' : days >= 60 ? 'badge-yellow' : 'badge-gray';
+      return `<div class="row-item" style="gap:10px;">
+        <div style="flex:1">
+          <div class="row-name">${escapeHtml(c.client_name || phone)}</div>
+          <div class="row-meta">${phone} · ${c.visits} визитов</div>
+        </div>
+        <span class="badge ${urgency}">${days} дн. назад</span>
+        ${phone ? `<a href="https://wa.me/${phone.replace(/\D/g,'')}" target="_blank" rel="noopener" class="btn-ghost btn-xs" style="flex-shrink:0;">WA</a>` : ''}
+      </div>`;
+    }).join('');
   }
 
   function renderAnalyticsKpi(kpi) {

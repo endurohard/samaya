@@ -188,6 +188,67 @@ router.get('/analytics', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Retention analytics =====
+router.get('/retention', async (req, res, next) => {
+  try {
+    const companyId = req.auth!.company_id;
+
+    const summaryRes = await pool.query(
+      `WITH combined AS (
+         SELECT client_id, client_phone, client_name,
+                COUNT(*) AS visits,
+                MAX(completed_at) AS last_visit
+         FROM bookings.bookings
+         WHERE company_id = $1
+           AND status = 'completed'
+           AND (client_id IS NOT NULL OR client_phone IS NOT NULL)
+         GROUP BY client_id, client_phone, client_name
+       )
+       SELECT
+         COUNT(*)                                                                         AS total,
+         COUNT(*) FILTER (WHERE visits = 1)                                              AS one_time,
+         COUNT(*) FILTER (WHERE visits BETWEEN 2 AND 3)                                 AS two_three,
+         COUNT(*) FILTER (WHERE visits >= 4)                                             AS loyal,
+         COUNT(*) FILTER (WHERE last_visit < NOW() - INTERVAL '30 days')               AS at_risk_30,
+         COUNT(*) FILTER (WHERE last_visit < NOW() - INTERVAL '60 days')               AS at_risk_60,
+         COUNT(*) FILTER (WHERE last_visit < NOW() - INTERVAL '90 days')               AS at_risk_90,
+         ROUND(AVG(visits)::numeric, 1)                                                  AS avg_visits,
+         ROUND(
+           COUNT(*) FILTER (WHERE visits > 1)::numeric / NULLIF(COUNT(*), 0) * 100, 1
+         )                                                                                AS return_rate
+       FROM combined`,
+      [companyId],
+    );
+
+    const atRiskRes = await pool.query(
+      `WITH combined AS (
+         SELECT client_id, client_phone, client_name,
+                COUNT(*) AS visits,
+                MAX(completed_at) AS last_visit
+         FROM bookings.bookings
+         WHERE company_id = $1
+           AND status = 'completed'
+           AND (client_id IS NOT NULL OR client_phone IS NOT NULL)
+         GROUP BY client_id, client_phone, client_name
+       )
+       SELECT client_id, client_phone, client_name,
+              visits::int,
+              last_visit,
+              EXTRACT(DAYS FROM NOW() - last_visit)::int AS days_since
+       FROM combined
+       WHERE last_visit < NOW() - INTERVAL '30 days'
+       ORDER BY last_visit ASC
+       LIMIT 30`,
+      [companyId],
+    );
+
+    return res.json({
+      summary: summaryRes.rows[0],
+      at_risk: atRiskRes.rows,
+    });
+  } catch (e) { return next(e); }
+});
+
 // ===== Get one =====
 router.get('/:id', async (req, res, next) => {
   try {

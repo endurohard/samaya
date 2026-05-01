@@ -2324,7 +2324,12 @@ body {
 .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
 
 /* Badge серый */
-.badge-gray { background: var(--border); color: var(--text-muted); }
+.badge-gray   { background: var(--border); color: var(--text-muted); }
+.badge-green  { background: #dcfce7; color: #16a34a; }
+.badge-yellow { background: #fef9c3; color: #854d0e; }
+.badge-red    { background: #fee2e2; color: #dc2626; }
+.an-bar-fill--red    { background: #f87171; }
+.an-bar-fill--yellow { background: #facc15; }
 
 /* info banner (под таблицей схем) */
 .sal-info-banner {
