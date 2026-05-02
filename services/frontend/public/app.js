@@ -3346,6 +3346,165 @@
     document.body.removeChild(a);
   }
 
+  // ===== CSV Import =====
+
+  let importParsedRows = [];
+  let importColumnMap = {}; // { phone, full_name, email, gender, birthday, comment } → column index
+
+  function parseCsv(text) {
+    // Remove BOM if present
+    const raw = text.replace(/^﻿/, '');
+    // Detect delimiter: comma, semicolon, or tab
+    const first = raw.split('\n')[0] || '';
+    const delim = first.includes(';') ? ';' : first.includes('\t') ? '\t' : ',';
+    const rows = [];
+    let inQ = false, cur = '', row = [];
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === '"') { inQ = !inQ; }
+      else if (!inQ && ch === delim) { row.push(cur.trim()); cur = ''; }
+      else if (!inQ && (ch === '\n' || (ch === '\r' && raw[i + 1] === '\n'))) {
+        if (ch === '\r') i++;
+        row.push(cur.trim()); rows.push(row); row = []; cur = '';
+      } else { cur += ch; }
+    }
+    if (cur || row.length) { row.push(cur.trim()); if (row.some(Boolean)) rows.push(row); }
+    return rows;
+  }
+
+  function detectColumnMap(headers) {
+    const map = {};
+    const norm = (s) => s.toLowerCase().replace(/[^а-яёa-z0-9]/gi, '');
+    const MATCHES = {
+      phone: ['телефон', 'phone', 'тел', 'tel', 'mobile'],
+      full_name: ['имя', 'name', 'fullname', 'полноеимя', 'фио', 'клиент'],
+      email: ['email', 'почта', 'mail', 'емейл'],
+      gender: ['пол', 'gender', 'sex'],
+      birthday: ['деньрождения', 'датарождения', 'birthday', 'born', 'dob'],
+      comment: ['комментарий', 'примечание', 'comment', 'note', 'notes', 'заметка'],
+    };
+    headers.forEach((h, idx) => {
+      const n = norm(h);
+      for (const [field, candidates] of Object.entries(MATCHES)) {
+        if (!(field in map) && candidates.some((c) => n.includes(c))) {
+          map[field] = idx;
+        }
+      }
+    });
+    return map;
+  }
+
+  function openImportModal() {
+    importParsedRows = [];
+    importColumnMap = {};
+    document.getElementById('importStep1').hidden = false;
+    document.getElementById('importStep2').hidden = true;
+    document.getElementById('importStep3').hidden = true;
+    document.getElementById('importDoImport').hidden = true;
+    document.getElementById('importFileInput').value = '';
+    document.getElementById('importModalBackdrop').hidden = false;
+    document.getElementById('importModal').hidden = false;
+  }
+
+  function closeImportModal() {
+    document.getElementById('importModalBackdrop').hidden = true;
+    document.getElementById('importModal').hidden = true;
+  }
+
+  function showImportPreview(rows) {
+    if (!rows.length) { alert('Файл пустой'); return; }
+    const headers = rows[0];
+    importColumnMap = detectColumnMap(headers);
+    importParsedRows = rows.slice(1).filter((r) => r.some(Boolean));
+
+    document.getElementById('importStep1').hidden = true;
+    document.getElementById('importStep2').hidden = false;
+    document.getElementById('importDoImport').hidden = false;
+
+    const info = document.getElementById('importPreviewInfo');
+    const hasPh = 'phone' in importColumnMap;
+    const hasNm = 'full_name' in importColumnMap;
+    info.innerHTML = `Строк данных: <strong>${importParsedRows.length}</strong>. ` +
+      (hasPh && hasNm
+        ? `Колонки распознаны: ${Object.entries(importColumnMap).map(([k, v]) => `${headers[v]} → ${k}`).join(', ')}.`
+        : `<span style="color:var(--danger)">⚠ Не найдены обязательные колонки «Телефон» и/или «Имя».</span>`);
+    document.getElementById('importDoImport').disabled = !(hasPh && hasNm);
+
+    // Preview table (first 5 rows)
+    const tbl = document.getElementById('importPreviewTable');
+    const preview = importParsedRows.slice(0, 5);
+    tbl.innerHTML = `<thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>` +
+      `<tbody>${preview.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  }
+
+  async function doImport() {
+    const btn = document.getElementById('importDoImport');
+    btn.disabled = true;
+    btn.textContent = 'Импортирую…';
+    const m = importColumnMap;
+    const apiRows = importParsedRows.map((r) => ({
+      phone: r[m.phone] || '',
+      full_name: r[m.full_name] || '',
+      email: m.email != null ? r[m.email] : undefined,
+      gender: m.gender != null ? r[m.gender] : undefined,
+      birthday: m.birthday != null ? r[m.birthday] : undefined,
+      comment: m.comment != null ? r[m.comment] : undefined,
+    })).filter((r) => r.phone && r.full_name);
+
+    try {
+      const result = await apiCall('POST', '/api/clients/import', { rows: apiRows });
+      document.getElementById('importStep2').hidden = true;
+      document.getElementById('importStep3').hidden = false;
+      const resEl = document.getElementById('importResultMsg');
+      const detEl = document.getElementById('importResultDetail');
+      resEl.innerHTML = `✅ Импорт завершён: создано <strong>${result.created}</strong>, обновлено <strong>${result.updated}</strong>`;
+      if (result.errors?.length) {
+        detEl.innerHTML = `<span style="color:var(--danger)">Ошибок: ${result.errors.length}</span>`;
+      } else {
+        detEl.textContent = `Всего обработано: ${result.total}`;
+      }
+      document.getElementById('importDoImport').hidden = true;
+      void loadClientsAll();
+    } catch (e) {
+      alert('Ошибка импорта: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Импортировать';
+    }
+  }
+
+  // Wire import modal
+  document.getElementById('clientsImportBtn')?.addEventListener('click', () => {
+    document.getElementById('clientsMoreMenu').hidden = true;
+    openImportModal();
+  });
+  document.getElementById('importModalClose')?.addEventListener('click', closeImportModal);
+  document.getElementById('importModalCancel')?.addEventListener('click', closeImportModal);
+  document.getElementById('importModalBackdrop')?.addEventListener('click', closeImportModal);
+  document.getElementById('importDoImport')?.addEventListener('click', doImport);
+
+  document.getElementById('importFileInput')?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => showImportPreview(parseCsv(ev.target.result));
+    reader.readAsText(file, 'UTF-8');
+  });
+
+  const dropzone = document.getElementById('importDropzone');
+  if (dropzone) {
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => showImportPreview(parseCsv(ev.target.result));
+      reader.readAsText(file, 'UTF-8');
+    });
+  }
+
   // ===== Bonus program =====
 
   // Cached bonus settings from company profile (single source of truth = settings_jsonb.bonus)

@@ -4172,3 +4172,25 @@ html, body { overflow-x: hidden; }
 .today-master-bar-wrap { grid-column: 1 / -1; height: 4px; background: var(--border); border-radius: 2px; }
 .today-master-bar { height: 4px; background: var(--primary); border-radius: 2px; transition: width 0.4s; }
 .today-empty { text-align: center; color: var(--text-muted); padding: 40px 0; font-size: 14px; }
+
+/* ===== Import CSV modal ===== */
+.import-dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: 12px;
+  padding: 32px 20px;
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: default;
+}
+.import-dropzone.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+#importPreviewTable th, #importPreviewTable td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+#importPreviewTable th { background: var(--bg-soft); font-weight: 600; font-size: 11px; }
+#importPreviewTable tr:last-child td { border-bottom: none; }

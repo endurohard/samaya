@@ -296,7 +296,7 @@
               <div class="clients-more-menu" id="clientsMoreMenu" hidden>
                 <button type="button" class="clients-more-item" id="clientsExportCsv">↓ Экспорт в CSV</button>
                 <button type="button" class="clients-more-item disabled" disabled title="Phase 1">↓ Экспорт в Excel</button>
-                <button type="button" class="clients-more-item disabled" disabled title="Phase 1">↑ Импорт</button>
+                <button type="button" class="clients-more-item" id="clientsImportBtn">↑ Импорт CSV</button>
               </div>
             </div>
           </div>
@@ -371,6 +371,53 @@
           </div><!-- /clientsTabList -->
 
           <!-- Modal: add/edit client -->
+          <!-- Modal: import CSV -->
+          <div class="modal-backdrop" id="importModalBackdrop" hidden></div>
+          <div class="modal" id="importModal" hidden role="dialog" aria-modal="true" aria-labelledby="importModalTitle" style="max-width:560px;">
+            <div class="modal-head">
+              <h3 id="importModalTitle">Импорт клиентов из CSV</h3>
+              <button type="button" class="modal-close" id="importModalClose">×</button>
+            </div>
+            <div class="modal-body" id="importModalBody">
+              <!-- Step 1: file pick -->
+              <div id="importStep1">
+                <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px;">
+                  Загрузите CSV-файл с клиентами. Обязательные колонки: <strong>Телефон</strong>, <strong>Имя</strong>.<br>
+                  Необязательные: Email, Пол (male/female), Дата рождения (ГГГГ-ММ-ДД), Комментарий.
+                </p>
+                <div class="import-dropzone" id="importDropzone">
+                  <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.4" style="color:var(--text-muted);margin-bottom:8px"><path d="M12 3v13M7 11l5 5 5-5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" stroke-linecap="round"/></svg>
+                  <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Перетащите CSV-файл</div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">или</div>
+                  <label class="btn-outline btn-sm" style="cursor:pointer;">
+                    Выбрать файл
+                    <input type="file" id="importFileInput" accept=".csv,text/csv" style="display:none;">
+                  </label>
+                </div>
+                <p style="font-size:12px;color:var(--text-muted);margin:10px 0 0;">
+                  Поддерживаются разделители: запятая, точка с запятой или табуляция. Кодировка UTF-8.
+                </p>
+              </div>
+              <!-- Step 2: preview -->
+              <div id="importStep2" hidden>
+                <div id="importPreviewInfo" style="font-size:13px;color:var(--text-dim);margin-bottom:10px;"></div>
+                <div style="overflow-x:auto;max-height:240px;border:1px solid var(--border);border-radius:8px;">
+                  <table id="importPreviewTable" style="width:100%;font-size:12px;border-collapse:collapse;"></table>
+                </div>
+                <div id="importFieldMap" style="margin-top:14px;"></div>
+              </div>
+              <!-- Step 3: result -->
+              <div id="importStep3" hidden>
+                <div id="importResultMsg" style="font-size:15px;font-weight:600;margin-bottom:8px;"></div>
+                <div id="importResultDetail" style="font-size:13px;color:var(--text-dim);"></div>
+              </div>
+            </div>
+            <div class="modal-foot" style="justify-content:flex-end;gap:8px;">
+              <button type="button" class="btn-outline" id="importModalCancel">Закрыть</button>
+              <button type="button" class="btn-primary" id="importDoImport" hidden>Импортировать</button>
+            </div>
+          </div>
+
           <div class="modal-backdrop" id="clientModalBackdrop" hidden></div>
           <div class="modal modal--wide" id="clientModal" hidden role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
             <div class="modal-head">

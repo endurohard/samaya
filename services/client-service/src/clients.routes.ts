@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireRole } from './middleware';
 import {
   listClients, segmentCounts, createClient, updateClient,
-  softDelete, restore, getClient, type Segment,
+  softDelete, restore, getClient, normalizePhone, pickAvatarColor, type Segment,
 } from './clients.service';
 import { pool } from './db';
 
@@ -98,6 +98,57 @@ router.get('/export.csv', async (req, res, next) => {
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="clients-${now}.csv"`);
     return res.send('﻿' + lines.join('\r\n')); // BOM for Excel
+  } catch (e) { return next(e); }
+});
+
+// ── CSV import (must be before /:id) ──
+const importRowSchema = z.object({
+  phone: z.string().min(5).max(50),
+  full_name: z.string().min(1).max(200),
+  email: z.string().email().optional().nullable().or(z.literal('').transform(() => null)),
+  gender: z.enum(['male', 'female']).optional().nullable().or(z.literal('').transform(() => null)),
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal('').transform(() => null)),
+  comment: z.string().max(1000).optional().nullable().or(z.literal('').transform(() => null)),
+});
+const importSchema = z.object({
+  rows: z.array(importRowSchema).min(1).max(5000),
+});
+
+router.post('/import', requireRole('admin', 'owner'), async (req, res, next) => {
+  try {
+    const { rows } = importSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    let created = 0; let updated = 0; const errors: { row: number; error: string }[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      try {
+        const phone = normalizePhone(r.phone);
+        const result = await pool.query(
+          `INSERT INTO clients.clients
+             (company_id, phone, full_name, email, gender, birthday, comment,
+              avatar_color, source)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'import')
+           ON CONFLICT (company_id, phone) DO UPDATE SET
+             full_name   = COALESCE(NULLIF(EXCLUDED.full_name,''), clients.clients.full_name),
+             email       = COALESCE(NULLIF(EXCLUDED.email::text,''), clients.clients.email::text),
+             gender      = COALESCE(EXCLUDED.gender, clients.clients.gender),
+             birthday    = COALESCE(EXCLUDED.birthday, clients.clients.birthday),
+             comment     = COALESCE(NULLIF(EXCLUDED.comment,''), clients.clients.comment),
+             updated_at  = NOW()
+           RETURNING (xmax = 0) AS inserted`,
+          [
+            companyId, phone, r.full_name,
+            r.email ?? null, r.gender ?? null, r.birthday ?? null, r.comment ?? null,
+            pickAvatarColor(phone),
+          ],
+        );
+        if (result.rows[0]?.inserted) created++; else updated++;
+      } catch (e) {
+        errors.push({ row: i + 1, error: (e as Error).message.slice(0, 100) });
+      }
+    }
+    return res.json({ created, updated, errors, total: rows.length });
   } catch (e) { return next(e); }
 });
 
