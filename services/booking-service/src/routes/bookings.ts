@@ -25,24 +25,24 @@ router.get('/', async (req, res, next) => {
   try {
     const q = listSchema.parse(req.query);
     const params: unknown[] = [req.auth!.company_id, q.from, q.to];
-    let where = `company_id = $1
-      AND starts_at >= $2::date
-      AND starts_at < ($3::date + INTERVAL '1 day')`;
+    let where = `b.company_id = $1
+      AND b.starts_at >= $2::date
+      AND b.starts_at < ($3::date + INTERVAL '1 day')`;
     if (q.master_id) {
       params.push(q.master_id);
-      where += ` AND master_id = $${params.length}`;
+      where += ` AND b.master_id = $${params.length}`;
     }
     if (q.client_phone) {
       params.push(q.client_phone);
-      where += ` AND client_phone = $${params.length}`;
+      where += ` AND b.client_phone = $${params.length}`;
     }
     if (q.client_id) {
       params.push(q.client_id);
-      where += ` AND client_id = $${params.length}`;
+      where += ` AND b.client_id = $${params.length}`;
     }
     if (q.status) {
       params.push(q.status);
-      where += ` AND status = $${params.length}`;
+      where += ` AND b.status = $${params.length}`;
     }
     const limitClause = q.limit ? ` LIMIT ${q.limit}` : '';
 
@@ -50,6 +50,7 @@ router.get('/', async (req, res, next) => {
       `SELECT b.id, b.master_id, b.manager_id, b.client_id, b.client_phone, b.client_name,
               b.starts_at, b.ends_at, b.status, b.notes, b.total_price::float8 AS total_price,
               b.source, b.created_at, b.updated_at, b.canceled_at, b.completed_at,
+              COALESCE(m.display_name, '') AS master_name,
               COALESCE(
                 (SELECT json_agg(json_build_object(
                     'service_id', bs.service_id,
@@ -61,6 +62,7 @@ router.get('/', async (req, res, next) => {
                 '[]'::json
               ) AS services
        FROM bookings.bookings b
+       LEFT JOIN salons.masters m ON m.id = b.master_id
        WHERE ${where}
        ORDER BY b.starts_at${limitClause}`,
       params,

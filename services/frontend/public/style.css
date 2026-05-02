@@ -4072,3 +4072,103 @@ html, body { overflow-x: hidden; }
 .broadcast-hist-stats { color: var(--text-muted); font-size: 12px; }
 .broadcast-hist-stats b { color: var(--success); }
 .broadcast-hist-stats .fail { color: var(--danger); }
+
+/* ===== Today Dashboard ===== */
+.view-today { padding: 0; background: var(--bg); }
+.today-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 28px 40px; }
+.today-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+.today-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+.today-subtitle { font-size: 14px; color: var(--text-dim); }
+.today-clock {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+.today-kpi {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-bottom: 28px;
+}
+@media (max-width: 900px) { .today-kpi { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 600px) { .today-kpi { grid-template-columns: repeat(2, 1fr); } }
+.today-kpi-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 16px 14px;
+  text-align: center;
+}
+.today-kpi-card.accent-green  { border-top: 3px solid var(--success); }
+.today-kpi-card.accent-blue   { border-top: 3px solid #3b82f6; }
+.today-kpi-card.accent-purple { border-top: 3px solid var(--primary); }
+.today-kpi-card.accent-orange { border-top: 3px solid var(--warn); }
+.today-kpi-val { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.today-kpi-lbl { font-size: 12px; color: var(--text-muted); }
+.today-body {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+}
+@media (max-width: 800px) { .today-body { grid-template-columns: 1fr; } }
+.today-section-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+.today-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.today-bk {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s;
+}
+.today-bk.status-completed { opacity: 0.55; }
+.today-bk.status-canceled  { opacity: 0.4; text-decoration: line-through; }
+.today-bk.status-active    { border-color: var(--primary); background: var(--primary-soft); }
+.today-bk-time { font-size: 13px; font-weight: 600; color: var(--primary); line-height: 1.3; }
+.today-bk-time small { display: block; font-weight: 400; color: var(--text-muted); font-size: 11px; }
+.today-bk-info { min-width: 0; }
+.today-bk-client { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.today-bk-master { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
+.today-bk-services { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.today-bk-price { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.today-bk-status { font-size: 11px; color: var(--text-muted); }
+.today-masters-list { display: flex; flex-direction: column; gap: 8px; }
+.today-master-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.today-master-name { font-size: 14px; font-weight: 600; }
+.today-master-count { font-size: 12px; color: var(--text-dim); }
+.today-master-bar-wrap { grid-column: 1 / -1; height: 4px; background: var(--border); border-radius: 2px; }
+.today-master-bar { height: 4px; background: var(--primary); border-radius: 2px; transition: width 0.4s; }
+.today-empty { text-align: center; color: var(--text-muted); padding: 40px 0; font-size: 14px; }

@@ -2,6 +2,7 @@
   'use strict';
 
   const VIEW_TITLES = {
+    today: 'Сегодня',
     profile: 'Профиль',
     journal: 'Журнал записей',
     schedule: 'График работы',
@@ -591,6 +592,10 @@
     }
     if (view === 'analytics') {
       void loadMasters().then(() => activateAnalyticsView());
+      return;
+    }
+    if (view === 'today') {
+      void loadTodayDashboard();
       return;
     }
   }
@@ -6271,6 +6276,122 @@
       return { from: `${new Date(today + 'T00:00:00').getFullYear()}-01-01`, to: today };
     }
     return { from: today, to: today };
+  }
+
+  // ===== Today Dashboard =====
+  let todayClockTimer = null;
+
+  function startTodayClock() {
+    const el = document.getElementById('todayClock');
+    if (!el) return;
+    const tick = () => {
+      const now = new Date();
+      el.textContent = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    };
+    tick();
+    if (todayClockTimer) clearInterval(todayClockTimer);
+    todayClockTimer = setInterval(tick, 1000);
+  }
+
+  async function loadTodayDashboard() {
+    const today = todayLocalISO();
+
+    // header
+    const dayEl = document.getElementById('todayDayLabel');
+    const dateEl = document.getElementById('todayDateFull');
+    if (dayEl) dayEl.textContent = 'Сегодня';
+    if (dateEl) {
+      dateEl.textContent = new Date(today + 'T12:00:00').toLocaleDateString('ru-RU', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      });
+    }
+    startTodayClock();
+
+    // fetch bookings for today
+    let bookings = [];
+    try {
+      const r = await apiFetch(`/api/bookings?from=${today}&to=${today}&limit=200`);
+      bookings = r.items || [];
+    } catch { /* show empty state */ }
+
+    // KPIs
+    const total = bookings.length;
+    const completed = bookings.filter((b) => b.status === 'completed').length;
+    const active = bookings.filter((b) => b.status === 'pending' || b.status === 'confirmed').length;
+    const canceled = bookings.filter((b) => b.status === 'canceled' || b.status === 'no_show').length;
+    const revenue = bookings
+      .filter((b) => b.status === 'completed')
+      .reduce((s, b) => s + (b.total_price || 0), 0);
+
+    const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+    set('tdTotal', total);
+    set('tdCompleted', completed);
+    set('tdActive', active);
+    set('tdCanceled', canceled);
+    set('tdRevenue', formatPrice(revenue));
+
+    // Timeline
+    const tlEl = document.getElementById('todayTimeline');
+    if (tlEl) {
+      if (!bookings.length) {
+        tlEl.innerHTML = '<div class="today-empty">Записей на сегодня нет</div>';
+      } else {
+        const STATUS_RU = { pending: 'Ожидает', confirmed: 'Подтверждена', completed: 'Выполнена', canceled: 'Отменена', no_show: 'Не пришёл' };
+        const nowMs = Date.now();
+        tlEl.innerHTML = bookings.map((b) => {
+          const start = new Date(b.starts_at);
+          const end = new Date(b.ends_at);
+          const isActive = nowMs >= start.getTime() && nowMs < end.getTime() && b.status !== 'canceled' && b.status !== 'completed';
+          const svcNames = (b.services || []).map((s) => s.service_name).join(', ');
+          const masterName = b.master_name || '';
+          return `<div class="today-bk status-${b.status}${isActive ? ' status-active' : ''}">
+            <div class="today-bk-time">
+              ${start.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+              <small>${end.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</small>
+            </div>
+            <div class="today-bk-info">
+              <div class="today-bk-client">${escapeHtml(b.client_name || b.client_phone)}</div>
+              ${masterName ? `<div class="today-bk-master">${escapeHtml(masterName)}</div>` : ''}
+              <div class="today-bk-services">${escapeHtml(svcNames)}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="today-bk-price">${formatPrice(b.total_price)}</div>
+              <div class="today-bk-status">${STATUS_RU[b.status] || b.status}</div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Masters load
+    const mastersEl = document.getElementById('todayMasters');
+    if (mastersEl) {
+      const byMaster = {};
+      for (const b of bookings) {
+        if (b.status === 'canceled' || b.status === 'no_show') continue;
+        const key = b.master_id || 'unknown';
+        const name = b.master_name || b.master_id || 'Не назначен';
+        if (!byMaster[key]) byMaster[key] = { name, count: 0 };
+        byMaster[key].count++;
+      }
+      const entries = Object.values(byMaster).sort((a, b) => b.count - a.count);
+      const maxCount = entries[0]?.count || 1;
+      if (!entries.length) {
+        mastersEl.innerHTML = '<div class="today-empty">Нет активных мастеров</div>';
+      } else {
+        mastersEl.innerHTML = entries.map((m) => {
+          const pct = Math.round((m.count / maxCount) * 100);
+          return `<div class="today-master-row">
+            <div class="today-master-name">${escapeHtml(m.name)}</div>
+            <div class="today-master-count">${m.count} зап.</div>
+            <div class="today-master-bar-wrap"><div class="today-master-bar" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Refresh button
+    document.getElementById('todayRefreshBtn')?.addEventListener('click', () => loadTodayDashboard(), { once: true });
   }
 
   async function activateAnalyticsView() {
