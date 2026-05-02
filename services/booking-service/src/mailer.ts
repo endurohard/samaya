@@ -168,6 +168,30 @@ export function buildReviewEmail(opts: {
   return { subject, html };
 }
 
+export function buildBirthdayEmail(opts: {
+  clientName: string;
+  salonName: string;
+  customText?: string | null;
+  frontendUrl?: string;
+}): { subject: string; html: string } {
+  const subject = `С Днём рождения, ${opts.clientName}! 🎂`;
+  const body = opts.customText
+    ? opts.customText.replace(/\{client_name\}/g, opts.clientName).replace(/\{salon_name\}/g, opts.salonName)
+    : `Поздравляем вас с Днём рождения! 🎉 Желаем здоровья, красоты и прекрасного настроения. Будем рады видеть вас снова в нашем салоне!`;
+  const html = baseLayout('С Днём рождения!', `
+    <div style="text-align:center;font-size:48px;margin-bottom:8px;">🎂</div>
+    <h2 style="color:#1a1a2e;font-size:22px;margin:0 0 16px;text-align:center;">С Днём рождения!</h2>
+    <p style="color:#374151;font-size:15px;margin:0 0 20px;line-height:1.6;">
+      Дорогая <strong>${opts.clientName}</strong>,<br><br>
+      ${body}
+    </p>
+    <p style="color:#6b7280;font-size:13px;margin:0;text-align:center;">
+      С любовью, команда <strong>${opts.salonName}</strong> 💅
+    </p>
+  `);
+  return { subject, html };
+}
+
 export function buildMasterNotifyEmail(opts: {
   masterName: string;
   clientName: string;

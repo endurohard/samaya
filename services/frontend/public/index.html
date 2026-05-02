@@ -1845,6 +1845,26 @@
                     Телефон и email мастера указываются в карточке сотрудника
                   </div>
                 </div>
+
+                <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px;">
+                  <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">ПОЗДРАВЛЕНИЯ С ДНЁМ РОЖДЕНИЯ</div>
+                  <div class="set-notify-row">
+                    <label><input type="checkbox" name="birthday_wa" id="setNotifyBirthdayWa" />
+                      WA-поздравление клиенту в день рождения</label>
+                  </div>
+                  <div class="set-notify-row" style="margin-top:4px;">
+                    <label><input type="checkbox" name="birthday_email" id="setNotifyBirthdayEmail" />
+                      Email-поздравление клиенту в день рождения</label>
+                  </div>
+                  <div style="margin-top:10px;">
+                    <label style="font-size:12px;color:var(--text-dim);display:block;margin-bottom:4px;">
+                      Текст поздравления <span style="font-weight:400;">({client_name} и {salon_name} будут подставлены автоматически)</span>
+                    </label>
+                    <textarea id="setNotifyBirthdayTpl" name="birthday_tpl" rows="2"
+                      style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;"
+                      placeholder="С Днём рождения, {client_name}! 🎂 Ждём вас в {salon_name}!"></textarea>
+                  </div>
+                </div>
                 <div id="setNotificationsSaved" class="empty" hidden style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;margin-top:8px;">Сохранено ✓</div>
               </form>
             </div>

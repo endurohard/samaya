@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { pool } from './db';
 import { config } from './config';
-import { sendMail, buildReminderEmail } from './mailer';
+import { sendMail, buildReminderEmail, buildBirthdayEmail } from './mailer';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -199,12 +199,108 @@ async function processReminders(): Promise<void> {
   }
 }
 
+// ── Birthday greetings ──────────────────────────────────────────────────────
+
+async function processBirthdays(): Promise<void> {
+  const companies = await pool.query<{
+    company_id: string;
+    timezone: string;
+    wa_birthday: boolean;
+    email_birthday: boolean;
+    birthday_tpl: string | null;
+    salon_name: string | null;
+  }>(
+    `SELECT cp.company_id,
+            COALESCE(cp.timezone, 'Europe/Moscow') AS timezone,
+            COALESCE((cp.settings_jsonb->'notifications'->>'birthday_wa')::boolean, FALSE)    AS wa_birthday,
+            COALESCE((cp.settings_jsonb->'notifications'->>'birthday_email')::boolean, FALSE) AS email_birthday,
+            cp.settings_jsonb->'notifications'->>'birthday_tpl' AS birthday_tpl,
+            cp.name AS salon_name
+     FROM salons.company_profile cp
+     WHERE COALESCE((cp.settings_jsonb->'notifications'->>'birthday_wa')::boolean, FALSE)    = TRUE
+        OR COALESCE((cp.settings_jsonb->'notifications'->>'birthday_email')::boolean, FALSE) = TRUE`,
+  );
+  if (companies.rows.length === 0) return;
+
+  for (const company of companies.rows) {
+    const { company_id, timezone, wa_birthday, email_birthday, birthday_tpl, salon_name } = company;
+
+    // today in company timezone
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: timezone }); // YYYY-MM-DD
+    const [yyyy, mm, dd] = todayStr.split('-');
+
+    const clients = await pool.query<{
+      id: string;
+      full_name: string;
+      phone: string;
+      email: string | null;
+      birthday_last_sent: string | null;
+    }>(
+      `SELECT id, full_name, phone::text AS phone, email::text AS email, birthday_last_sent::text
+       FROM clients.clients
+       WHERE company_id = $1
+         AND is_deleted = FALSE AND is_blocked = FALSE
+         AND birthday IS NOT NULL
+         AND EXTRACT(MONTH FROM birthday) = $2
+         AND EXTRACT(DAY   FROM birthday) = $3
+         AND (birthday_last_sent IS NULL
+              OR EXTRACT(YEAR FROM birthday_last_sent) < $4::int)`,
+      [company_id, mm, dd, yyyy],
+    );
+
+    for (const cl of clients.rows) {
+      let sent = false;
+
+      if (wa_birthday && cl.phone) {
+        try {
+          const tpl = birthday_tpl
+            || 'С Днём рождения, {client_name}! 🎂 Мы рады видеть вас в нашем салоне. Приходите — ждём вас с удовольствием! 💅';
+          const msg = tpl
+            .replace(/\{client_name\}/g, cl.full_name)
+            .replace(/\{salon_name\}/g, salon_name || 'Samaya');
+          await sendWa(cl.phone, msg);
+          sent = true;
+        } catch (e) {
+          log.warn({ client_id: cl.id, err: (e as Error).message }, '[birthday] WA FAIL');
+        }
+      }
+
+      if (email_birthday && cl.email) {
+        try {
+          const { subject, html } = buildBirthdayEmail({
+            clientName: cl.full_name,
+            salonName: salon_name || 'Samaya',
+            customText: birthday_tpl,
+          });
+          await sendMail({ to: cl.email, subject, html });
+          sent = true;
+        } catch (e) {
+          log.warn({ client_id: cl.id, err: (e as Error).message }, '[birthday] email FAIL');
+        }
+      }
+
+      if (sent) {
+        await pool.query(
+          `UPDATE clients.clients SET birthday_last_sent = $1 WHERE id = $2`,
+          [todayStr, cl.id],
+        );
+        log.info({ client_id: cl.id, full_name: cl.full_name }, '[birthday] sent');
+      }
+    }
+  }
+}
+
 export function startReminderScheduler(): void {
   setTimeout(() => {
     processReminders().catch((e) => log.error(e, '[reminders] tick error'));
+    processBirthdays().catch((e) => log.error(e, '[birthday] tick error'));
     setInterval(() => {
       processReminders().catch((e) => log.error(e, '[reminders] tick error'));
     }, config.REMINDER_INTERVAL_MS);
+    // Birthday check раз в час
+    setInterval(() => {
+      processBirthdays().catch((e) => log.error(e, '[birthday] tick error'));
+    }, 60 * 60 * 1000);
   }, 60_000);
 
   log.info({ interval_ms: config.REMINDER_INTERVAL_MS }, '[reminders] scheduler started');

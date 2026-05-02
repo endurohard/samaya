@@ -5578,6 +5578,10 @@
     setChk('setNotifyEmailReminder', 'email_reminder');
     setChk('setNotifyMasterWa', 'notify_master_wa');
     setChk('setNotifyMasterEmail', 'notify_master_email');
+    setChk('setNotifyBirthdayWa', 'birthday_wa');
+    setChk('setNotifyBirthdayEmail', 'birthday_email');
+    const bTplEl = document.getElementById('setNotifyBirthdayTpl');
+    if (bTplEl) bTplEl.value = n.birthday_tpl || '';
     const tplBlock = document.getElementById('setReminderTplBlock');
     const cb = document.getElementById('setNotifyWaReminder');
     if (tplBlock && cb) {
@@ -5723,6 +5727,9 @@
       email_reminder: document.getElementById('setNotifyEmailReminder')?.checked || false,
       notify_master_wa: document.getElementById('setNotifyMasterWa')?.checked || false,
       notify_master_email: document.getElementById('setNotifyMasterEmail')?.checked || false,
+      birthday_wa: document.getElementById('setNotifyBirthdayWa')?.checked || false,
+      birthday_email: document.getElementById('setNotifyBirthdayEmail')?.checked || false,
+      birthday_tpl: (document.getElementById('setNotifyBirthdayTpl')?.value || '').trim() || null,
       wa_reminder_tpl_24h: (document.getElementById('setReminderTpl24h')?.value || '').trim() || null,
       wa_reminder_tpl_2h: (document.getElementById('setReminderTpl2h')?.value || '').trim() || null,
     };
