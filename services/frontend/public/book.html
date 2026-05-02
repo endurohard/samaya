@@ -244,6 +244,10 @@
       <input id="fPhone" type="tel" placeholder="+7 (___) ___-__-__" autocomplete="tel" />
     </div>
     <div class="form-field">
+      <label for="fEmail">Email (для подтверждения записи)</label>
+      <input id="fEmail" type="email" placeholder="example@mail.ru" autocomplete="email" />
+    </div>
+    <div class="form-field">
       <label for="fNote">Примечание (необязательно)</label>
       <input id="fNote" type="text" placeholder="Пожелания, вопросы…" />
     </div>
@@ -474,12 +478,14 @@ $('btn4submit').addEventListener('click', async () => {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-inline"></span>';
   try {
+    const emailVal = $('fEmail')?.value.trim();
     const body = {
       master_id: state.master.id,
       service_ids: state.services.map(s => s.id),
       starts_at: state.slot.starts_at,
       client_name: name,
       client_phone: phone,
+      client_email: emailVal || undefined,
       notes: $('fNote').value.trim() || undefined,
     };
     const r = await fetch(`${API}/bookings/public/create`, {

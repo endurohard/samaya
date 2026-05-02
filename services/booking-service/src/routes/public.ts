@@ -79,25 +79,62 @@ router.post('/create', async (req, res, next) => {
 
     await client.query('COMMIT');
 
-    // Fire-and-forget confirmation email
-    const emailTarget = input.client_email;
-    if (emailTarget) {
-      const masterRow = await pool.query(
-        `SELECT display_name FROM salons.masters WHERE id = $1`, [input.master_id],
-      );
-      setImmediate(async () => {
-        try {
-          const { subject, html } = buildConfirmationEmail({
-            clientName: input.client_name,
-            masterName: masterRow.rows[0]?.display_name || 'мастер',
-            services: services.map((s) => s.name).join(', '),
-            startsAt: booking.starts_at,
-            totalPrice: booking.total_price,
-          });
-          await sendMail({ to: emailTarget, subject, html });
-        } catch { /* ignore */ }
-      });
-    }
+    // Fire-and-forget: confirmation email to client + alert to admin
+    setImmediate(async () => {
+      try {
+        const [masterRow, settingsRow] = await Promise.all([
+          pool.query(`SELECT display_name FROM salons.masters WHERE id = $1`, [input.master_id]),
+          pool.query(
+            `SELECT u.email::text AS owner_email,
+                    cp.settings_jsonb->'notifications'->>'email_reminder' AS email_remind
+             FROM salons.company_profile cp
+             JOIN users.users u ON u.company_id = cp.company_id AND u.role = 'owner'
+             WHERE cp.company_id = $1
+             LIMIT 1`,
+            [companyId],
+          ),
+        ]);
+        const masterName = masterRow.rows[0]?.display_name || 'мастер';
+        const servicesList = services.map((s) => s.name).join(', ');
+
+        // Confirmation to client
+        if (input.client_email) {
+          try {
+            const { subject, html } = buildConfirmationEmail({
+              clientName: input.client_name,
+              masterName,
+              services: servicesList,
+              startsAt: booking.starts_at,
+              totalPrice: booking.total_price,
+            });
+            await sendMail({ to: input.client_email, subject, html });
+          } catch { /* ignore */ }
+        }
+
+        // New booking alert to owner (always if owner has email)
+        const ownerEmail = settingsRow.rows[0]?.owner_email;
+        if (ownerEmail) {
+          try {
+            const d = new Date(booking.starts_at).toLocaleString('ru-RU', {
+              day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+              timeZone: 'Europe/Moscow',
+            });
+            await sendMail({
+              to: ownerEmail,
+              subject: `Новая запись: ${input.client_name}, ${d}`,
+              html: `<p style="font-family:sans-serif">
+                <b>Новая запись через виджет</b><br><br>
+                Клиент: <b>${input.client_name}</b> (${input.client_phone})<br>
+                Дата: <b>${d}</b><br>
+                Мастер: <b>${masterName}</b><br>
+                Услуги: ${servicesList}<br>
+                Сумма: <b>${booking.total_price} ₽</b>
+              </p>`,
+            });
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    });
 
     return res.status(201).json({
       booking_id: booking.id,

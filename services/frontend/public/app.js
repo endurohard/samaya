@@ -3242,6 +3242,8 @@
       if (els.clientTabAnalyzes) els.clientTabAnalyzes.disabled = false;
       const waSendBtn = document.getElementById('clWaSendBtn');
       if (waSendBtn) { waSendBtn.hidden = !c.phone; waSendBtn.dataset.phone = c.phone || ''; }
+      const waPortalBtn = document.getElementById('clWaSendPortalBtn');
+      if (waPortalBtn) { waPortalBtn.hidden = !c.phone; waPortalBtn.dataset.phone = c.phone || ''; waPortalBtn.dataset.clientId = c.id; }
       // Show bonus section
       if (els.clBonusSection) {
         els.clBonusSection.hidden = false;
@@ -3504,6 +3506,32 @@
   if (els.clientModalClose) els.clientModalClose.addEventListener('click', closeClientModal);
   if (els.clientModalBackdrop) els.clientModalBackdrop.addEventListener('click', closeClientModal);
   if (els.clientDelete) els.clientDelete.addEventListener('click', deleteClient);
+
+  document.getElementById('clWaSendPortalBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('clWaSendPortalBtn');
+    const phone = btn?.dataset.phone || '';
+    if (!phone) return;
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    try {
+      const tokenRes = await apiCall('GET', `/api/clients/${btn.dataset.clientId}/upload-link`);
+      if (!tokenRes.ok) { alert('Не удалось получить токен портала'); return; }
+      const portalUrl = `${location.origin}/portal.html?t=${tokenRes.data.upload_token}`;
+      const message = `Здравствуйте! Ваш личный кабинет Samaya — история визитов, бонусы и онлайн-запись: ${portalUrl}`;
+      const r = await apiCall('POST', '/api/whatsapp/send', { phone, message });
+      if (r.ok) {
+        btn.textContent = '✓ Отправлено';
+        setTimeout(() => { btn.textContent = '🏠 Портал в WA'; btn.disabled = false; }, 3000);
+      } else {
+        alert('Ошибка: ' + (r.data?.error || r.status));
+        btn.disabled = false;
+        btn.innerHTML = '&#127968; Портал в WA';
+      }
+    } catch {
+      btn.disabled = false;
+      btn.innerHTML = '&#127968; Портал в WA';
+    }
+  });
 
   document.getElementById('clWaSendBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('clWaSendBtn');
