@@ -5,6 +5,7 @@ import { authenticate, requireRole, HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
 import { config } from '../config';
 import { sendMail, buildReviewEmail } from '../mailer';
+import { notifyMasterNewBooking } from '../notify';
 
 const router = Router();
 router.use(authenticate);
@@ -470,6 +471,17 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     );
 
     await client.query('COMMIT');
+
+    setImmediate(() => {
+      notifyMasterNewBooking({
+        companyId,
+        masterId: input.master_id,
+        clientName: booking.client_name || 'Клиент',
+        services: services.map((s) => s.name).join(', '),
+        startsAt: booking.starts_at,
+      });
+    });
+
     return res.status(201).json({
       ...booking,
       services: services.map((s) => ({

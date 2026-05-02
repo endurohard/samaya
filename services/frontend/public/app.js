@@ -5581,6 +5581,8 @@
     setChk('setNotifyTgMaster', 'tg_master');
     setChk('setNotifyEmailOwner', 'email_owner');
     setChk('setNotifyEmailReminder', 'email_reminder');
+    setChk('setNotifyMasterWa', 'notify_master_wa');
+    setChk('setNotifyMasterEmail', 'notify_master_email');
     const tplBlock = document.getElementById('setReminderTplBlock');
     const cb = document.getElementById('setNotifyWaReminder');
     if (tplBlock && cb) {
@@ -5724,6 +5726,8 @@
       tg_master: document.getElementById('setNotifyTgMaster')?.checked || false,
       email_owner: document.getElementById('setNotifyEmailOwner')?.checked || false,
       email_reminder: document.getElementById('setNotifyEmailReminder')?.checked || false,
+      notify_master_wa: document.getElementById('setNotifyMasterWa')?.checked || false,
+      notify_master_email: document.getElementById('setNotifyMasterEmail')?.checked || false,
       wa_reminder_tpl_24h: (document.getElementById('setReminderTpl24h')?.value || '').trim() || null,
       wa_reminder_tpl_2h: (document.getElementById('setReminderTpl2h')?.value || '').trim() || null,
     };

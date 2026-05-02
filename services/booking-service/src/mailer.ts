@@ -167,3 +167,31 @@ export function buildReviewEmail(opts: {
   `);
   return { subject, html };
 }
+
+export function buildMasterNotifyEmail(opts: {
+  masterName: string;
+  clientName: string;
+  services: string;
+  startsAt: string | Date;
+  timezone?: string;
+}): { subject: string; html: string } {
+  const subject = `Новая запись: ${opts.clientName}, ${fmtDateTime(opts.startsAt, opts.timezone)}`;
+  const html = baseLayout('Новая запись', `
+    <h2 style="color:#1a1a2e;font-size:20px;margin:0 0 16px;">Новая запись 📅</h2>
+    <p style="color:#374151;font-size:15px;margin:0 0 20px;">
+      Здравствуйте, <strong>${opts.masterName}</strong>!<br>
+      К вам записался новый клиент.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:20px;">
+      <tr><td style="padding:6px 0;color:#6b7280;font-size:13px;width:120px;">Клиент</td>
+          <td style="padding:6px 0;color:#1a1a2e;font-size:14px;font-weight:600;">${opts.clientName}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;font-size:13px;">Дата и время</td>
+          <td style="padding:6px 0;color:#7c3aed;font-size:14px;font-weight:700;">${fmtDateTime(opts.startsAt, opts.timezone)}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;font-size:13px;">Услуги</td>
+          <td style="padding:6px 0;color:#1a1a2e;font-size:14px;">${opts.services}</td></tr>
+    </table>
+    <p style="color:#6b7280;font-size:13px;margin:0;">Информация обновлена в вашем расписании. Удачного дня! 💅</p>
+  `);
+  return { subject, html };
+}

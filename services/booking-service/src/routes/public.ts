@@ -5,6 +5,7 @@ import { config } from '../config';
 import { HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
 import { sendMail, buildConfirmationEmail } from '../mailer';
+import { notifyMasterNewBooking } from '../notify';
 
 const router = Router();
 
@@ -134,6 +135,17 @@ router.post('/create', async (req, res, next) => {
           } catch { /* ignore */ }
         }
       } catch { /* ignore */ }
+    });
+
+    // Notify master (separate setImmediate — independent of client/admin emails)
+    setImmediate(() => {
+      notifyMasterNewBooking({
+        companyId,
+        masterId: input.master_id,
+        clientName: input.client_name,
+        services: services.map((s) => s.name).join(', '),
+        startsAt: booking.starts_at,
+      });
     });
 
     return res.status(201).json({

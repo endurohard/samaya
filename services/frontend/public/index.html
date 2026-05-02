@@ -1773,6 +1773,20 @@
                 <div class="set-notify-row" style="display:none;margin-left:20px;" id="setEmailHint">
                   <span style="font-size:12px;color:var(--muted);">Письма отправляются если у клиента указан e-mail в карточке. Для dev: <a href="http://localhost:8025" target="_blank" style="color:var(--primary);">Mailhog UI</a></span>
                 </div>
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+                  <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">УВЕДОМЛЕНИЯ МАСТЕРУ</div>
+                  <div class="set-notify-row">
+                    <label><input type="checkbox" name="notify_master_wa" id="setNotifyMasterWa" />
+                      WA мастеру при новой записи</label>
+                  </div>
+                  <div class="set-notify-row" style="margin-top:4px;">
+                    <label><input type="checkbox" name="notify_master_email" id="setNotifyMasterEmail" />
+                      Email мастеру при новой записи</label>
+                  </div>
+                  <div style="font-size:12px;color:var(--muted);margin-top:6px;margin-left:20px;">
+                    Телефон и email мастера указываются в карточке сотрудника
+                  </div>
+                </div>
                 <div id="setNotificationsSaved" class="empty" hidden style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;margin-top:8px;">Сохранено ✓</div>
               </form>
             </div>
