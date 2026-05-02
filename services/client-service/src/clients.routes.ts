@@ -45,6 +45,62 @@ router.get('/segments', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
+// ── CSV export (must be before /:id) ──
+router.get('/export.csv', async (req, res, next) => {
+  try {
+    const companyId = req.auth!.company_id;
+    const { rows } = await pool.query(
+      `SELECT c.phone, c.full_name,
+              c.gender, c.birthday, c.email, c.comment,
+              c.bonus_balance::float8 AS bonus_balance,
+              c.source, c.created_at,
+              COALESCE(st.total_visits, 0) AS total_visits,
+              COALESCE(st.total_paid, 0)::float8 AS total_spent,
+              st.last_visit_at,
+              CASE WHEN c.is_blocked THEN 'blocked'
+                   WHEN c.is_deleted THEN 'deleted'
+                   ELSE 'active' END AS status
+       FROM clients.clients c
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*) AS total_visits,
+                SUM(b.total_price - b.discount_amount) AS total_paid,
+                MAX(b.completed_at) AS last_visit_at
+         FROM bookings.bookings b
+         WHERE b.client_id = c.id AND b.status = 'completed'
+       ) st ON TRUE
+       WHERE c.company_id = $1
+       ORDER BY c.created_at DESC`,
+      [companyId],
+    );
+
+    const escape = (v: unknown) => {
+      if (v == null) return '';
+      const s = String(v).replace(/"/g, '""');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+    };
+    const cols = [
+      'Телефон', 'Имя', 'Пол', 'Дата рождения', 'Email', 'Комментарий',
+      'Бонусы', 'Источник', 'Создан', 'Визиты', 'Выручка', 'Последний визит', 'Статус',
+    ];
+    const lines = [cols.join(',')];
+    for (const r of rows) {
+      lines.push([
+        r.phone, r.full_name, r.gender, r.birthday, r.email, r.comment,
+        r.bonus_balance, r.source,
+        r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : '',
+        r.total_visits, r.total_spent,
+        r.last_visit_at ? new Date(r.last_visit_at).toISOString().slice(0, 10) : '',
+        r.status,
+      ].map(escape).join(','));
+    }
+
+    const now = new Date().toISOString().slice(0, 10);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="clients-${now}.csv"`);
+    return res.send('﻿' + lines.join('\r\n')); // BOM for Excel
+  } catch (e) { return next(e); }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const client = await getClient(req.auth!.company_id, req.params.id);

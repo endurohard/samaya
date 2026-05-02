@@ -1815,6 +1815,7 @@
   });
   els.journalPrevDay?.addEventListener('click', () => shiftJournalDate(-1));
   els.journalNextDay?.addEventListener('click', () => shiftJournalDate(1));
+  document.getElementById('exportBookingsCsv')?.addEventListener('click', exportBookingsCsv);
   els.financeRefresh?.addEventListener('click', () => renderFinance());
   els.addSaleBtn?.addEventListener('click', () => alert('Модуль «Продажи» в разработке (Phase 1).'));
 
@@ -3322,33 +3323,22 @@
   // CSV-экспорт строится из текущей страницы. Для MVP достаточно — для полного
   // экспорта позже добавим серверный endpoint. ESC-last-row, BOM для Excel.
   function exportClientsCsv() {
-    const rows = [
-      ['Имя', 'Телефон', 'Кол-во посещений', 'Последний визит', 'Бонусы', 'Средний чек', 'Сумма', 'Сегмент'],
-      ...clientsState.items.map((c) => [
-        c.full_name || '',
-        c.phone || '',
-        c.total_visits || 0,
-        c.last_visit_at || '',
-        c.bonus_balance || 0,
-        c.avg_check || 0,
-        c.total_paid || 0,
-        c.segment || '',
-      ]),
-    ];
-    const csv = '﻿' + rows.map((r) =>
-      r.map((cell) => {
-        const s = String(cell);
-        return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      }).join(';')
-    ).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = '/api/clients/export.csv';
     a.download = `clients-${todayLocalISO()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+  }
+
+  function exportBookingsCsv() {
+    const { from, to } = getJournalRange();
+    const a = document.createElement('a');
+    a.href = `/api/bookings/export.csv?from=${from}&to=${to}`;
+    a.download = `bookings-${from}_${to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   // ===== Bonus program =====

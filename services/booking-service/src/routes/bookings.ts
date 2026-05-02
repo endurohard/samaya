@@ -121,6 +121,76 @@ router.get('/sales', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== CSV Export =====
+const exportSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  status: z.enum(['pending', 'confirmed', 'completed', 'canceled', 'no_show']).optional(),
+});
+
+router.get('/export.csv', async (req, res, next) => {
+  try {
+    const q = exportSchema.parse(req.query);
+    const companyId = req.auth!.company_id;
+    const params: unknown[] = [companyId, q.from, q.to];
+    let where = `b.company_id = $1
+      AND b.starts_at >= $2::date
+      AND b.starts_at < ($3::date + INTERVAL '1 day')`;
+    if (q.status) { params.push(q.status); where += ` AND b.status = $${params.length}`; }
+
+    const { rows } = await pool.query(
+      `SELECT b.starts_at, b.ends_at, b.status,
+              b.client_name, b.client_phone,
+              COALESCE(m.display_name, '') AS master_name,
+              b.total_price::float8, b.discount_amount::float8,
+              (b.total_price - b.discount_amount)::float8 AS paid_amount,
+              b.payment_method, b.notes, b.source,
+              COALESCE(
+                (SELECT string_agg(bs.service_name, '; ' ORDER BY bs.sort_order)
+                 FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
+                ''
+              ) AS services
+       FROM bookings.bookings b
+       LEFT JOIN salons.masters m ON m.id = b.master_id
+       WHERE ${where}
+       ORDER BY b.starts_at`,
+      params,
+    );
+
+    const esc = (v: unknown) => {
+      if (v == null) return '';
+      const s = String(v).replace(/"/g, '""');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+    };
+    const STATUS_RU: Record<string, string> = {
+      pending: 'Ожидает', confirmed: 'Подтверждена', completed: 'Выполнена',
+      canceled: 'Отменена', no_show: 'Не пришёл',
+    };
+    const cols = [
+      'Дата', 'Начало', 'Окончание', 'Статус', 'Клиент', 'Телефон',
+      'Мастер', 'Услуги', 'Сумма', 'Скидка', 'Оплачено', 'Способ оплаты', 'Источник', 'Примечание',
+    ];
+    const lines = [cols.join(',')];
+    for (const r of rows) {
+      const d = new Date(r.starts_at);
+      lines.push([
+        d.toISOString().slice(0, 10),
+        d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }),
+        new Date(r.ends_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }),
+        STATUS_RU[r.status] ?? r.status,
+        r.client_name, r.client_phone, r.master_name, r.services,
+        r.total_price, r.discount_amount, r.paid_amount,
+        r.payment_method ?? '', r.source ?? '', r.notes ?? '',
+      ].map(esc).join(','));
+    }
+
+    const suffix = `${q.from}_${q.to}`;
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="bookings-${suffix}.csv"`);
+    return res.send('﻿' + lines.join('\r\n'));
+  } catch (e) { return next(e); }
+});
+
 // ===== Analytics =====
 const analyticsSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
