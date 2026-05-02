@@ -6229,22 +6229,109 @@
     await loadAnalytics();
   }
 
+  let analyticsTab = 'overview';
+
   async function loadAnalytics() {
     const { from, to } = getAnalyticsRange(analyticsPeriod);
-    const [main, retention, reviews] = await Promise.all([
-      apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`),
-      apiCall('GET', '/api/bookings/retention'),
-      apiCall('GET', '/api/bookings/reviews'),
-    ]);
-    if (main.ok) {
-      renderAnalyticsKpi(main.data.kpi);
-      renderAnalyticsByDay(main.data.by_day);
-      renderAnalyticsTopServices(main.data.top_services);
-      renderAnalyticsByMaster(main.data.by_master);
+    if (analyticsTab === 'overview') {
+      const [main, retention, reviews] = await Promise.all([
+        apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`),
+        apiCall('GET', '/api/bookings/retention'),
+        apiCall('GET', '/api/bookings/reviews'),
+      ]);
+      if (main.ok) {
+        renderAnalyticsKpi(main.data.kpi);
+        renderAnalyticsByDay(main.data.by_day);
+        renderAnalyticsTopServices(main.data.top_services);
+        renderAnalyticsByMaster(main.data.by_master);
+      }
+      if (retention.ok) renderRetention(retention.data);
+      if (reviews.ok) renderReviews(reviews.data);
+    } else {
+      const res = await apiCall('GET', `/api/bookings/analytics/masters?from=${from}&to=${to}`);
+      if (res.ok) renderMasters(res.data.masters);
     }
-    if (retention.ok) renderRetention(retention.data);
-    if (reviews.ok) renderReviews(reviews.data);
   }
+
+  function renderMasters(masters) {
+    const tbody = document.getElementById('mastersTableBody');
+    const emptyEl = document.getElementById('mastersEmpty');
+    if (!masters || masters.length === 0) {
+      tbody.innerHTML = '';
+      emptyEl.style.display = '';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    // Summary KPIs
+    const totalVisits = masters.reduce((s, m) => s + (m.visits || 0), 0);
+    const totalRevenue = masters.reduce((s, m) => s + (m.revenue || 0), 0);
+    const totalClients = masters.reduce((s, m) => s + (m.unique_clients || 0), 0);
+    const overallAvgCheck = totalVisits > 0 ? Math.round(totalRevenue / totalVisits) : 0;
+    document.getElementById('mkpiVisits').textContent = totalVisits;
+    document.getElementById('mkpiRevenue').textContent = formatPrice(totalRevenue);
+    document.getElementById('mkpiAvgCheck').textContent = formatPrice(overallAvgCheck);
+    document.getElementById('mkpiClients').textContent = totalClients;
+
+    tbody.innerHTML = masters.map((m, idx) => {
+      const name = m.master_name || 'Без имени';
+      const rating = m.avg_rating ? `${m.avg_rating} ★` : '—';
+      const ratingColor = m.avg_rating >= 4 ? '#22c55e' : m.avg_rating >= 3 ? '#eab308' : m.avg_rating ? '#dc2626' : '#9ca3af';
+      const serviceRows = (m.services || []).slice(0, 8).map(s =>
+        `<tr style="background:#f8fafc;">
+           <td style="padding:6px 16px 6px 32px;color:#6b7280;font-size:13px;">— ${escapeHtml(s.service_name)}</td>
+           <td style="padding:6px 16px;text-align:right;color:#6b7280;font-size:13px;">${s.count}</td>
+           <td style="padding:6px 16px;text-align:right;color:#6b7280;font-size:13px;">${formatPrice(s.revenue)}</td>
+           <td colspan="4"></td>
+         </tr>`
+      ).join('');
+      const detailId = `mdetail-${idx}`;
+      return `
+        <tr style="border-top:1px solid #f3f4f6;cursor:pointer;" onclick="toggleMasterDetail('${detailId}')">
+          <td style="padding:13px 16px;font-weight:600;color:#1a1a2e;">
+            <span style="margin-right:6px;font-size:11px;color:#9ca3af;" id="${detailId}-arrow">▶</span>
+            ${escapeHtml(name)}
+          </td>
+          <td style="padding:13px 16px;text-align:right;">${m.visits}</td>
+          <td style="padding:13px 16px;text-align:right;font-weight:600;color:#7c3aed;">${formatPrice(m.revenue)}</td>
+          <td style="padding:13px 16px;text-align:right;">${formatPrice(m.avg_check)}</td>
+          <td style="padding:13px 16px;text-align:right;">${m.unique_clients}</td>
+          <td style="padding:13px 16px;text-align:right;color:${ratingColor};font-weight:600;">${rating}</td>
+          <td style="padding:13px 8px;text-align:center;color:#6b7280;font-size:13px;">${m.no_shows}/${m.cancels}</td>
+        </tr>
+        <tbody id="${detailId}" style="display:none;">${serviceRows}</tbody>
+      `;
+    }).join('');
+  }
+
+  window.toggleMasterDetail = function(id) {
+    const el = document.getElementById(id);
+    const arrow = document.getElementById(id + '-arrow');
+    if (!el) return;
+    const open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : '';
+    if (arrow) arrow.textContent = open ? '▶' : '▼';
+  };
+
+  document.getElementById('analyticsPeriodPills')?.addEventListener('click', (e) => {
+    const pill = e.target.closest('.period-pill');
+    if (!pill) return;
+    analyticsPeriod = pill.dataset.period;
+    document.querySelectorAll('#analyticsPeriodPills .period-pill').forEach((p) =>
+      p.classList.toggle('active', p === pill));
+    void loadAnalytics();
+  });
+
+  document.getElementById('analyticsTabPills')?.addEventListener('click', (e) => {
+    const pill = e.target.closest('.tab-pill');
+    if (!pill) return;
+    analyticsTab = pill.dataset.tab;
+    document.querySelectorAll('#analyticsTabPills .tab-pill').forEach((p) =>
+      p.classList.toggle('active', p === pill));
+    document.getElementById('anTabOverview').style.display = analyticsTab === 'overview' ? '' : 'none';
+    document.getElementById('anTabMasters').style.display = analyticsTab === 'masters' ? '' : 'none';
+    void loadAnalytics();
+  });
 
   function renderReviews({ items, stats }) {
     const listEl = document.getElementById('reviewsList');
@@ -6404,15 +6491,6 @@
       </div>`;
     }).join('');
   }
-
-  document.getElementById('analyticsPeriodPills')?.addEventListener('click', (e) => {
-    const pill = e.target.closest('.period-pill');
-    if (!pill) return;
-    analyticsPeriod = pill.dataset.period;
-    document.querySelectorAll('#analyticsPeriodPills .period-pill').forEach((p) =>
-      p.classList.toggle('active', p === pill));
-    void loadAnalytics();
-  });
 
   // ===== SALES =====
 

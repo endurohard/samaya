@@ -250,6 +250,72 @@ router.get('/retention', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Master report =====
+router.get('/analytics/masters', async (req, res, next) => {
+  try {
+    const q = analyticsSchema.parse(req.query);
+    const companyId = req.auth!.company_id;
+
+    const [mastersRes, servicesRes] = await Promise.all([
+      pool.query(
+        `SELECT
+           b.master_id,
+           m.display_name                                                              AS master_name,
+           COUNT(*) FILTER (WHERE b.status = 'completed')::int                        AS visits,
+           COUNT(*) FILTER (WHERE b.status = 'no_show')::int                          AS no_shows,
+           COUNT(*) FILTER (WHERE b.status = 'canceled')::int                         AS cancels,
+           COALESCE(SUM(b.total_price - b.discount_amount)
+             FILTER (WHERE b.status = 'completed'), 0)::float8                        AS revenue,
+           CASE WHEN COUNT(*) FILTER (WHERE b.status = 'completed') > 0
+             THEN ROUND((SUM(b.total_price - b.discount_amount)
+               FILTER (WHERE b.status = 'completed') /
+               COUNT(*) FILTER (WHERE b.status = 'completed'))::numeric, 0)::float8
+             ELSE 0 END                                                                AS avg_check,
+           COUNT(DISTINCT b.client_id) FILTER (WHERE b.status = 'completed')::int     AS unique_clients,
+           ROUND(AVG(r.rating)::numeric, 1)::float8                                   AS avg_rating,
+           COUNT(r.id)::int                                                            AS review_count
+         FROM bookings.bookings b
+         LEFT JOIN salons.masters m ON m.id = b.master_id
+         LEFT JOIN bookings.reviews r ON r.booking_id = b.id
+         WHERE b.company_id = $1
+           AND b.starts_at::date BETWEEN $2::date AND $3::date
+         GROUP BY b.master_id, m.display_name
+         ORDER BY revenue DESC`,
+        [companyId, q.from, q.to],
+      ),
+      // Per-master service breakdown
+      pool.query(
+        `SELECT
+           b.master_id,
+           bs.service_name,
+           COUNT(*)::int                         AS count,
+           COALESCE(SUM(bs.price), 0)::float8   AS revenue
+         FROM bookings.booking_services bs
+         JOIN bookings.bookings b ON b.id = bs.booking_id
+         WHERE b.company_id = $1
+           AND b.starts_at::date BETWEEN $2::date AND $3::date
+           AND b.status = 'completed'
+         GROUP BY b.master_id, bs.service_name
+         ORDER BY b.master_id, revenue DESC`,
+        [companyId, q.from, q.to],
+      ),
+    ]);
+
+    // Attach services to each master row
+    const servicesByMaster: Record<string, typeof servicesRes.rows> = {};
+    for (const s of servicesRes.rows) {
+      if (!servicesByMaster[s.master_id]) servicesByMaster[s.master_id] = [];
+      servicesByMaster[s.master_id].push(s);
+    }
+    const masters = mastersRes.rows.map((m) => ({
+      ...m,
+      services: servicesByMaster[m.master_id] ?? [],
+    }));
+
+    return res.json({ masters });
+  } catch (e) { return next(e); }
+});
+
 // ===== Reviews list =====
 router.get('/reviews', async (req, res, next) => {
   try {

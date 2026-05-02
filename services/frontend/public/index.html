@@ -1961,9 +1961,15 @@
                 <button class="period-pill active" data-period="month">Месяц</button>
                 <button class="period-pill" data-period="year">Год</button>
               </div>
+              <div class="tab-pills" id="analyticsTabPills" style="margin-left:12px;">
+                <button class="tab-pill active" data-tab="overview">Обзор</button>
+                <button class="tab-pill" data-tab="masters">По мастерам</button>
+              </div>
             </div>
           </div>
 
+          <!-- Overview tab -->
+          <div id="anTabOverview">
           <!-- KPI row -->
           <div class="kpi-row" id="analyticsKpiRow">
             <div class="kpi-card">
@@ -2067,6 +2073,35 @@
               </div>
             </div>
           </div>
+          </div><!-- /anTabOverview -->
+
+          <!-- Masters tab -->
+          <div id="anTabMasters" style="display:none;">
+            <div class="kpi-row" id="mastersKpiRow" style="margin-bottom:16px;">
+              <div class="kpi-card"><div class="kpi-label">Всего записей</div><div class="kpi-value" id="mkpiVisits">—</div></div>
+              <div class="kpi-card"><div class="kpi-label">Общая выручка</div><div class="kpi-value" id="mkpiRevenue">—</div></div>
+              <div class="kpi-card"><div class="kpi-label">Средний чек</div><div class="kpi-value" id="mkpiAvgCheck">—</div></div>
+              <div class="kpi-card"><div class="kpi-label">Уникальных клиентов</div><div class="kpi-value" id="mkpiClients">—</div></div>
+            </div>
+            <div class="card analytics-card" style="padding:0;overflow:hidden;">
+              <table style="width:100%;border-collapse:collapse;font-size:14px;" id="mastersTable">
+                <thead>
+                  <tr style="background:#f8fafc;text-align:left;">
+                    <th style="padding:12px 16px;font-weight:600;color:#374151;">Мастер</th>
+                    <th style="padding:12px 16px;font-weight:600;color:#374151;text-align:right;">Визиты</th>
+                    <th style="padding:12px 16px;font-weight:600;color:#374151;text-align:right;">Выручка</th>
+                    <th style="padding:12px 16px;font-weight:600;color:#374151;text-align:right;">Ср. чек</th>
+                    <th style="padding:12px 16px;font-weight:600;color:#374151;text-align:right;">Клиенты</th>
+                    <th style="padding:12px 16px;font-weight:600;color:#374151;text-align:right;">Рейтинг</th>
+                    <th style="padding:12px 8px;font-weight:600;color:#374151;text-align:center;">НЯ/Отм</th>
+                  </tr>
+                </thead>
+                <tbody id="mastersTableBody"></tbody>
+              </table>
+              <div id="mastersEmpty" style="padding:32px;text-align:center;color:#6b7280;font-size:14px;display:none;">Нет данных за период</div>
+            </div>
+          </div><!-- /anTabMasters -->
+
         </section>
 
         <!-- ===== VIEW: SALES ===== -->
