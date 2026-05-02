@@ -6231,9 +6231,10 @@
 
   async function loadAnalytics() {
     const { from, to } = getAnalyticsRange(analyticsPeriod);
-    const [main, retention] = await Promise.all([
+    const [main, retention, reviews] = await Promise.all([
       apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`),
       apiCall('GET', '/api/bookings/retention'),
+      apiCall('GET', '/api/bookings/reviews'),
     ]);
     if (main.ok) {
       renderAnalyticsKpi(main.data.kpi);
@@ -6242,7 +6243,67 @@
       renderAnalyticsByMaster(main.data.by_master);
     }
     if (retention.ok) renderRetention(retention.data);
+    if (reviews.ok) renderReviews(reviews.data);
   }
+
+  function renderReviews({ items, stats }) {
+    const listEl = document.getElementById('reviewsList');
+    const emptyEl = document.getElementById('reviewsEmpty');
+    const statsRow = document.getElementById('reviewsStatsRow');
+    const avgBadge = document.getElementById('reviewsAvgBadge');
+
+    if (stats && stats.total > 0) {
+      statsRow.style.display = '';
+      avgBadge.style.display = '';
+      document.getElementById('rvStatTotal').textContent = stats.total;
+      document.getElementById('rvStatAvg').textContent = stats.avg_rating ? `${stats.avg_rating} ★` : '—';
+      document.getElementById('rvStatFive').textContent = stats.five_star;
+      document.getElementById('rvStatLow').textContent = stats.low_star;
+      avgBadge.textContent = `★ ${stats.avg_rating ?? '—'}`;
+    }
+
+    if (!items || items.length === 0) {
+      listEl.innerHTML = '';
+      emptyEl.style.display = '';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    const STARS = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+    const starColor = (n) => n >= 4 ? '#22c55e' : n === 3 ? '#eab308' : '#dc2626';
+
+    listEl.innerHTML = items.map((r, idx) => {
+      const borderTop = idx > 0 ? 'border-top:1px solid #f3f4f6;' : '';
+      const replied = r.reply
+        ? `<div style="margin-top:8px;padding:8px 12px;background:#f5f3ff;border-radius:8px;font-size:13px;">
+             <span style="color:#7c3aed;font-weight:600;">Ответ владельца:</span>
+             <span style="color:#374151;"> ${escapeHtml(r.reply)}</span>
+           </div>` : '';
+      const replyBtn = !r.reply && (currentUser?.role === 'owner' || currentUser?.role === 'admin')
+        ? `<button onclick="openReviewReply('${r.id}')" style="margin-top:8px;font-size:12px;color:#7c3aed;background:none;border:none;cursor:pointer;padding:0;">Ответить</button>`
+        : '';
+      return `
+        <div style="padding:16px 20px;${borderTop}">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="font-size:16px;color:${starColor(r.rating)};font-weight:700;">${STARS(r.rating)}</span>
+            <span style="font-size:13px;font-weight:600;color:#1a1a2e;">${escapeHtml(r.client_name || 'Клиент')}</span>
+            <span style="font-size:12px;color:#9ca3af;margin-left:auto;">${new Date(r.created_at).toLocaleDateString('ru-RU')}</span>
+          </div>
+          ${r.master_name ? `<div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Мастер: ${escapeHtml(r.master_name)}</div>` : ''}
+          ${r.comment ? `<div style="font-size:14px;color:#374151;">${escapeHtml(r.comment)}</div>` : ''}
+          ${replied}
+          ${replyBtn}
+        </div>`;
+    }).join('');
+  }
+
+  // Reply modal (inline)
+  window.openReviewReply = function(reviewId) {
+    const reply = prompt('Введите ответ клиенту:');
+    if (!reply || !reply.trim()) return;
+    apiCall('PATCH', `/api/bookings/reviews/${reviewId}/reply`, { reply: reply.trim() })
+      .then(r => { if (r.ok) loadAnalytics(); });
+  };
 
   function renderRetention({ summary, at_risk }) {
     if (!summary) return;

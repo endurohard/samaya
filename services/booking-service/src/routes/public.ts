@@ -98,4 +98,73 @@ router.post('/create', async (req, res, next) => {
   }
 });
 
+// ===== Review: get booking info (no auth, booking_id acts as token) =====
+router.get('/review-info/:booking_id', async (req, res, next) => {
+  try {
+    const bookingId = req.params.booking_id;
+    if (!/^[0-9a-f-]{36}$/.test(bookingId)) return res.status(400).json({ error: 'invalid id' });
+
+    const { rows } = await pool.query(
+      `SELECT b.id, b.status, b.starts_at, b.client_name,
+              b.master_id,
+              COALESCE(m.display_name, b.master_id::text) AS master_name,
+              COALESCE(
+                (SELECT json_agg(service_name ORDER BY sort_order, service_name)
+                 FROM bookings.booking_services WHERE booking_id = b.id),
+                '[]'::json
+              ) AS services,
+              EXISTS(SELECT 1 FROM bookings.reviews WHERE booking_id = b.id) AS already_reviewed
+       FROM bookings.bookings b
+       LEFT JOIN salons.masters m ON m.id = b.master_id
+       WHERE b.id = $1`,
+      [bookingId],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'not_found' });
+    const b = rows[0];
+    if (b.status !== 'completed') return res.status(409).json({ error: 'not_completed', status: b.status });
+    return res.json(b);
+  } catch (e) { return next(e); }
+});
+
+// ===== Review: submit (no auth) =====
+const reviewSchema = z.object({
+  booking_id: z.string().uuid(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(2000).optional(),
+});
+
+router.post('/review', async (req, res, next) => {
+  try {
+    const input = reviewSchema.parse(req.body);
+
+    const { rows: bRows } = await pool.query(
+      `SELECT b.id, b.company_id, b.client_id, b.client_name, b.master_id,
+              COALESCE(m.display_name, b.master_id::text) AS master_name,
+              b.status
+       FROM bookings.bookings b
+       LEFT JOIN salons.masters m ON m.id = b.master_id
+       WHERE b.id = $1`,
+      [input.booking_id],
+    );
+    if (!bRows[0]) return res.status(404).json({ error: 'not_found' });
+    const b = bRows[0];
+    if (b.status !== 'completed') return res.status(409).json({ error: 'not_completed' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO bookings.reviews
+         (booking_id, company_id, client_id, client_name, master_id, master_name, rating, comment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (booking_id) DO NOTHING
+       RETURNING id`,
+      [
+        b.id, b.company_id, b.client_id ?? null, b.client_name ?? null,
+        b.master_id ?? null, b.master_name ?? null,
+        input.rating, input.comment ?? null,
+      ],
+    );
+    if (!rows[0]) return res.status(409).json({ error: 'already_reviewed' });
+    return res.status(201).json({ ok: true, review_id: rows[0].id });
+  } catch (e) { return next(e); }
+});
+
 export default router;

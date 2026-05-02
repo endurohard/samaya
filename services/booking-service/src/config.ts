@@ -14,6 +14,8 @@ const schema = z.object({
   WHATSAPP_SERVICE_URL: z.string().url().default('http://whatsapp-service:3008'),
   // Интервал проверки напоминаний (мс). По умолчанию 10 минут.
   REMINDER_INTERVAL_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
+  // Базовый URL фронтенда для генерации ссылки на отзыв
+  FRONTEND_URL: z.string().url().default('http://localhost:3010'),
 });
 
 const parsed = schema.safeParse(process.env);

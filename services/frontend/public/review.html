@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Оставить отзыв — Samaya</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      text-align: center;
+    }
+    .logo { font-size: 32px; margin-bottom: 8px; }
+    .brand { font-size: 20px; font-weight: 700; color: #1a1a2e; margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: #6b7280; margin-bottom: 24px; }
+    .info-box {
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 24px;
+      text-align: left;
+      font-size: 14px;
+    }
+    .info-box strong { display: block; color: #1a1a2e; font-size: 15px; margin-bottom: 4px; }
+    .info-box span { color: #6b7280; }
+    .stars {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .star {
+      font-size: 40px;
+      cursor: pointer;
+      transition: transform .15s;
+      user-select: none;
+      opacity: .3;
+    }
+    .star.active { opacity: 1; }
+    .star:hover { transform: scale(1.15); }
+    .rating-label {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 20px;
+      min-height: 20px;
+    }
+    textarea {
+      width: 100%;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 14px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 100px;
+      outline: none;
+      transition: border-color .2s;
+      margin-bottom: 20px;
+    }
+    textarea:focus { border-color: #7c3aed; }
+    textarea::placeholder { color: #9ca3af; }
+    button.submit {
+      width: 100%;
+      background: #7c3aed;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    button.submit:hover:not(:disabled) { background: #6d28d9; }
+    button.submit:disabled { background: #c4b5fd; cursor: default; }
+    .msg { margin-top: 16px; font-size: 14px; }
+    .msg.err { color: #dc2626; }
+    .msg.ok { color: #059669; font-size: 16px; font-weight: 600; }
+    .spinner { display: none; }
+    .loading .spinner { display: inline-block; }
+    .loading .text { display: none; }
+  </style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="logo">💅</div>
+  <div class="brand">Samaya</div>
+  <div class="subtitle">Как прошёл ваш визит?</div>
+
+  <div class="info-box" id="infoBox" style="display:none">
+    <strong id="infoMaster"></strong>
+    <span id="infoDate"></span><br>
+    <span id="infoServices" style="color:#374151;font-size:13px;"></span>
+  </div>
+
+  <div id="formBlock">
+    <div class="stars" id="stars">
+      <span class="star" data-v="1">★</span>
+      <span class="star" data-v="2">★</span>
+      <span class="star" data-v="3">★</span>
+      <span class="star" data-v="4">★</span>
+      <span class="star" data-v="5">★</span>
+    </div>
+    <div class="rating-label" id="ratingLabel">Нажмите на звезду, чтобы оценить</div>
+
+    <textarea id="comment" placeholder="Расскажите о вашем впечатлении (необязательно)"></textarea>
+
+    <button class="submit" id="submitBtn" disabled>
+      <span class="spinner">⏳</span>
+      <span class="text">Отправить отзыв</span>
+    </button>
+    <div class="msg" id="msg"></div>
+  </div>
+</div>
+
+<script>
+const LABELS = ['', 'Очень плохо 😞', 'Плохо 😕', 'Нормально 😐', 'Хорошо 😊', 'Отлично! 🌟'];
+const COLORS = ['', '#dc2626', '#f97316', '#eab308', '#22c55e', '#7c3aed'];
+let rating = 0;
+let bookingId = null;
+
+function qs(sel) { return document.querySelector(sel); }
+function fmt(dt) {
+  const d = new Date(dt);
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+
+async function init() {
+  const params = new URLSearchParams(location.search);
+  bookingId = params.get('b');
+  if (!bookingId) return showErr('Ссылка недействительна.');
+
+  try {
+    const r = await fetch(`/api/bookings/public/review-info/${bookingId}`);
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      if (data.error === 'not_completed') return showErr('Отзыв можно оставить только после завершения визита.');
+      return showErr('Запись не найдена.');
+    }
+    const b = await r.json();
+    if (b.already_reviewed) return showDone('Вы уже оставили отзыв на этот визит. Спасибо!');
+
+    qs('#infoMaster').textContent = `Мастер: ${b.master_name}`;
+    qs('#infoDate').textContent = fmt(b.starts_at);
+    const svcs = Array.isArray(b.services) ? b.services.join(', ') : '';
+    qs('#infoServices').textContent = svcs;
+    qs('#infoBox').style.display = '';
+  } catch {
+    showErr('Не удалось загрузить информацию о записи.');
+  }
+}
+
+// Stars
+qs('#stars').addEventListener('click', e => {
+  const star = e.target.closest('.star');
+  if (!star) return;
+  rating = Number(star.dataset.v);
+  document.querySelectorAll('.star').forEach((s, i) => {
+    s.classList.toggle('active', i < rating);
+  });
+  const label = qs('#ratingLabel');
+  label.textContent = LABELS[rating];
+  label.style.color = COLORS[rating];
+  qs('#submitBtn').disabled = false;
+});
+
+qs('#stars').addEventListener('mouseover', e => {
+  const star = e.target.closest('.star');
+  if (!star) return;
+  const v = Number(star.dataset.v);
+  document.querySelectorAll('.star').forEach((s, i) => {
+    s.style.opacity = i < v ? '1' : '0.3';
+  });
+});
+qs('#stars').addEventListener('mouseleave', () => {
+  document.querySelectorAll('.star').forEach((s, i) => {
+    s.style.opacity = i < rating ? '1' : '0.3';
+  });
+});
+
+qs('#submitBtn').addEventListener('click', async () => {
+  if (!rating) return;
+  const btn = qs('#submitBtn');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  qs('#msg').textContent = '';
+
+  try {
+    const r = await fetch('/api/bookings/public/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        booking_id: bookingId,
+        rating,
+        comment: qs('#comment').value.trim() || undefined,
+      }),
+    });
+    if (r.ok) {
+      showDone('Спасибо за отзыв! 💖');
+    } else {
+      const data = await r.json().catch(() => ({}));
+      if (data.error === 'already_reviewed') showDone('Вы уже оставили отзыв. Спасибо!');
+      else showErr('Не удалось отправить отзыв. Попробуйте позже.');
+      btn.disabled = false;
+      btn.classList.remove('loading');
+    }
+  } catch {
+    showErr('Ошибка сети. Попробуйте ещё раз.');
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  }
+});
+
+function showErr(text) {
+  qs('#msg').textContent = text;
+  qs('#msg').className = 'msg err';
+}
+function showDone(text) {
+  qs('#formBlock').style.display = 'none';
+  qs('#infoBox').style.display = 'none';
+  qs('#card').innerHTML = `
+    <div style="font-size:48px;margin-bottom:16px">💖</div>
+    <div style="font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:8px">${text}</div>
+    <div style="color:#6b7280;font-size:14px">Ваш отзыв очень важен для нас.</div>
+  `;
+}
+
+init();
+</script>
+</body>
+</html>

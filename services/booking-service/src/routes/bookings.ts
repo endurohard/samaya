@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
+import { config } from '../config';
 
 const router = Router();
 router.use(authenticate);
@@ -246,6 +247,54 @@ router.get('/retention', async (req, res, next) => {
       summary: summaryRes.rows[0],
       at_risk: atRiskRes.rows,
     });
+  } catch (e) { return next(e); }
+});
+
+// ===== Reviews list =====
+router.get('/reviews', async (req, res, next) => {
+  try {
+    const companyId = req.auth!.company_id;
+    const masterId = req.query.master_id as string | undefined;
+    const rating = req.query.rating ? Number(req.query.rating) : undefined;
+    const params: unknown[] = [companyId];
+    let where = 'company_id = $1';
+    if (masterId) { params.push(masterId); where += ` AND master_id = $${params.length}`; }
+    if (rating) { params.push(rating); where += ` AND rating = $${params.length}`; }
+    const { rows } = await pool.query(
+      `SELECT id, booking_id, client_name, master_name, rating, comment,
+              reply, replied_at, is_public, created_at
+       FROM bookings.reviews WHERE ${where}
+       ORDER BY created_at DESC LIMIT 200`,
+      params,
+    );
+    const { rows: stats } = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              ROUND(AVG(rating)::numeric, 1)::float8 AS avg_rating,
+              COUNT(*) FILTER (WHERE rating = 5)::int AS five_star,
+              COUNT(*) FILTER (WHERE rating = 4)::int AS four_star,
+              COUNT(*) FILTER (WHERE rating = 3)::int AS three_star,
+              COUNT(*) FILTER (WHERE rating <= 2)::int AS low_star
+       FROM bookings.reviews WHERE company_id = $1`,
+      [companyId],
+    );
+    return res.json({ items: rows, stats: stats[0] });
+  } catch (e) { return next(e); }
+});
+
+// ===== Reply to review =====
+const replySchema = z.object({ reply: z.string().max(1000) });
+
+router.patch('/reviews/:id/reply', requireRole(['owner', 'admin']), async (req, res, next) => {
+  try {
+    const input = replySchema.parse(req.body);
+    const { rowCount } = await pool.query(
+      `UPDATE bookings.reviews
+       SET reply = $1, replied_at = NOW()
+       WHERE company_id = $2 AND id = $3`,
+      [input.reply.trim(), req.auth!.company_id, req.params.id],
+    );
+    if (!rowCount) return next(new HttpError(404, 'review not found'));
+    return res.json({ ok: true });
   } catch (e) { return next(e); }
 });
 
@@ -519,7 +568,28 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       })],
     );
     await client.query('COMMIT');
-    return res.json(upd.rows[0]);
+    const booking = upd.rows[0];
+    // Fire-and-forget WA review request (if phone known and WA reminders enabled)
+    if (booking.client_phone) {
+      setImmediate(async () => {
+        try {
+          const settingsRow = await pool.query(
+            `SELECT settings_jsonb FROM salons.company_profile WHERE company_id = $1`,
+            [booking.company_id],
+          );
+          const wa = settingsRow.rows[0]?.settings_jsonb?.notifications?.wa_reminder;
+          if (!wa) return;
+          const reviewUrl = `${config.FRONTEND_URL}/review.html?b=${booking.id}`;
+          const text = `Спасибо за визит! Будем рады вашему отзыву: ${reviewUrl}`;
+          await fetch(`${config.WHATSAPP_SERVICE_URL}/api/whatsapp/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: booking.client_phone, message: text }),
+          });
+        } catch { /* ignore WA errors */ }
+      });
+    }
+    return res.json(booking);
   } catch (e) {
     await client.query('ROLLBACK');
     return next(e);
