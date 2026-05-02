@@ -3188,16 +3188,33 @@
     void loadClientFiles();
   }
 
-  async function copyUploadLink() {
-    if (!_clCurrentId) return;
+  async function getClientToken() {
+    if (!_clCurrentId) return null;
     const res = await apiCall('GET', `/api/clients/${_clCurrentId}/upload-link`);
-    if (!res.ok) { alert('Не удалось получить ссылку'); return; }
-    const token = res.data?.upload_token;
+    return res.ok ? res.data?.upload_token : null;
+  }
+
+  async function copyPortalLink() {
+    const token = await getClientToken();
+    if (!token) { alert('Не удалось получить ссылку'); return; }
+    const url = `${location.origin}/portal.html?t=${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      const btn = document.getElementById('clCopyPortalLink');
+      if (btn) { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.innerHTML = '&#127968; Личный кабинет'; }, 2000); }
+    } catch {
+      prompt('Скопируйте ссылку на портал клиента:', url);
+    }
+  }
+
+  async function copyUploadLink() {
+    const token = await getClientToken();
+    if (!token) { alert('Не удалось получить ссылку'); return; }
     const url = `${location.origin}/upload.html?token=${token}`;
     try {
       await navigator.clipboard.writeText(url);
       const btn = els.clCopyUploadLink;
-      if (btn) { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.innerHTML = '&#128279; Ссылка для клиента'; }, 2000); }
+      if (btn) { btn.textContent = '✓ Скопировано'; setTimeout(() => { btn.innerHTML = '&#128279; Загрузка файлов'; }, 2000); }
     } catch {
       prompt('Скопируйте ссылку:', url);
     }
@@ -3523,6 +3540,7 @@
   if (els.clCopyUploadLink) {
     els.clCopyUploadLink.addEventListener('click', () => void copyUploadLink());
   }
+  document.getElementById('clCopyPortalLink')?.addEventListener('click', () => void copyPortalLink());
   if (els.clientsMoreBtn) {
     els.clientsMoreBtn.addEventListener('click', (e) => {
       e.stopPropagation();

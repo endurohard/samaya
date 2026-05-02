@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Личный кабинет — Samaya</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #7c3aed;
+      --primary-light: #ede9fe;
+      --text: #1a1a2e;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --surface: #f8fafc;
+      --card: #fff;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--surface); color: var(--text); min-height: 100vh; }
+
+    /* Header */
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 20px; position: sticky; top: 0; z-index: 10; }
+    .header-inner { max-width: 720px; margin: 0 auto; display: flex; align-items: center; gap: 12px; height: 56px; }
+    .brand { font-size: 18px; font-weight: 800; color: var(--primary); }
+    .brand span { color: var(--text); }
+
+    /* Layout */
+    main { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
+
+    /* Hero card */
+    .hero { background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); border-radius: 16px; padding: 24px; color: #fff; margin-bottom: 20px; }
+    .hero-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .hero-phone { font-size: 14px; opacity: .75; margin-bottom: 20px; }
+    .hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .hero-stat { background: rgba(255,255,255,.15); border-radius: 10px; padding: 12px; text-align: center; }
+    .hero-stat-val { font-size: 20px; font-weight: 700; }
+    .hero-stat-lbl { font-size: 11px; opacity: .8; margin-top: 2px; }
+
+    /* Bonus card */
+    .bonus-card { background: var(--card); border-radius: 14px; border: 2px solid var(--primary-light); padding: 16px 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; }
+    .bonus-icon { font-size: 32px; }
+    .bonus-val { font-size: 26px; font-weight: 800; color: var(--primary); }
+    .bonus-lbl { font-size: 13px; color: var(--muted); }
+    .bonus-note { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; background: var(--border); border-radius: 10px; padding: 3px; margin-bottom: 16px; }
+    .tab { flex: 1; text-align: center; padding: 8px; font-size: 14px; font-weight: 500; border: none; background: none; border-radius: 8px; cursor: pointer; color: var(--muted); transition: all .15s; }
+    .tab.active { background: var(--card); color: var(--primary); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+
+    /* Booking card */
+    .booking-card { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 10px; border-left: 3px solid var(--border); }
+    .booking-card.completed { border-left-color: #22c55e; }
+    .booking-card.confirmed { border-left-color: #3b82f6; }
+    .booking-card.pending   { border-left-color: #f59e0b; }
+    .booking-card.canceled,
+    .booking-card.no_show   { border-left-color: #e5e7eb; opacity: .6; }
+    .bk-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    .bk-date { font-size: 15px; font-weight: 600; }
+    .bk-status { font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+    .bk-status.completed { background: #dcfce7; color: #15803d; }
+    .bk-status.confirmed { background: #dbeafe; color: #1d4ed8; }
+    .bk-status.pending   { background: #fef3c7; color: #b45309; }
+    .bk-status.canceled,
+    .bk-status.no_show   { background: #f3f4f6; color: #6b7280; }
+    .bk-master { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .bk-services { font-size: 13px; color: var(--text); margin-bottom: 8px; }
+    .bk-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .bk-price { font-size: 15px; font-weight: 700; color: var(--primary); }
+    .bk-rating { font-size: 13px; }
+    .review-link { font-size: 12px; color: var(--primary); text-decoration: none; border: 1px solid var(--primary); border-radius: 6px; padding: 3px 8px; }
+    .review-link:hover { background: var(--primary-light); }
+
+    /* Files */
+    .file-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .file-row:last-child { border-bottom: none; }
+    .file-icon { font-size: 24px; width: 32px; text-align: center; }
+    .file-name { font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-size { font-size: 12px; color: var(--muted); }
+    .file-dl { font-size: 12px; color: var(--primary); text-decoration: none; }
+    .file-del { background: none; border: none; color: #dc2626; cursor: pointer; font-size: 18px; padding: 0 4px; }
+
+    /* Upload */
+    .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 24px; text-align: center; color: var(--muted); font-size: 14px; cursor: pointer; transition: border-color .2s; margin-top: 12px; }
+    .upload-area:hover { border-color: var(--primary); color: var(--primary); }
+    #fileInput { display: none; }
+
+    /* Booking CTA */
+    .book-cta { background: var(--card); border-radius: 14px; padding: 24px; text-align: center; }
+    .book-cta h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .book-cta p { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
+    .btn-primary { background: var(--primary); color: #fff; border: none; border-radius: 10px; padding: 12px 28px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background .2s; }
+    .btn-primary:hover { background: #6d28d9; }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
+    .empty-icon { font-size: 40px; margin-bottom: 8px; }
+
+    /* Loading */
+    .loader { display: flex; align-items: center; justify-content: center; height: 200px; font-size: 14px; color: var(--muted); }
+
+    /* Error */
+    .error-page { text-align: center; padding: 60px 20px; }
+    .error-page h2 { font-size: 22px; margin-bottom: 8px; }
+    .error-page p { color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand">💅 <span>Samaya</span></div>
+    <div style="margin-left:auto;font-size:13px;color:var(--muted);" id="headerName"></div>
+  </div>
+</header>
+
+<main id="app">
+  <div class="loader">Загрузка...</div>
+</main>
+
+<input type="file" id="fileInput" accept="image/*,.pdf" multiple>
+
+<script>
+const STATUS_LABEL = { completed: 'Завершено', confirmed: 'Подтверждено', pending: 'Ожидает', canceled: 'Отменено', no_show: 'Не пришёл' };
+const PAY_LABEL = { cash: 'Наличные', card: 'Карта', online: 'Онлайн' };
+
+const params = new URLSearchParams(location.search);
+const token = params.get('t');
+const app = document.getElementById('app');
+
+if (!token) {
+  app.innerHTML = `<div class="error-page"><div style="font-size:48px">🔒</div><h2>Ссылка недействительна</h2><p>Попросите администратора выслать вашу персональную ссылку на портал.</p></div>`;
+} else {
+  loadPortal();
+}
+
+let DATA = null;
+let activeTab = 'visits';
+
+async function loadPortal() {
+  try {
+    const res = await fetch(`/api/clients/portal/${token}`);
+    if (!res.ok) {
+      app.innerHTML = `<div class="error-page"><div style="font-size:48px">❌</div><h2>Не найдено</h2><p>Эта ссылка устарела или недействительна.</p></div>`;
+      return;
+    }
+    DATA = await res.json();
+    document.getElementById('headerName').textContent = DATA.client.full_name;
+    render();
+  } catch {
+    app.innerHTML = `<div class="error-page"><div style="font-size:48px">⚠️</div><h2>Ошибка соединения</h2><p>Попробуйте обновить страницу.</p></div>`;
+  }
+}
+
+function fmt(dt) {
+  return new Date(dt).toLocaleString('ru-RU', { day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+function fmtDate(dt) {
+  return new Date(dt).toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' });
+}
+function fmtPrice(n) {
+  return new Intl.NumberFormat('ru-RU', { style:'currency', currency:'RUB', maximumFractionDigits:0 }).format(n);
+}
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' Б';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' КБ';
+  return (bytes/1024/1024).toFixed(1) + ' МБ';
+}
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fileIcon(mime) {
+  if (mime.startsWith('image/')) return '🖼️';
+  if (mime === 'application/pdf') return '📄';
+  return '📎';
+}
+
+function render() {
+  const { client, stats, bookings, files } = DATA;
+  const lastVisitStr = stats.last_visit ? fmtDate(stats.last_visit) : 'ещё не было';
+
+  app.innerHTML = `
+    <div class="hero">
+      <div class="hero-name">${esc(client.full_name)}</div>
+      <div class="hero-phone">${esc(client.phone)}</div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="hero-stat-val">${stats.total_visits}</div>
+          <div class="hero-stat-lbl">Визитов</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val">${fmtPrice(stats.total_spent)}</div>
+          <div class="hero-stat-lbl">Потрачено</div>
+        </div>
+        <div class="hero-stat">
+          <div class="hero-stat-val" style="font-size:13px;">${lastVisitStr}</div>
+          <div class="hero-stat-lbl">Последний визит</div>
+        </div>
+      </div>
+    </div>
+
+    ${client.bonus_balance > 0 ? `
+    <div class="bonus-card">
+      <div class="bonus-icon">🎁</div>
+      <div>
+        <div class="bonus-val">${fmtPrice(client.bonus_balance)}</div>
+        <div class="bonus-lbl">Бонусный баланс</div>
+        <div class="bonus-note">Можно списать при следующем визите</div>
+      </div>
+    </div>` : ''}
+
+    <div class="tabs">
+      <button class="tab ${activeTab==='visits'?'active':''}" onclick="switchTab('visits')">Визиты (${bookings.length})</button>
+      <button class="tab ${activeTab==='files'?'active':''}" onclick="switchTab('files')">Файлы (${files.length})</button>
+      <button class="tab ${activeTab==='book'?'active':''}" onclick="switchTab('book')">Запись</button>
+    </div>
+
+    <div id="tabContent">${renderTab()}</div>
+  `;
+}
+
+function renderTab() {
+  if (activeTab === 'visits') return renderVisits();
+  if (activeTab === 'files') return renderFiles();
+  return renderBook();
+}
+
+function renderVisits() {
+  const { bookings } = DATA;
+  if (!bookings.length) return `<div class="empty"><div class="empty-icon">📅</div>Нет записей</div>`;
+  return bookings.map(b => {
+    const services = Array.isArray(b.services) ? b.services.join(', ') : '';
+    const paid = b.total_price - (b.discount_amount || 0) - (b.bonus_spend || 0);
+    const ratingHtml = b.my_rating
+      ? `<span class="bk-rating" style="color:#eab308">${'★'.repeat(b.my_rating)}${'☆'.repeat(5-b.my_rating)}</span>`
+      : (b.status === 'completed' ? `<a class="review-link" href="/review.html?b=${b.id}">Оставить отзыв</a>` : '');
+    return `
+      <div class="booking-card ${b.status}">
+        <div class="bk-header">
+          <div class="bk-date">${fmt(b.starts_at)}</div>
+          <span class="bk-status ${b.status}">${STATUS_LABEL[b.status] || b.status}</span>
+        </div>
+        <div class="bk-master">Мастер: ${esc(b.master_name)}</div>
+        ${services ? `<div class="bk-services">${esc(services)}</div>` : ''}
+        <div class="bk-footer">
+          <span class="bk-price">${fmtPrice(paid)}</span>
+          ${b.payment_method ? `<span style="font-size:12px;color:var(--muted)">${PAY_LABEL[b.payment_method]||b.payment_method}</span>` : ''}
+          ${ratingHtml}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderFiles() {
+  const { files } = DATA;
+  return `
+    ${files.length ? `<div class="card analytics-card" style="background:#fff;border-radius:12px;padding:0 16px;">
+      ${files.map(f => `
+        <div class="file-row">
+          <div class="file-icon">${fileIcon(f.mime_type)}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="file-name">${esc(f.file_name)}</div>
+            <div class="file-size">${fmtSize(f.file_size)} · ${new Date(f.created_at).toLocaleDateString('ru-RU')}</div>
+          </div>
+          <a class="file-dl" href="/api/clients/portal/${token}/files/${f.id}" target="_blank">Открыть</a>
+          <button class="file-del" onclick="deleteFile('${f.id}')" title="Удалить">×</button>
+        </div>`).join('')}
+    </div>` : '<div class="empty"><div class="empty-icon">📁</div>Нет файлов</div>'}
+    <label class="upload-area" for="fileInput">
+      📎 Нажмите, чтобы загрузить фото или PDF (до 15 МБ)
+    </label>`;
+}
+
+function renderBook() {
+  return `
+    <div class="book-cta">
+      <h3>Записаться онлайн</h3>
+      <p>Выберите удобное время и мастера прямо сейчас</p>
+      <button class="btn-primary" onclick="openBookWidget()">Выбрать время</button>
+    </div>`;
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  const el = document.querySelectorAll('.tab');
+  el.forEach(t => t.classList.toggle('active', t.getAttribute('onclick').includes(`'${tab}'`)));
+  document.getElementById('tabContent').innerHTML = renderTab();
+}
+
+// File upload
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  for (const file of files) {
+    try {
+      const data = await fileToBase64(file);
+      const res = await fetch(`/api/clients/portal/${token}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_name: file.name, mime_type: file.type || 'application/octet-stream', data_base64: data }),
+      });
+      if (res.ok) {
+        const f = await res.json();
+        DATA.files.unshift(f);
+      }
+    } catch { /* ignore */ }
+  }
+  e.target.value = '';
+  document.getElementById('tabContent').innerHTML = renderTab();
+});
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function deleteFile(fileId) {
+  if (!confirm('Удалить файл?')) return;
+  await fetch(`/api/clients/portal/${token}/files/${fileId}`, { method: 'DELETE' });
+  DATA.files = DATA.files.filter(f => f.id !== fileId);
+  document.getElementById('tabContent').innerHTML = renderTab();
+}
+
+function openBookWidget() {
+  // Opens the public booking widget — pass company from client data
+  window.open(`/book.html`, '_blank');
+}
+</script>
+</body>
+</html>

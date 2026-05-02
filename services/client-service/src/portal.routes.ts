@@ -14,22 +14,60 @@ const uploadSchema = z.object({
   data_base64: z.string().min(1),
 });
 
-// GET /api/clients/portal/:token  — client info + file list (public)
+// GET /api/clients/portal/:token  — client dashboard: info + visits + bonus + files
 router.get('/:token', async (req, res, next) => {
   try {
     const r = await pool.query(
-      `SELECT id, full_name, phone::text AS phone
+      `SELECT id, company_id, full_name, phone::text AS phone,
+              bonus_balance::float8 AS bonus_balance, avatar_color
        FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE`,
       [req.params.token],
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });
-    const { id, full_name } = r.rows[0];
-    const files = await pool.query(
-      `SELECT id, file_name, mime_type, file_size, uploaded_by, created_at
-       FROM clients.client_files WHERE client_id = $1 ORDER BY created_at DESC`,
-      [id],
-    );
-    return res.json({ client: { id, full_name }, files: files.rows });
+    const { id, company_id, full_name, phone, bonus_balance, avatar_color } = r.rows[0];
+
+    const [filesRes, bookingsRes, statsRes] = await Promise.all([
+      pool.query(
+        `SELECT id, file_name, mime_type, file_size, uploaded_by, created_at
+         FROM clients.client_files WHERE client_id = $1 ORDER BY created_at DESC`,
+        [id],
+      ),
+      // Last 20 completed bookings
+      pool.query(
+        `SELECT b.id, b.starts_at, b.completed_at, b.total_price::float8 AS total_price,
+                b.discount_amount::float8 AS discount_amount,
+                b.bonus_spend::float8 AS bonus_spend,
+                b.payment_method, b.status,
+                COALESCE(m.display_name, b.master_id::text) AS master_name,
+                COALESCE(
+                  (SELECT json_agg(service_name ORDER BY sort_order, service_name)
+                   FROM bookings.booking_services WHERE booking_id = b.id),
+                  '[]'::json
+                ) AS services,
+                (SELECT rating FROM bookings.reviews WHERE booking_id = b.id) AS my_rating
+         FROM bookings.bookings b
+         LEFT JOIN salons.masters m ON m.id = b.master_id
+         WHERE b.company_id = $1 AND b.client_id = $2
+         ORDER BY b.starts_at DESC LIMIT 20`,
+        [company_id, id],
+      ),
+      // Lifetime stats
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE status = 'completed')::int         AS total_visits,
+                COALESCE(SUM(total_price - discount_amount)
+                  FILTER (WHERE status = 'completed'), 0)::float8          AS total_spent,
+                MAX(completed_at)                                           AS last_visit
+         FROM bookings.bookings WHERE company_id = $1 AND client_id = $2`,
+        [company_id, id],
+      ),
+    ]);
+
+    return res.json({
+      client: { id, full_name, phone, bonus_balance, avatar_color },
+      stats: statsRes.rows[0],
+      bookings: bookingsRes.rows,
+      files: filesRes.rows,
+    });
   } catch (e) { return next(e); }
 });
 
