@@ -4,6 +4,7 @@ import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
 import { config } from '../config';
+import { sendMail, buildReviewEmail } from '../mailer';
 
 const router = Router();
 router.use(authenticate);
@@ -635,26 +636,46 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
     );
     await client.query('COMMIT');
     const booking = upd.rows[0];
-    // Fire-and-forget WA review request (if phone known and WA reminders enabled)
-    if (booking.client_phone) {
-      setImmediate(async () => {
-        try {
-          const settingsRow = await pool.query(
-            `SELECT settings_jsonb FROM salons.company_profile WHERE company_id = $1`,
-            [booking.company_id],
-          );
-          const wa = settingsRow.rows[0]?.settings_jsonb?.notifications?.wa_reminder;
-          if (!wa) return;
-          const reviewUrl = `${config.FRONTEND_URL}/review.html?b=${booking.id}`;
-          const text = `Спасибо за визит! Будем рады вашему отзыву: ${reviewUrl}`;
-          await fetch(`${config.WHATSAPP_SERVICE_URL}/api/whatsapp/send`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: booking.client_phone, message: text }),
-          });
-        } catch { /* ignore WA errors */ }
-      });
-    }
+    // Fire-and-forget review request via WA + email
+    setImmediate(async () => {
+      try {
+        const [settingsRow, masterRow, clientRow] = await Promise.all([
+          pool.query(`SELECT settings_jsonb FROM salons.company_profile WHERE company_id = $1`, [booking.company_id]),
+          pool.query(`SELECT display_name FROM salons.masters WHERE id = $1`, [booking.master_id]),
+          booking.client_id
+            ? pool.query(`SELECT email::text AS email FROM clients.clients WHERE id = $1`, [booking.client_id])
+            : Promise.resolve({ rows: [] }),
+        ]);
+        const notif = settingsRow.rows[0]?.settings_jsonb?.notifications ?? {};
+        const masterName = masterRow.rows[0]?.display_name || 'мастер';
+        const clientEmail = clientRow.rows[0]?.email || null;
+
+        if (notif.wa_reminder && booking.client_phone) {
+          try {
+            const reviewUrl = `${config.FRONTEND_URL}/review.html?b=${booking.id}`;
+            await fetch(`${config.WHATSAPP_SERVICE_URL}/api/whatsapp/send`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                phone: booking.client_phone,
+                message: `Спасибо за визит! Будем рады вашему отзыву: ${reviewUrl}`,
+              }),
+            });
+          } catch { /* ignore */ }
+        }
+        if (notif.email_reminder && clientEmail) {
+          try {
+            const { subject, html } = buildReviewEmail({
+              clientName: booking.client_name || 'клиент',
+              masterName,
+              bookingId: booking.id,
+              frontendUrl: config.FRONTEND_URL,
+            });
+            await sendMail({ to: clientEmail, subject, html });
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    });
     return res.json(booking);
   } catch (e) {
     await client.query('ROLLBACK');

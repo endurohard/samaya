@@ -4,6 +4,7 @@ import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
+import { sendMail, buildConfirmationEmail } from '../mailer';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ const createSchema = z.object({
   starts_at: z.string().datetime({ offset: true }),
   client_phone: z.string().min(5).max(50),
   client_name: z.string().min(1).max(200),
+  client_email: z.string().email().optional(),
   notes: z.string().max(1000).optional(),
 });
 
@@ -76,6 +78,27 @@ router.post('/create', async (req, res, next) => {
     );
 
     await client.query('COMMIT');
+
+    // Fire-and-forget confirmation email
+    const emailTarget = input.client_email;
+    if (emailTarget) {
+      const masterRow = await pool.query(
+        `SELECT display_name FROM salons.masters WHERE id = $1`, [input.master_id],
+      );
+      setImmediate(async () => {
+        try {
+          const { subject, html } = buildConfirmationEmail({
+            clientName: input.client_name,
+            masterName: masterRow.rows[0]?.display_name || 'мастер',
+            services: services.map((s) => s.name).join(', '),
+            startsAt: booking.starts_at,
+            totalPrice: booking.total_price,
+          });
+          await sendMail({ to: emailTarget, subject, html });
+        } catch { /* ignore */ }
+      });
+    }
+
     return res.status(201).json({
       booking_id: booking.id,
       status: booking.status,

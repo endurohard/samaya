@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { pool } from './db';
 import { config } from './config';
+import { sendMail, buildReminderEmail } from './mailer';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -13,13 +14,11 @@ interface ReminderRow {
   id: string;
   company_id: string;
   client_phone: string | null;
+  client_email: string | null;
   client_name: string | null;
   starts_at: string;
   master_name: string | null;
   services: string;
-  wa_reminder: boolean;
-  tpl_24h: string | null;
-  tpl_2h: string | null;
 }
 
 function fillTemplate(tpl: string, row: ReminderRow, tz: string): string {
@@ -46,99 +45,161 @@ async function sendWa(phone: string, message: string): Promise<void> {
   }
 }
 
+const REMINDER_QUERY = (window: string, sentAtCol: string) => `
+  SELECT b.id, b.company_id,
+         b.client_phone, b.client_name,
+         b.starts_at::text AS starts_at,
+         COALESCE(m.display_name, '') AS master_name,
+         COALESCE(c.email::text, b.client_email) AS client_email,
+         COALESCE(
+           (SELECT string_agg(bs.service_name, ', ' ORDER BY bs.service_name)
+            FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
+           ''
+         ) AS services
+  FROM bookings.bookings b
+  LEFT JOIN salons.masters m ON m.id = b.master_id
+  LEFT JOIN clients.clients c ON c.id = b.client_id
+  WHERE b.company_id = $1
+    AND b.status IN ('pending', 'confirmed')
+    AND b.${sentAtCol} IS NULL
+    AND b.starts_at BETWEEN NOW() + ${window}`;
+
 async function processReminders(): Promise<void> {
-  // Load all companies with wa_reminder enabled
-  const companies = await pool.query<{ company_id: string; timezone: string; tpl_24h: string | null; tpl_2h: string | null }>(
-    `SELECT company_id, COALESCE(timezone, 'Europe/Moscow') AS timezone,
+  const companies = await pool.query<{
+    company_id: string;
+    timezone: string;
+    wa_reminder: boolean;
+    email_reminder: boolean;
+    tpl_24h: string | null;
+    tpl_2h: string | null;
+  }>(
+    `SELECT company_id,
+            COALESCE(timezone, 'Europe/Moscow') AS timezone,
+            COALESCE((settings_jsonb->'notifications'->>'wa_reminder')::boolean, FALSE)    AS wa_reminder,
+            COALESCE((settings_jsonb->'notifications'->>'email_reminder')::boolean, FALSE)  AS email_reminder,
             settings_jsonb->'notifications'->>'wa_reminder_tpl_24h' AS tpl_24h,
             settings_jsonb->'notifications'->>'wa_reminder_tpl_2h'  AS tpl_2h
      FROM salons.company_profile
-     WHERE (settings_jsonb->'notifications'->>'wa_reminder')::boolean = TRUE`,
+     WHERE COALESCE((settings_jsonb->'notifications'->>'wa_reminder')::boolean, FALSE) = TRUE
+        OR COALESCE((settings_jsonb->'notifications'->>'email_reminder')::boolean, FALSE) = TRUE`,
   );
 
   if (companies.rows.length === 0) return;
 
   for (const company of companies.rows) {
-    const { company_id, timezone, tpl_24h, tpl_2h } = company;
+    const { company_id, timezone, wa_reminder, email_reminder, tpl_24h, tpl_2h } = company;
 
-    // ── 24h window: starts_at BETWEEN now+23h AND now+25h, reminder_sent_at IS NULL ──
+    // ── 24h window ──
     const due24 = await pool.query<ReminderRow>(
       `SELECT b.id, b.company_id,
               b.client_phone, b.client_name,
               b.starts_at::text AS starts_at,
-              m.full_name AS master_name,
+              COALESCE(m.display_name, '') AS master_name,
+              COALESCE(c.email::text, '') AS client_email,
               COALESCE(
                 (SELECT string_agg(bs.service_name, ', ' ORDER BY bs.service_name)
                  FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
                 ''
-              ) AS services,
-              TRUE AS wa_reminder,
-              NULL::text AS tpl_24h, NULL::text AS tpl_2h
+              ) AS services
        FROM bookings.bookings b
        LEFT JOIN salons.masters m ON m.id = b.master_id
+       LEFT JOIN clients.clients c ON c.id = b.client_id
        WHERE b.company_id = $1
          AND b.status IN ('pending', 'confirmed')
-         AND b.client_phone IS NOT NULL
          AND b.reminder_sent_at IS NULL
          AND b.starts_at BETWEEN NOW() + INTERVAL '23 hours' AND NOW() + INTERVAL '25 hours'`,
       [company_id],
     );
 
     for (const row of due24.rows) {
-      try {
-        const text = fillTemplate(tpl_24h || DEFAULT_TPL_24H, row, timezone);
-        await sendWa(row.client_phone!, text);
-        await pool.query(
-          `UPDATE bookings.bookings SET reminder_sent_at = NOW() WHERE id = $1`,
-          [row.id],
-        );
-        log.info({ booking_id: row.id, phone: row.client_phone }, '[reminders] 24h sent');
-      } catch (err: unknown) {
-        log.error({ booking_id: row.id, err: (err as Error).message }, '[reminders] 24h FAIL');
+      let sent = false;
+      if (wa_reminder && row.client_phone) {
+        try {
+          await sendWa(row.client_phone, fillTemplate(tpl_24h || DEFAULT_TPL_24H, row, timezone));
+          sent = true;
+        } catch (e) {
+          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 24h WA FAIL');
+        }
+      }
+      if (email_reminder && row.client_email) {
+        try {
+          const { subject, html } = buildReminderEmail({
+            clientName: row.client_name || 'клиент',
+            masterName: row.master_name || 'мастер',
+            services: row.services,
+            startsAt: row.starts_at,
+            hoursAhead: 24,
+            timezone,
+          });
+          await sendMail({ to: row.client_email, subject, html });
+          sent = true;
+        } catch (e) {
+          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 24h email FAIL');
+        }
+      }
+      if (sent) {
+        await pool.query(`UPDATE bookings.bookings SET reminder_sent_at = NOW() WHERE id = $1`, [row.id]);
+        log.info({ booking_id: row.id }, '[reminders] 24h sent');
       }
     }
 
-    // ── 2h window: starts_at BETWEEN now+1h45m AND now+2h15m, reminder_2h_sent_at IS NULL ──
+    // ── 2h window ──
     const due2h = await pool.query<ReminderRow>(
       `SELECT b.id, b.company_id,
               b.client_phone, b.client_name,
               b.starts_at::text AS starts_at,
-              m.full_name AS master_name,
+              COALESCE(m.display_name, '') AS master_name,
+              COALESCE(c.email::text, '') AS client_email,
               COALESCE(
                 (SELECT string_agg(bs.service_name, ', ' ORDER BY bs.service_name)
                  FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
                 ''
-              ) AS services,
-              TRUE AS wa_reminder,
-              NULL::text AS tpl_24h, NULL::text AS tpl_2h
+              ) AS services
        FROM bookings.bookings b
        LEFT JOIN salons.masters m ON m.id = b.master_id
+       LEFT JOIN clients.clients c ON c.id = b.client_id
        WHERE b.company_id = $1
          AND b.status IN ('pending', 'confirmed')
-         AND b.client_phone IS NOT NULL
          AND b.reminder_2h_sent_at IS NULL
          AND b.starts_at BETWEEN NOW() + INTERVAL '105 minutes' AND NOW() + INTERVAL '135 minutes'`,
       [company_id],
     );
 
     for (const row of due2h.rows) {
-      try {
-        const text = fillTemplate(tpl_2h || DEFAULT_TPL_2H, row, timezone);
-        await sendWa(row.client_phone!, text);
-        await pool.query(
-          `UPDATE bookings.bookings SET reminder_2h_sent_at = NOW() WHERE id = $1`,
-          [row.id],
-        );
-        log.info({ booking_id: row.id, phone: row.client_phone }, '[reminders] 2h sent');
-      } catch (err: unknown) {
-        log.error({ booking_id: row.id, err: (err as Error).message }, '[reminders] 2h FAIL');
+      let sent = false;
+      if (wa_reminder && row.client_phone) {
+        try {
+          await sendWa(row.client_phone, fillTemplate(tpl_2h || DEFAULT_TPL_2H, row, timezone));
+          sent = true;
+        } catch (e) {
+          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 2h WA FAIL');
+        }
+      }
+      if (email_reminder && row.client_email) {
+        try {
+          const { subject, html } = buildReminderEmail({
+            clientName: row.client_name || 'клиент',
+            masterName: row.master_name || 'мастер',
+            services: row.services,
+            startsAt: row.starts_at,
+            hoursAhead: 2,
+            timezone,
+          });
+          await sendMail({ to: row.client_email, subject, html });
+          sent = true;
+        } catch (e) {
+          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 2h email FAIL');
+        }
+      }
+      if (sent) {
+        await pool.query(`UPDATE bookings.bookings SET reminder_2h_sent_at = NOW() WHERE id = $1`, [row.id]);
+        log.info({ booking_id: row.id }, '[reminders] 2h sent');
       }
     }
   }
 }
 
 export function startReminderScheduler(): void {
-  // First tick after 1 minute (let service fully start)
   setTimeout(() => {
     processReminders().catch((e) => log.error(e, '[reminders] tick error'));
     setInterval(() => {

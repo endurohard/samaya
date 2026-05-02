@@ -138,6 +138,12 @@ services:
       SLOT_STEP_MINUTES: ${SLOT_STEP_MINUTES:-15}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       WHATSAPP_SERVICE_URL: http://whatsapp-service:3008
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SMTP_FROM: ${SMTP_FROM:-noreply@samaya.pro}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Samaya}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
     expose:
       - "3003"
     networks:
@@ -304,6 +310,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: samaya-mailhog
+    expose:
+      - "1025"   # SMTP
+    ports:
+      - "${MAILHOG_PORT:-8025}:8025"  # Web UI
+    networks:
+      - samaya-network
     restart: unless-stopped
 
   # Все сервисы MVP подключены: user/salon/booking/client/inventory + frontend + whatsapp.

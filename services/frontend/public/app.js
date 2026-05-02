@@ -5552,11 +5552,18 @@
     setChk('setNotifySmsConfirm', 'sms_confirm');
     setChk('setNotifyTgMaster', 'tg_master');
     setChk('setNotifyEmailOwner', 'email_owner');
+    setChk('setNotifyEmailReminder', 'email_reminder');
     const tplBlock = document.getElementById('setReminderTplBlock');
     const cb = document.getElementById('setNotifyWaReminder');
     if (tplBlock && cb) {
       tplBlock.style.display = cb.checked ? 'flex' : 'none';
       cb.addEventListener('change', () => { tplBlock.style.display = cb.checked ? 'flex' : 'none'; });
+    }
+    const emailHint = document.getElementById('setEmailHint');
+    const emailCb = document.getElementById('setNotifyEmailReminder');
+    if (emailHint && emailCb) {
+      emailHint.style.display = emailCb.checked ? 'flex' : 'none';
+      emailCb.addEventListener('change', () => { emailHint.style.display = emailCb.checked ? 'flex' : 'none'; });
     }
     const t24 = document.getElementById('setReminderTpl24h');
     const t2h = document.getElementById('setReminderTpl2h');
@@ -5688,6 +5695,7 @@
       sms_confirm: document.getElementById('setNotifySmsConfirm')?.checked || false,
       tg_master: document.getElementById('setNotifyTgMaster')?.checked || false,
       email_owner: document.getElementById('setNotifyEmailOwner')?.checked || false,
+      email_reminder: document.getElementById('setNotifyEmailReminder')?.checked || false,
       wa_reminder_tpl_24h: (document.getElementById('setReminderTpl24h')?.value || '').trim() || null,
       wa_reminder_tpl_2h: (document.getElementById('setReminderTpl2h')?.value || '').trim() || null,
     };

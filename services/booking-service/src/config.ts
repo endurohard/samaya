@@ -16,6 +16,14 @@ const schema = z.object({
   REMINDER_INTERVAL_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
   // Базовый URL фронтенда для генерации ссылки на отзыв
   FRONTEND_URL: z.string().url().default('http://localhost:3010'),
+  // SMTP (Mailhog for dev)
+  SMTP_HOST: z.string().default('samaya-mailhog'),
+  SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().email().default('noreply@samaya.pro'),
+  SMTP_FROM_NAME: z.string().default('Samaya'),
 });
 
 const parsed = schema.safeParse(process.env);
