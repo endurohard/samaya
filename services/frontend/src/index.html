@@ -1802,6 +1802,7 @@
             <button type="button" class="subnav-item" data-set-tab="masters">Сотрудники</button>
             <button type="button" class="subnav-item" data-set-tab="templates">Шаблоны графика</button>
             <button type="button" class="subnav-item" data-set-tab="notifications">Уведомления</button>
+            <button type="button" class="subnav-item" data-set-tab="access">Доступ к проекту</button>
           </nav>
 
           <!-- Tab: Компания -->
@@ -1973,7 +1974,48 @@
               </form>
             </div>
           </div>
+
+          <!-- Tab: Доступ к проекту -->
+          <div id="setTabAccess" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Доступ к проекту</h2>
+                <span class="counter" id="accessCounter">0</span>
+              </div>
+              <div id="accessUsersList" class="data-list"><div class="empty">Загрузка…</div></div>
+            </div>
+          </div>
         </section>
+
+        <!-- Modal: настройка доступа сотрудника -->
+        <div class="modal-backdrop" id="accessModalBackdrop" hidden>
+          <div class="modal" id="accessModal" role="dialog" aria-modal="true" style="max-width:560px;">
+            <div class="modal-head">
+              <h3 class="modal-title" id="accessModalTitle">Доступ сотрудника</h3>
+              <button type="button" class="modal-close" id="accessModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" id="accessUserId" />
+              <div style="margin-bottom:14px;">
+                <label for="accessRole">Роль доступа</label>
+                <select id="accessRole">
+                  <option value="master">Сотрудник</option>
+                  <option value="admin">Администратор</option>
+                  <option value="owner">Владелец</option>
+                </select>
+                <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">
+                  Смена роли подставляет дефолтные права роли — ниже можно подстроить точечно.
+                </div>
+              </div>
+              <div id="accessPermGroups"></div>
+              <div class="error" id="accessModalError" hidden></div>
+            </div>
+            <div class="modal-foot">
+              <button type="button" class="btn-primary" id="accessModalSave">Сохранить</button>
+              <button type="button" class="btn-ghost" id="accessModalCancel">Отмена</button>
+            </div>
+          </div>
+        </div>
 
         <!-- Modal: schedule template -->
         <div class="modal-backdrop" id="setTemplateBackdrop" hidden></div>

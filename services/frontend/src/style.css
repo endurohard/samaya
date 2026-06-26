@@ -1925,6 +1925,14 @@ body {
 .svc-master-row .svc-m-name { flex: 1 1 auto; min-width: 0; }
 .svc-master-row .svc-m-price { flex: 0 0 110px; }
 .svc-master-row .svc-m-price:disabled { opacity: 0.5; }
+
+/* RBAC: группы прав в модалке доступа */
+.perm-group { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.perm-group:last-child { border-bottom: none; }
+.perm-group-title { font-weight: 600; font-size: var(--fs-sm); margin-bottom: 8px; }
+.perm-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.perm-item { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
+.perm-item input { margin: 0; }
 .btn-link-danger {
   margin-left: auto;
   background: transparent;

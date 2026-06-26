@@ -5816,7 +5816,7 @@ import { trapFocus } from './modules/focus-trap.js';
 
   function setSwitchTab(tab) {
     settingsTab = tab;
-    ['company', 'services', 'masters', 'templates', 'notifications'].forEach((t) => {
+    ['company', 'services', 'masters', 'templates', 'notifications', 'access'].forEach((t) => {
       const panel = document.getElementById('setTab' + t.charAt(0).toUpperCase() + t.slice(1));
       if (panel) panel.hidden = (t !== tab);
     });
@@ -5826,7 +5826,115 @@ import { trapFocus } from './modules/focus-trap.js';
     if (tab === 'company') renderCompanyForm();
     if (tab === 'templates') renderScheduleTemplates();
     if (tab === 'notifications') renderNotificationsForm();
+    if (tab === 'access') void loadAccessUsers();
   }
+
+  // ===== RBAC: Доступ к проекту =====
+  let accessCatalog = null;   // { modules, role_defaults }
+  let accessUsers = [];
+  const ROLE_LABELS = { owner: 'Владелец', admin: 'Администратор', master: 'Сотрудник', client: 'Клиент' };
+
+  async function loadAccessUsers() {
+    const listEl = document.getElementById('accessUsersList');
+    if (listEl) listEl.innerHTML = '<div class="empty">Загрузка…</div>';
+    if (!accessCatalog) {
+      const c = await apiCall('GET', '/api/auth/permissions-catalog');
+      accessCatalog = c.ok ? c.data : { modules: [], role_defaults: {} };
+    }
+    const r = await apiCall('GET', '/api/auth/users');
+    if (!r.ok) {
+      if (listEl) listEl.innerHTML = `<div class="empty">${r.status === 403 ? 'Недостаточно прав для управления доступом.' : 'Ошибка загрузки.'}</div>`;
+      return;
+    }
+    accessUsers = r.data?.items || [];
+    renderAccessUsers();
+  }
+
+  function permSummary(u) {
+    const perms = u.permissions || {};
+    const total = Object.keys(perms).length;
+    const on = Object.values(perms).filter(Boolean).length;
+    return `${on}/${total} прав`;
+  }
+
+  function renderAccessUsers() {
+    const listEl = document.getElementById('accessUsersList');
+    const cnt = document.getElementById('accessCounter');
+    if (cnt) cnt.textContent = String(accessUsers.length);
+    if (!listEl) return;
+    if (!accessUsers.length) { listEl.innerHTML = '<div class="empty">Сотрудников нет.</div>'; return; }
+    listEl.innerHTML = accessUsers.map((u) => `
+      <div class="row-item ${u.is_active ? '' : 'inactive'}">
+        <div class="row-main">
+          <div class="row-name">${escapeHtml(u.full_name || u.email || u.phone || '—')}</div>
+          <div class="row-meta">${escapeHtml(ROLE_LABELS[u.role] || u.role)} · ${escapeHtml(permSummary(u))}${u.is_active ? '' : ' · отключён'}</div>
+        </div>
+        <button type="button" class="btn-ghost btn-sm" data-access-edit="${escapeHtml(u.id)}">Настроить</button>
+      </div>`).join('');
+    listEl.querySelectorAll('[data-access-edit]').forEach((b) => {
+      b.addEventListener('click', () => openAccessModal(b.dataset.accessEdit));
+    });
+  }
+
+  function renderPermGroups(perms) {
+    const wrap = document.getElementById('accessPermGroups');
+    if (!wrap || !accessCatalog) return;
+    wrap.innerHTML = (accessCatalog.modules || []).map((m) => `
+      <div class="perm-group">
+        <div class="perm-group-title">${escapeHtml(m.label)}</div>
+        <div class="perm-actions">
+          ${m.actions.map((a) => {
+            const key = `${m.key}.${a.key}`;
+            return `<label class="perm-item">
+              <input type="checkbox" class="perm-check" data-key="${escapeHtml(key)}" ${perms[key] ? 'checked' : ''} />
+              <span>${escapeHtml(a.label)}</span>
+            </label>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  function openAccessModal(userId) {
+    const u = accessUsers.find((x) => x.id === userId);
+    if (!u) return;
+    document.getElementById('accessUserId').value = u.id;
+    document.getElementById('accessModalTitle').textContent = u.full_name || u.email || u.phone || 'Сотрудник';
+    document.getElementById('accessRole').value = u.role;
+    document.getElementById('accessModalError').hidden = true;
+    renderPermGroups(u.permissions || {});
+    document.getElementById('accessModalBackdrop').hidden = false;
+  }
+
+  // Смена роли → подставить дефолтные права роли (с сервера)
+  document.getElementById('accessRole')?.addEventListener('change', (e) => {
+    const defaults = accessCatalog?.role_defaults?.[e.target.value];
+    if (defaults) renderPermGroups(defaults);
+  });
+
+  document.getElementById('accessModalSave')?.addEventListener('click', async () => {
+    const errEl = document.getElementById('accessModalError');
+    errEl.hidden = true;
+    const userId = document.getElementById('accessUserId').value;
+    const role = document.getElementById('accessRole').value;
+    const permissions = {};
+    document.querySelectorAll('#accessPermGroups .perm-check').forEach((cb) => {
+      permissions[cb.dataset.key] = cb.checked;
+    });
+    const r = await apiCall('PATCH', `/api/auth/users/${userId}`, { role, permissions });
+    if (!r.ok) {
+      errEl.textContent = r.data?.error || (r.status === 403 ? 'Недостаточно прав' : 'Ошибка сохранения');
+      errEl.hidden = false;
+      return;
+    }
+    document.getElementById('accessModalBackdrop').hidden = true;
+    toast('Доступ обновлён');
+    await loadAccessUsers();
+  });
+  document.getElementById('accessModalClose')?.addEventListener('click', () => { document.getElementById('accessModalBackdrop').hidden = true; });
+  document.getElementById('accessModalCancel')?.addEventListener('click', () => { document.getElementById('accessModalBackdrop').hidden = true; });
+  document.getElementById('accessModalBackdrop')?.addEventListener('click', (e) => {
+    if (e.target.id === 'accessModalBackdrop') document.getElementById('accessModalBackdrop').hidden = true;
+  });
 
   async function activateSettingsView() {
     await Promise.all([loadCompanyProfile(), loadScheduleTemplates()]);

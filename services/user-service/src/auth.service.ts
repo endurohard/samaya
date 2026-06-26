@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { pool } from './db';
 import { signAccess, generateRefreshToken, hashRefreshToken } from './jwt';
 import { config } from './config';
+import { effectivePermissions } from './permissions';
 
 export class AuthError extends Error {
   constructor(
@@ -71,10 +72,16 @@ async function issueTokens(
   user: PublicUser,
   meta: RequestMeta,
 ): Promise<{ access_token: string; refresh_token: string }> {
+  const permRes = await client.query(
+    `SELECT permissions FROM users.users WHERE id = $1`,
+    [user.id],
+  );
+  const permissions = effectivePermissions(user.role, permRes.rows[0]?.permissions);
   const access_token = await signAccess({
     sub: user.id,
     company_id: user.company_id,
     role: user.role,
+    permissions,
   });
   const { token, hash } = generateRefreshToken();
   const expires_at = new Date(Date.now() + REFRESH_TTL_MS);

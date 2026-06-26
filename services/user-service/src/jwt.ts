@@ -8,10 +8,16 @@ export interface AccessPayload extends JWTPayload {
   sub: string;        // user_id
   company_id: string;
   role: string;
+  permissions?: Record<string, boolean>;  // эффективные права (RBAC)
   type: 'access';
 }
 
-export async function signAccess(payload: { sub: string; company_id: string; role: string }): Promise<string> {
+export async function signAccess(payload: {
+  sub: string;
+  company_id: string;
+  role: string;
+  permissions?: Record<string, boolean>;
+}): Promise<string> {
   return new SignJWT({ ...payload, type: 'access' })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
