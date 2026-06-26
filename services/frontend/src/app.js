@@ -1263,6 +1263,24 @@ import { trapFocus } from './modules/focus-trap.js';
       col.className = 'cal-master-col';
       col.style.gridRow = '2'; col.style.gridColumn = String(i + 2);
       col.style.height = gridHeight + 'px';
+      col.style.cursor = 'pointer';
+      col.title = 'Кликните по свободному времени, чтобы создать запись';
+
+      // Клик по пустому месту колонки → новая запись на этого мастера и время
+      col.addEventListener('click', (e) => {
+        if (e.target.closest('.cal-booking')) return; // по существующей записи — не создаём
+        const rect = col.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        let minutes = Math.round((y / CAL_PX_PER_MIN) / 15) * 15; // снап к 15 мин
+        minutes = Math.max(0, minutes);
+        const abs = CAL_START_HOUR * 60 + minutes;
+        const hh = Math.floor(abs / 60);
+        const mm = abs % 60;
+        if (hh > CAL_END_HOUR) return;
+        const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        const dateStr = (els.journalDate && els.journalDate.value) || todayLocalISO();
+        openNewBookingAt(m.id, dateStr, timeStr);
+      });
 
       const list = byMaster.get(m.id) || [];
       list.forEach((b) => {
@@ -1845,6 +1863,20 @@ import { trapFocus } from './modules/focus-trap.js';
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = true;
     if (els.bkModal) els.bkModal.hidden = true;
     if (_bkModalRelease) { _bkModalRelease(); _bkModalRelease = null; }
+  }
+
+  // Открыть форму новой записи с подставленными мастером, датой и временем
+  // (клик по пустой ячейке в журнале).
+  function openNewBookingAt(masterId, dateStr, timeStr) {
+    populateBookingForm();
+    if (els.addBookingBlock) els.addBookingBlock.open = true;
+    setTimeout(() => {
+      if (els.bMaster) els.bMaster.value = masterId;
+      const bStartsEl = document.getElementById('bStarts');
+      if (bStartsEl) bStartsEl.value = `${dateStr}T${timeStr}`;
+      if (els.addBookingBlock) els.addBookingBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('bName')?.focus();
+    }, 0);
   }
 
   function repeatBooking(b) {
