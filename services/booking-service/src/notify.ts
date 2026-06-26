@@ -51,7 +51,10 @@ export async function notifyMasterNewBooking(opts: {
         const text = `📅 Новая запись!\nКлиент: ${opts.clientName}\nДата: ${d}\nУслуги: ${opts.services}`;
         await fetch(`${config.WHATSAPP_SERVICE_URL}/api/whatsapp/send`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Token': config.WHATSAPP_INTERNAL_TOKEN,
+          },
           body: JSON.stringify({ phone: master.phone, message: text }),
           signal: AbortSignal.timeout(10_000),
         });

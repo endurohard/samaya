@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, HttpError } from '../middleware';
@@ -37,8 +38,8 @@ async function fetchCompletedBookings(
 }
 
 const calcSchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDate(),
+  to: isoDate(),
   master_id: z.string().uuid().optional(),
 });
 

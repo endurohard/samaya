@@ -35,7 +35,10 @@ async function sendWa(phone: string, message: string): Promise<void> {
   const url = `${config.WHATSAPP_SERVICE_URL}/api/whatsapp/send`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Token': config.WHATSAPP_INTERNAL_TOKEN,
+    },
     body: JSON.stringify({ phone, message }),
     signal: AbortSignal.timeout(15_000),
   });

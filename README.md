@@ -4,10 +4,12 @@
 
 ## Стек
 
-- Node.js + TypeScript (по сервису)
+- Node.js + TypeScript (8 сервисов: user, salon, booking, client, inventory, finance, salary, whatsapp)
 - PostgreSQL 16 (один инстанс, schema-per-service)
 - Redis 7 (кэш / сессии)
-- Kong API Gateway (DB-less)
+- Kong API Gateway (DB-less) + per-route rate-limiting
+- Frontend — vanilla JS SPA на nginx
+- WhatsApp — whatsapp-web.js через Puppeteer
 - Всё через docker-compose
 
 ## Структура
@@ -30,11 +32,17 @@ samaya/
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres redis kong
+docker compose up -d
 docker compose ps
 ```
 
-Phase 0a сервисы (user/salon/booking/client/frontend) пока не реализованы — добавляются по мере готовности.
+Админка откроется на `http://localhost:${FRONTEND_PORT:-3010}`.
+
+Фронтенд (`services/frontend`) собирается esbuild'ом: исходники в `src/`,
+сборка (бандл + минификация + content-hash) в `dist/` — это делает многоступенчатый
+Dockerfile при `docker compose build`. Локально без Docker: `cd services/frontend && npm install && npm run build`.
+
+Все сервисы Phase 0a/0b реализованы. Перед продакшен-запуском — см. [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) (секреты, бэкапы, восстановление WhatsApp-сессии).
 
 ## Phase plan
 

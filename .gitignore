@@ -13,3 +13,6 @@ coverage/
 Wiki/.obsidian/workspace.json
 Wiki/.obsidian/workspace-mobile.json
 *.canvas
+backups/
+tests/playwright-report/
+tests/test-results/

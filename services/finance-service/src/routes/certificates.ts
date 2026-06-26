@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -60,7 +61,7 @@ const createSchema = z.object({
   amount: z.number().min(100).max(1_000_000),
   client_id: z.string().uuid().nullable().optional(),
   client_name: z.string().max(200).nullable().optional(),
-  expires_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  expires_at: isoDate().nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
 });
 

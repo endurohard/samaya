@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#6366f1" />
+  <meta name="theme-color" content="#7c3aed" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -11,7 +11,8 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>samaya — admin</title>
-  <link rel="stylesheet" href="/style.css?v=20260430c" />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/style.css?v=20260517a" />
   <script>
     // Выгоняем service workers, оставшиеся от food-flow или прежних версий — они могут
     // перехватывать /api/* запросы и возвращать пустые/устаревшие ответы.
@@ -131,7 +132,7 @@
           <span class="topbar-brand-salon" id="topbarSalon">Самая</span>
         </div>
         <div class="topbar-spacer"></div>
-        <span class="topbar-tariff" title="Тариф">Тариф: <b>PRO</b></span>
+
         <button class="topbar-icon-btn" id="topbarHelp" type="button" title="Помощь" aria-label="Помощь">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 115 0c0 1.4-2.5 1.6-2.5 3.5"/><circle cx="12" cy="16.5" r="0.8" fill="currentColor"/></svg>
         </button>
@@ -970,7 +971,15 @@
                 <div class="form-grid">
                   <div>
                     <label for="rSupplier">Поставщик</label>
-                    <select id="rSupplier" name="supplier_id"><option value="">—</option></select>
+                    <div class="input-with-btn">
+                      <select id="rSupplier" name="supplier_id"><option value="">—</option></select>
+                      <button type="button" class="btn-ghost btn-xs" id="rSupplierAddToggle" title="Добавить нового поставщика">+ Новый</button>
+                    </div>
+                    <div class="supplier-add-inline" id="rSupplierAddInline" hidden>
+                      <input id="rSupplierNewName" type="text" placeholder="Название поставщика" autocomplete="off" />
+                      <button type="button" class="btn-primary btn-xs" id="rSupplierAddSave">Создать</button>
+                      <button type="button" class="btn-ghost btn-xs" id="rSupplierAddCancel" aria-label="отмена">×</button>
+                    </div>
                   </div>
                   <div>
                     <label for="rInvoice">Номер накладной</label>
@@ -1876,7 +1885,7 @@
                     Email: напоминание и подтверждение по e-mail клиента</label>
                 </div>
                 <div class="set-notify-row" style="display:none;margin-left:20px;" id="setEmailHint">
-                  <span style="font-size:12px;color:var(--muted);">Письма отправляются если у клиента указан e-mail в карточке. Для dev: <a href="http://localhost:8025" target="_blank" style="color:var(--primary);">Mailhog UI</a></span>
+                  <span style="font-size:12px;color:var(--muted);">Письма отправляются если у клиента указан e-mail в карточке.</span>
                 </div>
                 <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
                   <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px;">УВЕДОМЛЕНИЯ МАСТЕРУ</div>

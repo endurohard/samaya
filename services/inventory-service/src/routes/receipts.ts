@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -10,14 +11,14 @@ const itemSchema = z.object({
   product_id: z.string().uuid(),
   qty: z.number().positive(),
   unit_cost: z.number().nonnegative().optional().default(0),
-  expires_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  expires_at: isoDate().nullable().optional(),
 });
 
 const createSchema = z.object({
   supplier_id: z.string().uuid().nullable().optional(),
   warehouse_id: z.string().uuid().optional(),
   invoice_number: z.string().max(100).nullable().optional(),
-  invoice_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  invoice_date: isoDate().optional(),
   notes: z.string().max(2000).nullable().optional(),
   items: z.array(itemSchema).min(1).max(500),
 });

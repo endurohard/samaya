@@ -30,6 +30,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if (err instanceof ZodError) {
     return res.status(400).json({ error: 'validation', details: err.flatten().fieldErrors });
   }
+  // Невалидный JSON в теле запроса (body-parser) → 400, а не 500
+  if (err instanceof SyntaxError && 'body' in (err as object)) {
+    return res.status(400).json({ error: 'invalid_json' });
+  }
   if (err instanceof AuthError) {
     return res.status(err.status).json({ error: err.message, code: err.code });
   }

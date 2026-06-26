@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -48,8 +49,8 @@ const createSchema = z.object({
   code: z.string().min(2).max(32).transform((s) => s.toUpperCase()),
   name: z.string().min(1).max(200),
   discount_pct: z.number().positive().max(100),
-  valid_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  valid_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  valid_from: isoDate().nullable().optional(),
+  valid_to: isoDate().nullable().optional(),
   max_uses: z.number().int().positive().nullable().optional(),
 });
 

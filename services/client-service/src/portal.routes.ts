@@ -11,8 +11,38 @@ const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'app
 const uploadSchema = z.object({
   file_name: z.string().min(1).max(255),
   mime_type: z.enum(ALLOWED_MIME),
-  data_base64: z.string().min(1),
+  // ~15 MB бинарных данных ≈ 20 MB base64; отсекаем до декодирования
+  data_base64: z.string().min(1).max(Math.ceil(MAX_FILE_BYTES * 4 / 3) + 4),
 });
+
+// Magic bytes: содержимое файла должно соответствовать заявленному MIME
+function matchesMime(buf: Buffer, mime: string): boolean {
+  if (buf.length < 12) return false;
+  switch (mime) {
+    case 'image/jpeg':
+      return buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    case 'image/png':
+      return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    case 'image/webp':
+      return buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP';
+    case 'image/gif':
+      return buf.toString('latin1', 0, 4) === 'GIF8';
+    case 'application/pdf':
+      return buf.toString('latin1', 0, 4) === '%PDF';
+    default:
+      return false;
+  }
+}
+
+// Имя файла для Content-Disposition: убираем кавычки, управляющие символы и пути
+function safeFileName(name: string): string {
+  let out = '';
+  for (const ch of name) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += code < 0x20 || ch === '"' || ch === '/' || ch === '\\' ? '_' : ch;
+  }
+  return out.slice(0, 255).trim() || 'file';
+}
 
 // GET /api/clients/portal/:token  — client dashboard: info + visits + bonus + files
 router.get('/:token', async (req, res, next) => {
@@ -20,7 +50,7 @@ router.get('/:token', async (req, res, next) => {
     const r = await pool.query(
       `SELECT id, company_id, full_name, phone::text AS phone,
               bonus_balance::float8 AS bonus_balance, avatar_color
-       FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE`,
+       FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE AND is_blocked = FALSE`,
       [req.params.token],
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });
@@ -75,7 +105,7 @@ router.get('/:token', async (req, res, next) => {
 router.post('/:token/files', async (req, res, next) => {
   try {
     const c = await pool.query(
-      `SELECT id, company_id FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE`,
+      `SELECT id, company_id FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE AND is_blocked = FALSE`,
       [req.params.token],
     );
     if (!c.rows[0]) return res.status(404).json({ error: 'not_found' });
@@ -85,6 +115,9 @@ router.post('/:token/files', async (req, res, next) => {
     const buf = Buffer.from(input.data_base64, 'base64');
     if (buf.length > MAX_FILE_BYTES) {
       return res.status(413).json({ error: 'file_too_large', max_mb: 15 });
+    }
+    if (!matchesMime(buf, input.mime_type)) {
+      return res.status(400).json({ error: 'mime_mismatch' });
     }
 
     const ins = await pool.query(
@@ -102,7 +135,7 @@ router.post('/:token/files', async (req, res, next) => {
 router.get('/:token/files/:fileId', async (req, res, next) => {
   try {
     const c = await pool.query(
-      `SELECT id FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE`,
+      `SELECT id FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE AND is_blocked = FALSE`,
       [req.params.token],
     );
     if (!c.rows[0]) return res.status(404).json({ error: 'not_found' });
@@ -113,7 +146,8 @@ router.get('/:token/files/:fileId', async (req, res, next) => {
     );
     if (!f.rows[0]) return res.status(404).json({ error: 'not_found' });
     res.set('Content-Type', f.rows[0].mime_type);
-    res.set('Content-Disposition', `inline; filename="${f.rows[0].file_name}"`);
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Content-Disposition', `inline; filename="${safeFileName(f.rows[0].file_name)}"`);
     return res.send(f.rows[0].file_data);
   } catch (e) { return next(e); }
 });
@@ -122,7 +156,7 @@ router.get('/:token/files/:fileId', async (req, res, next) => {
 router.delete('/:token/files/:fileId', async (req, res, next) => {
   try {
     const c = await pool.query(
-      `SELECT id FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE`,
+      `SELECT id FROM clients.clients WHERE upload_token = $1 AND is_deleted = FALSE AND is_blocked = FALSE`,
       [req.params.token],
     );
     if (!c.rows[0]) return res.status(404).json({ error: 'not_found' });

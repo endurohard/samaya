@@ -4,8 +4,8 @@ import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
-import { sendMail, buildConfirmationEmail } from '../mailer';
-import { notifyMasterNewBooking } from '../notify';
+import { buildConfirmationEmail, buildMasterNotifyEmail } from '../mailer';
+import { enqueueNotification } from '../notification-outbox';
 
 const router = Router();
 
@@ -78,75 +78,103 @@ router.post('/create', async (req, res, next) => {
       })],
     );
 
-    await client.query('COMMIT');
+    // Уведомления ставим в очередь в той же транзакции (at-least-once + ретраи воркером).
+    // Получаем получателей и настройки до COMMIT.
+    const [masterRow, ownerRow, settingsRow] = await Promise.all([
+      client.query(
+        `SELECT display_name, phone::text AS phone, email::text AS email
+         FROM salons.masters WHERE id = $1`,
+        [input.master_id],
+      ),
+      client.query(
+        `SELECT email::text AS owner_email FROM users.users
+         WHERE company_id = $1 AND role = 'owner' AND email IS NOT NULL LIMIT 1`,
+        [companyId],
+      ),
+      client.query(
+        `SELECT COALESCE(timezone, 'Europe/Moscow') AS timezone,
+                COALESCE((settings_jsonb->'notifications'->>'notify_master_wa')::boolean, FALSE)    AS notify_master_wa,
+                COALESCE((settings_jsonb->'notifications'->>'notify_master_email')::boolean, FALSE) AS notify_master_email
+         FROM salons.company_profile WHERE company_id = $1`,
+        [companyId],
+      ),
+    ]);
+    const masterName = masterRow.rows[0]?.display_name || 'мастер';
+    const master = masterRow.rows[0];
+    const settings = settingsRow.rows[0] ?? { timezone: 'Europe/Moscow', notify_master_wa: false, notify_master_email: false };
+    const servicesList = services.map((s) => s.name).join(', ');
 
-    // Fire-and-forget: confirmation email to client + alert to admin
-    setImmediate(async () => {
-      try {
-        const [masterRow, settingsRow] = await Promise.all([
-          pool.query(`SELECT display_name FROM salons.masters WHERE id = $1`, [input.master_id]),
-          pool.query(
-            `SELECT u.email::text AS owner_email,
-                    cp.settings_jsonb->'notifications'->>'email_reminder' AS email_remind
-             FROM salons.company_profile cp
-             JOIN users.users u ON u.company_id = cp.company_id AND u.role = 'owner'
-             WHERE cp.company_id = $1
-             LIMIT 1`,
-            [companyId],
-          ),
-        ]);
-        const masterName = masterRow.rows[0]?.display_name || 'мастер';
-        const servicesList = services.map((s) => s.name).join(', ');
-
-        // Confirmation to client
-        if (input.client_email) {
-          try {
-            const { subject, html } = buildConfirmationEmail({
-              clientName: input.client_name,
-              masterName,
-              services: servicesList,
-              startsAt: booking.starts_at,
-              totalPrice: booking.total_price,
-            });
-            await sendMail({ to: input.client_email, subject, html });
-          } catch { /* ignore */ }
-        }
-
-        // New booking alert to owner (always if owner has email)
-        const ownerEmail = settingsRow.rows[0]?.owner_email;
-        if (ownerEmail) {
-          try {
-            const d = new Date(booking.starts_at).toLocaleString('ru-RU', {
-              day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-              timeZone: 'Europe/Moscow',
-            });
-            await sendMail({
-              to: ownerEmail,
-              subject: `Новая запись: ${input.client_name}, ${d}`,
-              html: `<p style="font-family:sans-serif">
-                <b>Новая запись через виджет</b><br><br>
-                Клиент: <b>${input.client_name}</b> (${input.client_phone})<br>
-                Дата: <b>${d}</b><br>
-                Мастер: <b>${masterName}</b><br>
-                Услуги: ${servicesList}<br>
-                Сумма: <b>${booking.total_price} ₽</b>
-              </p>`,
-            });
-          } catch { /* ignore */ }
-        }
-      } catch { /* ignore */ }
-    });
-
-    // Notify master (separate setImmediate — independent of client/admin emails)
-    setImmediate(() => {
-      notifyMasterNewBooking({
-        companyId,
-        masterId: input.master_id,
+    // 1. Подтверждение клиенту (email)
+    if (input.client_email) {
+      const { subject, html } = buildConfirmationEmail({
         clientName: input.client_name,
-        services: services.map((s) => s.name).join(', '),
+        masterName,
+        services: servicesList,
         startsAt: booking.starts_at,
+        totalPrice: booking.total_price,
+        timezone: settings.timezone,
       });
-    });
+      await enqueueNotification(client, {
+        companyId, channel: 'email', recipient: input.client_email,
+        kind: 'booking_confirmation', sourceId: booking.id,
+        payload: { subject, html },
+      });
+    }
+
+    // 2. Уведомление владельцу (email)
+    const ownerEmail = ownerRow.rows[0]?.owner_email;
+    if (ownerEmail) {
+      const d = new Date(booking.starts_at).toLocaleString('ru-RU', {
+        day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+        timeZone: settings.timezone,
+      });
+      await enqueueNotification(client, {
+        companyId, channel: 'email', recipient: ownerEmail,
+        kind: 'owner_new_booking', sourceId: booking.id,
+        payload: {
+          subject: `Новая запись: ${input.client_name}, ${d}`,
+          html: `<p style="font-family:sans-serif">
+            <b>Новая запись через виджет</b><br><br>
+            Клиент: <b>${input.client_name}</b> (${input.client_phone})<br>
+            Дата: <b>${d}</b><br>
+            Мастер: <b>${masterName}</b><br>
+            Услуги: ${servicesList}<br>
+            Сумма: <b>${booking.total_price} ₽</b>
+          </p>`,
+        },
+      });
+    }
+
+    // 3. Уведомление мастеру (WA + email по настройкам)
+    if (master) {
+      if (settings.notify_master_wa && master.phone) {
+        const d = new Date(booking.starts_at).toLocaleString('ru-RU', {
+          day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+          timeZone: settings.timezone,
+        });
+        await enqueueNotification(client, {
+          companyId, channel: 'wa', recipient: master.phone,
+          kind: 'master_new_booking', sourceId: booking.id,
+          payload: { message: `📅 Новая запись!\nКлиент: ${input.client_name}\nДата: ${d}\nУслуги: ${servicesList}` },
+        });
+      }
+      if (settings.notify_master_email && master.email) {
+        const { subject, html } = buildMasterNotifyEmail({
+          masterName: master.display_name,
+          clientName: input.client_name,
+          services: servicesList,
+          startsAt: booking.starts_at,
+          timezone: settings.timezone,
+        });
+        await enqueueNotification(client, {
+          companyId, channel: 'email', recipient: master.email,
+          kind: 'master_new_booking', sourceId: booking.id,
+          payload: { subject, html },
+        });
+      }
+    }
+
+    await client.query('COMMIT');
 
     return res.status(201).json({
       booking_id: booking.id,

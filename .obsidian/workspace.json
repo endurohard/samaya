@@ -1,0 +1,228 @@
+{
+  "main": {
+    "id": "262518fbd62475ce",
+    "type": "split",
+    "children": [
+      {
+        "id": "b4129d0e806ead00",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "dc4bb996c7d30146",
+            "type": "leaf",
+            "state": {
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Граф"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ca5192fa45f7dcb4",
+    "type": "split",
+    "children": [
+      {
+        "id": "ba9cc9e67007e1d6",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7cfc12794b93e94f",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Файловый менеджер"
+            }
+          },
+          {
+            "id": "8e23bd21c7cef221",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Поиск"
+            }
+          },
+          {
+            "id": "a4a5dbafd8594117",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Закладки"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "87bd77ba98a263fe",
+    "type": "split",
+    "children": [
+      {
+        "id": "d44f0a6e2f62bdb8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a8e848752f4f400a",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Обратные ссылки"
+            }
+          },
+          {
+            "id": "e128cc129d6f3878",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Исходящие ссылки"
+            }
+          },
+          {
+            "id": "505d3c72aa20a149",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Теги"
+            }
+          },
+          {
+            "id": "90e71f821ea804a9",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "Все свойства"
+            }
+          },
+          {
+            "id": "f0ba1d147193b760",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Структура"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Меню быстрого перехода": false,
+      "graph:Граф": false,
+      "canvas:Создать новый холст": false,
+      "daily-notes:Сегодняшняя заметка": false,
+      "templates:Вставить шаблон": false,
+      "command-palette:Открыть палитру команд": false,
+      "bases:Создать новую базу": false
+    }
+  },
+  "active": "dc4bb996c7d30146",
+  "lastOpenFiles": [
+    "database/migrations/019_birthday_greeting.sql",
+    "services/salary-service/dist/routes/settlements.js.map",
+    "services/salary-service/dist/routes/settlements.js",
+    "services/salary-service/dist/routes/schemes.js.map",
+    "services/salary-service/dist/routes/schemes.js",
+    "services/salary-service/dist/routes/payouts.js.map",
+    "services/salary-service/dist/routes/payouts.js",
+    "services/salary-service/dist/routes/commissions.js.map",
+    "services/salary-service/dist/routes/commissions.js",
+    "services/salary-service/dist/routes/calculate.js.map",
+    "services/salary-service/dist/routes/calculate.js",
+    "services/booking-service/node_modules/nodemailer/README.md",
+    "services/booking-service/node_modules/nodemailer/CODE_OF_CONDUCT.md",
+    "services/booking-service/node_modules/nodemailer/CLAUDE.md",
+    "services/booking-service/node_modules/nodemailer/CHANGELOG.md",
+    "services/booking-service/node_modules/@types/nodemailer/README.md",
+    "services/booking-service/node_modules/fsevents/README.md",
+    "tests/test-results/samaya-T14-—-Journal-maste-50960-дники»-restores-all-columns-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T14-—-Journal-maste-50960-дники»-restores-all-columns-chromium-retry1/test-failed-1.png",
+    "tests/test-results/samaya-T14-—-Journal-maste-50960-дники»-restores-all-columns-chromium/error-context.md",
+    "tests/test-results/samaya-T14-—-Journal-maste-50960-дники»-restores-all-columns-chromium/test-failed-1.png",
+    "tests/test-results/samaya-T14-—-Journal-maste-7bd26-er-filters-calendar-columns-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T14-—-Journal-maste-7bd26-er-filters-calendar-columns-chromium-retry1/test-failed-1.png",
+    "tests/test-results/samaya-T14-—-Journal-maste-7bd26-er-filters-calendar-columns-chromium/error-context.md",
+    "tests/test-results/samaya-T14-—-Journal-maste-7bd26-er-filters-calendar-columns-chromium/test-failed-1.png",
+    "tests/test-results/samaya-T13-—-Booking-API-c-c195d-lter-returns-valid-response-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T13-—-Booking-API-c-c195d-lter-returns-valid-response-chromium-retry1/test-failed-1.png",
+    "tests/test-results/samaya-T13-—-Booking-API-c-c195d-lter-returns-valid-response-chromium/test-failed-1.png",
+    "tests/test-results/samaya-T13-—-Booking-API-c-c195d-lter-returns-valid-response-chromium/error-context.md",
+    "tests/test-results/samaya-T12-—-Client-modal--3842f--client-enables-История-tab-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T12-—-Client-modal--3842f--client-enables-История-tab-chromium-retry1/test-failed-1.png",
+    "tests/test-results/samaya-T12-—-Client-modal--3842f--client-enables-История-tab-chromium/error-context.md",
+    "tests/test-results/samaya-T12-—-Client-modal--3842f--client-enables-История-tab-chromium/test-failed-1.png",
+    "tests/test-results/samaya-T12-—-Client-modal--c60cc-active-История-tab-disabled-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T12-—-Client-modal--c60cc-active-История-tab-disabled-chromium-retry1/test-failed-1.png",
+    "tests/test-results/samaya-T12-—-Client-modal--c60cc-active-История-tab-disabled-chromium/error-context.md",
+    "tests/test-results/samaya-T12-—-Client-modal--c60cc-active-История-tab-disabled-chromium/test-failed-1.png",
+    "tests/test-results/samaya-T11-—-Promotion-pro-e852f-alid-promo-code-returns-404-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-pro-e852f-alid-promo-code-returns-404-chromium/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-pro-809eb-ck-returns-correct-discount-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-pro-809eb-ck-returns-correct-discount-chromium/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-promo-codes-can-create-a-promo-code-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-promo-codes-can-create-a-promo-code-chromium/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-pro-574da-m-is-enabled-and-view-loads-chromium-retry1/error-context.md",
+    "tests/test-results/samaya-T11-—-Promotion-pro-574da-m-is-enabled-and-view-loads-chromium/error-context.md",
+    "tests/test-results/samaya-Full-Navigation-Smo-e86c4-e-reachable-without-crashes-chromium-retry1/error-context.md"
+  ]
+}

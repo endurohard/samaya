@@ -17,6 +17,18 @@ services:
           - /api/auth
         strip_path: false
         methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+      # Отдельный маршрут (длинный префикс выигрывает) — жёсткий лимит против брутфорса
+      - name: auth-login
+        paths:
+          - /api/auth/login
+          - /api/auth/register
+        strip_path: false
+        methods: [POST, OPTIONS]
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 10
+              policy: local
 
   - name: salon-service
     url: http://salon-service:3002
@@ -35,6 +47,17 @@ services:
           - /api/bookings
         strip_path: false
         methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+      # Публичная запись без авторизации — лимит против бот-флуда
+      - name: bookings-public
+        paths:
+          - /api/bookings/public
+        strip_path: false
+        methods: [GET, POST, OPTIONS]
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 30
+              policy: local
 
   - name: inventory-service
     url: http://inventory-service:3005
@@ -53,6 +76,17 @@ services:
           - /api/clients
         strip_path: false
         methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+      # Клиентский портал по token-ссылке — лимит против перебора токенов
+      - name: clients-portal
+        paths:
+          - /api/clients/portal
+        strip_path: false
+        methods: [GET, POST, OPTIONS]
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 60
+              policy: local
 
   - name: finance-service
     url: http://finance-service:3006

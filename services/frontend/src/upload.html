@@ -5,21 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Загрузка анализов — Samaya</title>
+  <link rel="stylesheet" href="/tokens.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --primary: #7c3aed;
-      --primary-soft: #ede9fe;
-      --bg: #f8f7ff;
-      --card-bg: #ffffff;
-      --border: #e2e0f0;
-      --text: #1e1a2e;
-      --text-dim: #6b6880;
-      --danger: #dc2626;
-      --success: #16a34a;
-    }
+    /* Токены палитры/шкал — в tokens.css (--card-bg — алиас на --card). */
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: var(--font-sans);
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;

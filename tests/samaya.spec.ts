@@ -26,13 +26,22 @@ async function loginViaUI(page: Page) {
   await page.waitForSelector('#authUser:not([hidden])', { timeout: 15_000 });
 }
 
-/** Inject tokens directly into localStorage (fast path — avoids UI login round-trip). */
+/**
+ * Inject tokens directly into localStorage (fast path — avoids UI login round-trip).
+ * Токен кэшируется на уровне модуля: /api/auth/login вызывается один раз на весь прогон,
+ * а не в каждом beforeEach. Это совместимо с rate-limit на /login (10/мин по IP) и
+ * заметно ускоряет сьют.
+ */
+let cachedAuth: { access_token: string; refresh_token: string; user: unknown } | null = null;
 async function loginViaApi(page: Page) {
-  const resp = await page.request.post(`${BASE}/api/auth/login`, {
-    data: { email: EMAIL, password: PASSWORD },
-  });
-  expect(resp.ok()).toBeTruthy();
-  const body = await resp.json();
+  if (!cachedAuth) {
+    const resp = await page.request.post(`${BASE}/api/auth/login`, {
+      data: { email: EMAIL, password: PASSWORD },
+    });
+    expect(resp.ok()).toBeTruthy();
+    cachedAuth = await resp.json();
+  }
+  const body = cachedAuth!;
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate(

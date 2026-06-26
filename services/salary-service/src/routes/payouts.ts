@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, requireRole, HttpError } from '../middleware';
@@ -33,7 +34,7 @@ router.get('/', async (req, res, next) => {
 const createSchema = z.object({
   master_id: z.string().uuid(),
   amount: z.number().positive(),
-  paid_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  paid_on: isoDate(),
   account_id: z.string().uuid(),    // counter в finance.accounts
   note: z.string().max(500).optional(),
 });
@@ -89,7 +90,8 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
          WHERE id = $2 AND company_id = $3`,
         [`finance ${r.status}: ${errText.slice(0, 200)}`, payoutId, req.auth!.company_id],
       );
-      throw new HttpError(502, `finance-service ${r.status}: ${errText.slice(0, 200)}`, 'FINANCE_FAIL');
+      // Детали — в failure_reason (БД); наружу только статус, как в /retry ниже.
+      throw new HttpError(502, `finance-service ${r.status}`, 'FINANCE_FAIL');
     }
     const fin = (await r.json()) as { id: string };
 

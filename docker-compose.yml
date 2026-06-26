@@ -22,6 +22,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 1g
+    cpus: 2
     restart: unless-stopped
 
   redis:
@@ -38,6 +40,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    mem_limit: 256m
+    cpus: 0.5
     restart: unless-stopped
 
   kong:
@@ -63,6 +67,8 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+    mem_limit: 512m
+    cpus: 1
     restart: unless-stopped
 
   user-service:
@@ -94,6 +100,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
     restart: unless-stopped
 
   salon-service:
@@ -121,6 +129,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
     restart: unless-stopped
 
   booking-service:
@@ -138,9 +148,12 @@ services:
       SLOT_STEP_MINUTES: ${SLOT_STEP_MINUTES:-15}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       WHATSAPP_SERVICE_URL: http://whatsapp-service:3008
-      SMTP_HOST: mailhog
-      SMTP_PORT: 1025
-      SMTP_SECURE: "false"
+      WHATSAPP_INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@samaya.pro}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Samaya}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
@@ -157,6 +170,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
     restart: unless-stopped
 
   client-service:
@@ -184,6 +199,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 512m
+    cpus: 0.5
     restart: unless-stopped
 
   inventory-service:
@@ -215,6 +232,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
     restart: unless-stopped
 
   finance-service:
@@ -242,6 +261,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
     restart: unless-stopped
 
   salary-service:
@@ -271,6 +292,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    mem_limit: 384m
+    cpus: 0.5
     restart: unless-stopped
 
   frontend-service:
@@ -284,6 +307,8 @@ services:
       - samaya-network
     depends_on:
       - kong
+    mem_limit: 128m
+    cpus: 0.5
     restart: unless-stopped
 
   whatsapp-service:
@@ -292,10 +317,13 @@ services:
       dockerfile: Dockerfile
     container_name: samaya-whatsapp
     environment:
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3008
       WHATSAPP_TEST_MODE: ${WHATSAPP_TEST_MODE:-true}
       WHATSAPP_SESSION_DIR: /data/session
       WHATSAPP_SOCKS_PROXY: ${WHATSAPP_SOCKS_PROXY:-}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     expose:
       - "3008"
@@ -310,6 +338,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    mem_limit: 1g
+    cpus: 1
     restart: unless-stopped
 
   mailhog:
@@ -321,6 +351,8 @@ services:
       - "${MAILHOG_PORT:-8025}:8025"  # Web UI
     networks:
       - samaya-network
+    mem_limit: 128m
+    cpus: 0.25
     restart: unless-stopped
 
   # Все сервисы MVP подключены: user/salon/booking/client/inventory + frontend + whatsapp.

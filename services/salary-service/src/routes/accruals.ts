@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -8,8 +9,8 @@ router.use(authenticate);
 
 const listSchema = z.object({
   master_id: z.string().uuid().optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: isoDate().optional(),
+  to: isoDate().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 
@@ -49,8 +50,8 @@ const createSchema = z.object({
   master_id: z.string().uuid(),
   amount: z.number(),                  // signed: + начисление, − штраф
   source_kind: z.enum(['bonus', 'penalty', 'manual', 'auto_calc']).default('manual'),
-  period_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  period_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  period_from: isoDate().optional(),
+  period_to: isoDate().optional(),
   source: z.string().max(500).optional(),
   note: z.string().max(2000).optional(),
 });

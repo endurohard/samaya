@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "express": "^4.21.0",
+    "jose": "^5.9.6",
     "puppeteer-core": "^24.0.0",
     "qrcode": "^1.5.4"
   }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -28,8 +29,8 @@ const createSchema = z.object({
   service_id: z.string().uuid().nullable().optional(),
   commission_type: z.enum(['percent', 'fixed']),
   amount: z.number().min(0).max(100),
-  effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  effective_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  effective_from: isoDate().optional(),
+  effective_to: isoDate().nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
 });
 

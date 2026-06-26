@@ -4,24 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Онлайн-запись — Samaya</title>
+  <link rel="stylesheet" href="/tokens.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --primary: #7c3aed;
-      --primary-soft: #ede9fe;
-      --primary-dark: #5b21b6;
-      --bg: #f8f7ff;
-      --card: #ffffff;
-      --border: #e2e0f0;
-      --text: #1e1a2e;
-      --text-dim: #6b6880;
-      --danger: #dc2626;
-      --success-bg: #f0fdf4;
-      --success: #16a34a;
-      --radius: 14px;
-    }
+    /* Токены палитры/шкал — в tokens.css. Локально — только более мягкий
+       радиус карточек, характерный для клиентской записи. */
+    :root { --radius: 14px; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: var(--font-sans);
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;

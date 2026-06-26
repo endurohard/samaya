@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate } from '../middleware';
 
@@ -7,8 +8,8 @@ const router = Router();
 router.use(authenticate);
 
 const summarySchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDate(),
+  to: isoDate(),
 });
 
 // KPI for Финансы overview tab.

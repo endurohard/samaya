@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -11,7 +12,7 @@ const RATE_PERIODS = ['day', 'week', 'month'] as const;
 
 const listSchema = z.object({
   master_id: z.string().uuid().optional(),
-  as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  as_of: isoDate().optional(),
 });
 
 router.get('/', async (req, res, next) => {
@@ -54,7 +55,7 @@ const createSchema = z.object({
   percent_goods: z.number().min(0).max(100).default(0),
   apply_discount: z.boolean().default(false),
   guaranteed: z.number().min(0).default(0),
-  effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  effective_from: isoDate(),
   notes: z.string().max(2000).optional(),
 });
 

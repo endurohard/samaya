@@ -1,52 +1,16 @@
+import {
+  VIEW_TITLES, CLIENT_SEGMENTS, MOVEMENT_LABEL, WEEKDAYS_SHORT, STATUS_LABEL,
+  MONTHS_RU, MONTHS_RU_GENITIVE, MONTHS_RU_SHORT, WEEKDAYS_RU, WEEKDAYS_FULL,
+  MONTH_NOM, STATUS_COLOR, SOURCE_LABEL,
+} from './modules/constants.js';
+import {
+  escapeHtml, formatPrice, fmtMoney, todayLocalISO, dateToISO, addDaysISO,
+} from './modules/utils.js';
+import { toast } from './modules/toast.js';
+import { trapFocus } from './modules/focus-trap.js';
+
 (() => {
   'use strict';
-
-  const VIEW_TITLES = {
-    today: 'Сегодня',
-    profile: 'Профиль',
-    journal: 'Журнал записей',
-    schedule: 'График работы',
-    clients: 'Клиенты',
-    services: 'Услуги',
-    masters: 'Сотрудники',
-    inventory: 'Склад / Расходники',
-    analytics: 'Аналитика',
-    sales: 'Продажи',
-    finance: 'Финансы',
-    salary: 'Зарплата',
-    promotion: 'Акции и промокоды',
-    messages: 'Сообщения',
-    settings: 'Настройки',
-  };
-
-  const CLIENT_SEGMENTS = [
-    { key: 'all', label: 'Все клиенты', hint: '' },
-    { key: 'regular', label: 'Постоянные', hint: '2 и более записи за 3 месяца' },
-    { key: 'sleeping', label: 'Спящие', hint: 'не записывались более 3 месяцев' },
-    { key: 'missing', label: 'Пропавшие', hint: 'не записывались более 6 месяцев' },
-    { key: 'never', label: 'Не посещали', hint: 'нет записей данных клиентов' },
-    { key: 'new', label: 'Новые', hint: 'за последний период' },
-    { key: 'blocked', label: 'Заблокированы', hint: 'не могут записаться онлайн' },
-    { key: 'deleted', label: 'Удалены', hint: 'удалены из списка клиентов' },
-  ];
-
-  const MOVEMENT_LABEL = {
-    receipt: 'приход',
-    consumption: 'списание',
-    adjustment: 'корректировка',
-    writeoff: 'списание',
-    transfer: 'перемещение',
-  };
-
-  const WEEKDAYS_SHORT = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-  const STATUS_LABEL = {
-    pending:   { ru: 'ожидает',      cls: 'pill-warn',   icon: '⏳' },
-    confirmed: { ru: 'подтверждена', cls: 'pill-ok',     icon: '✓'  },
-    completed: { ru: 'оплачено',     cls: 'pill-info',   icon: '💳' },
-    canceled:  { ru: 'отменена',     cls: 'pill-mute',   icon: '✕'  },
-    no_show:   { ru: 'не пришёл',   cls: 'pill-danger', icon: '!'  },
-  };
 
   const els = {
     // sidebar
@@ -173,6 +137,11 @@
     addReceiptItem: document.getElementById('addReceiptItem'),
     receiptItems: document.getElementById('receiptItems'),
     rSupplier: document.getElementById('rSupplier'),
+    rSupplierAddToggle: document.getElementById('rSupplierAddToggle'),
+    rSupplierAddInline: document.getElementById('rSupplierAddInline'),
+    rSupplierNewName: document.getElementById('rSupplierNewName'),
+    rSupplierAddSave: document.getElementById('rSupplierAddSave'),
+    rSupplierAddCancel: document.getElementById('rSupplierAddCancel'),
     techCardsList: document.getElementById('techCardsList'),
     techCardsCounter: document.getElementById('techCardsCounter'),
     editTechCardForm: document.getElementById('editTechCardForm'),
@@ -378,18 +347,6 @@
   const CAL_HEAD_H = 64;
   const CAL_HOUR_H = 60;
 
-  const MONTHS_RU = [
-    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-  ];
-  const MONTHS_RU_GENITIVE = [
-    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
-  ];
-  const MONTHS_RU_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-  const WEEKDAYS_RU = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-  const WEEKDAYS_FULL = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-
   let miniCalAnchor = null; // YYYY-MM, какой месяц показан в мини-календаре
   let scheduleMonth = null; // YYYY-MM, текущий месяц расписания
 
@@ -407,27 +364,6 @@
   let scheduleItems = []; // [{ work_date, start_time, end_time, is_day_off, saved, dirty }]
   let currentView = 'profile';
   let financeTab = 'overview';
-
-  function todayLocalISO() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-
-  function dateToISO(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-
-  function addDaysISO(iso, n) {
-    const [y, m, d] = iso.split('-').map(Number);
-    const dt = new Date(y, m - 1, d + n);
-    return dateToISO(dt);
-  }
 
   // Возвращает {from, to} для текущего периода и якорной даты journalDate.
   // day → один день; week → пн-вс той недели; month → 1-е и последнее число того месяца.
@@ -451,7 +387,6 @@
     return { from: anchor, to: anchor };
   }
 
-  const MONTH_NOM = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   function formatRangeLabel({ from, to }) {
     const [fy, fm, fd] = from.split('-').map(Number);
     const fdt = new Date(fy, fm - 1, fd);
@@ -526,18 +461,6 @@
     let h = 0;
     for (let i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return `hsl(${h % 360} 60% 55%)`;
-  }
-
-  function escapeHtml(s) {
-    return String(s ?? '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function formatPrice(p) {
-    const n = Number(p);
-    if (!isFinite(n)) return '—';
-    return n.toLocaleString('ru-RU') + ' ₽';
   }
 
   // ===== View switching =====
@@ -714,7 +637,7 @@
         : '';
       return `
         <div class="row-item clickable ${s.is_active ? '' : 'inactive'}" data-svc-id="${s.id}">
-          <div class="dot-color" style="background: ${escapeHtml(s.color || '#6366f1')}"></div>
+          <div class="dot-color" style="background: ${escapeHtml(s.color || '#7c3aed')}"></div>
           <div class="row-main">
             <div class="row-name">${escapeHtml(s.name)}</div>
             <div class="row-meta">${escapeHtml(s.category_name || 'без категории')}${commBadge ? ' · ' : ''}${commBadge}</div>
@@ -737,7 +660,7 @@
     document.getElementById('svcEditName').value = s.name;
     document.getElementById('svcEditPrice').value = s.price;
     document.getElementById('svcEditDuration').value = s.duration_minutes;
-    document.getElementById('svcEditColor').value = s.color || '#6366f1';
+    document.getElementById('svcEditColor').value = s.color || '#7c3aed';
     document.getElementById('svcEditCommType').value = comm?.commission_type || '';
     document.getElementById('svcEditCommAmount').value = comm?.amount || '';
     document.getElementById('svcEditError').hidden = true;
@@ -901,7 +824,8 @@
     if (email) body.email = email;
     if (phone) body.phone = phone;
     if (full_name) body.full_name = full_name;
-    const { ok, status, data } = await call('POST', '/api/auth/register', body);
+    // Токен (если залогинен админ) нужен серверу для выдачи ролей персонала
+    const { ok, status, data } = await call('POST', '/api/auth/register', body, store.access);
     if (!ok) { showAuthError(`Ошибка регистрации: ${data?.error || status}`); return; }
     store.access = data.access_token;
     store.refresh = data.refresh_token;
@@ -952,7 +876,7 @@
     const color = String(fd.get('color') || '').trim();
     if (color) body.color = color;
     const { ok, data, status } = await apiCall('POST', '/api/salons/services', body);
-    if (!ok) { alert(`Ошибка создания услуги: ${data?.error || status}`); return; }
+    if (!ok) { toast(`Ошибка создания услуги: ${data?.error || status}`); return; }
     els.addServiceForm.reset();
     els.addServiceBlock.open = false;
     await loadServices();
@@ -977,7 +901,7 @@
     // Чекбокс: если снят — provides_services=false
     body.provides_services = document.getElementById('mProvidesServices').checked;
     const { ok, data, status } = await apiCall('POST', '/api/salons/masters', body);
-    if (!ok) { alert(`Ошибка создания сотрудника: ${data?.error || status}`); return; }
+    if (!ok) { toast(`Ошибка создания сотрудника: ${data?.error || status}`); return; }
     els.addMasterForm.reset();
     document.getElementById('mProvidesServices').checked = true; // reset checkbox
     els.addMasterBlock.open = false;
@@ -1485,7 +1409,7 @@
           `Статус: ${b.status}`,
         ];
         if (b.notes) lines.push(`Заметка: ${b.notes}`);
-        alert(lines.join('\n'));
+        toast(lines.join('\n'));
       });
     });
   }
@@ -1551,10 +1475,10 @@
         if (action === 'cancel') {
           if (!confirm('Отменить запись?')) return;
           const { ok, status, data } = await apiCall('POST', `/api/bookings/${id}/cancel`, {});
-          if (!ok) { alert(`Ошибка: ${data?.error || status}`); return; }
+          if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
         } else if (action === 'complete') {
           const { ok, status, data } = await apiCall('POST', `/api/bookings/${id}/complete`, {});
-          if (!ok) { alert(`Ошибка: ${data?.error || status}`); return; }
+          if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
         }
         await loadBookings();
       });
@@ -1570,7 +1494,7 @@
   }
 
   // ===== Journal charts (4 donuts in list mode) =====
-  const CHART_PALETTE = ['#6366f1', '#22c5d8', '#22c55e', '#f59e0b', '#ec4899', '#94a3b8'];
+  const CHART_PALETTE = ['#7c3aed', '#22c5d8', '#22c55e', '#f59e0b', '#ec4899', '#94a3b8'];
   // Палитры по типу графика, как у DIKIDI:
   // masters — мягкие пастельные (голубой → розовый → зелёный → лавандовый → персиковый)
   // services — насыщенные разноцветные (синий, жёлтый, фиолетовый, мятный, оранжевый)
@@ -1685,14 +1609,6 @@
   }
 
   // ===== Booking view modal =====
-  const STATUS_COLOR = {
-    pending: '#f59e0b',
-    confirmed: '#22c55e',
-    completed: '#6366f1',
-    canceled: '#94a3b8',
-    no_show: '#ef4444',
-  };
-  const SOURCE_LABEL = { manual: 'Вручную', widget: 'Виджет', public: 'Публичный', api: 'API' };
 
   let _bkModalCurrent = null;
 
@@ -1753,12 +1669,15 @@
     if (cancelBtn2) cancelBtn2.hidden = !isActive;
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = false;
     els.bkModal.hidden = false;
+    _bkModalRelease = trapFocus(els.bkModal);
   }
 
+  let _bkModalRelease = null;
   function closeBookingModal() {
     _bkModalCurrent = null;
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = true;
     if (els.bkModal) els.bkModal.hidden = true;
+    if (_bkModalRelease) { _bkModalRelease(); _bkModalRelease = null; }
   }
 
   function repeatBooking(b) {
@@ -1822,7 +1741,7 @@
   els.journalNextDay?.addEventListener('click', () => shiftJournalDate(1));
   document.getElementById('exportBookingsCsv')?.addEventListener('click', exportBookingsCsv);
   els.financeRefresh?.addEventListener('click', () => renderFinance());
-  els.addSaleBtn?.addEventListener('click', () => alert('Модуль «Продажи» в разработке (Phase 1).'));
+  els.addSaleBtn?.addEventListener('click', () => toast('Модуль «Продажи» в разработке (Phase 1).'));
 
   // Booking view modal listeners
   els.bkModalClose?.addEventListener('click', closeBookingModal);
@@ -1919,7 +1838,7 @@
     const notes = String(fd.get('notes') || '').trim();
     const service_ids = Array.from(els.bServices.querySelectorAll('input:checked')).map((x) => x.value);
     if (!master_id || !startsLocal || !client_phone || service_ids.length === 0) {
-      alert('Заполни сотрудника, время, телефон и хотя бы одну услугу');
+      toast('Заполни сотрудника, время, телефон и хотя бы одну услугу');
       return;
     }
     const manager_id = String(fd.get('manager_id') || '').trim() || null;
@@ -1931,7 +1850,7 @@
     if (manager_id) body.manager_id = manager_id;
     const { ok, data, status } = await apiCall('POST', '/api/bookings', body);
     if (!ok) {
-      alert(`Ошибка: ${data?.error || status}${data?.code ? ' · ' + data.code : ''}`);
+      toast(`Ошибка: ${data?.error || status}${data?.code ? ' · ' + data.code : ''}`);
       return;
     }
     els.addBookingForm.reset();
@@ -2122,7 +2041,7 @@
           const endStr = prompt('Время конца (например 20:00):', (it && it.end_time) || '20:00');
           if (endStr == null) return;
           if (!/^\d{1,2}:\d{2}$/.test(startStr) || !/^\d{1,2}:\d{2}$/.test(endStr)) {
-            alert('Формат времени HH:MM');
+            toast('Формат времени HH:MM');
             return;
           }
           const cur = scheduleByMaster.get(mst.id) || new Map();
@@ -2221,7 +2140,7 @@
       scheduleByMaster.set(mst.id, dayMap);
     });
     if (touched === 0) {
-      alert('Нет пустых дней для шаблона.');
+      toast('Нет пустых дней для шаблона.');
       return;
     }
     renderSchedule();
@@ -2243,7 +2162,7 @@
       if (items.length === 0) continue;
       const { ok, data, status } = await apiCall('PUT', `/api/salons/schedule/${masterId}`, { items });
       if (!ok) {
-        alert(`Ошибка для сотрудника ${masterId}: ${data?.error || status}`);
+        toast(`Ошибка для сотрудника ${masterId}: ${data?.error || status}`);
         continue;
       }
       savedAny = true;
@@ -2269,7 +2188,7 @@
     updateScheduleMonthLabels();
     void loadAllSchedules();
   });
-  els.schAddMaster?.addEventListener('click', () => alert('Добавь сотрудника в разделе «Сотрудники».'));
+  els.schAddMaster?.addEventListener('click', () => toast('Добавь сотрудника в разделе «Сотрудники».'));
 
   // ===== Journal master filter (DIKIDI-style dropdown с группировкой) =====
   function jrnGroupMasters() {
@@ -2644,6 +2563,34 @@
       ).join('');
   }
 
+  // ----- Inline add supplier (в форме прихода) -----
+  function toggleSupplierAdd(show) {
+    if (!els.rSupplierAddInline) return;
+    els.rSupplierAddInline.hidden = !show;
+    if (show) { els.rSupplierNewName.value = ''; els.rSupplierNewName.focus(); }
+  }
+  els.rSupplierAddToggle?.addEventListener('click', () => toggleSupplierAdd(els.rSupplierAddInline.hidden));
+  els.rSupplierAddCancel?.addEventListener('click', () => toggleSupplierAdd(false));
+  async function saveNewSupplier() {
+    const name = (els.rSupplierNewName?.value || '').trim();
+    if (!name) { toast('Введите название поставщика'); els.rSupplierNewName?.focus(); return; }
+    els.rSupplierAddSave.disabled = true;
+    const { ok, data, status } = await apiCall('POST', '/api/inventory/suppliers', { name });
+    els.rSupplierAddSave.disabled = false;
+    if (!ok) {
+      toast(status === 409 ? 'Поставщик с таким названием уже есть' : `Ошибка: ${data?.error || status}`);
+      return;
+    }
+    await loadSuppliers();
+    if (els.rSupplier && data?.id) els.rSupplier.value = data.id;
+    toggleSupplierAdd(false);
+    toast('Поставщик добавлен');
+  }
+  els.rSupplierAddSave?.addEventListener('click', saveNewSupplier);
+  els.rSupplierNewName?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveNewSupplier(); }
+  });
+
   // ----- Add product -----
   els.addProductToggle?.addEventListener('click', () => {
     els.addProductBlock.open = !els.addProductBlock.open;
@@ -2667,7 +2614,7 @@
     const tm = String(fd.get('tracking_mode') || 'auto');
     if (['auto', 'manual', 'periodic', 'expense_only'].includes(tm)) body.tracking_mode = tm;
     const { ok, data, status } = await apiCall('POST', '/api/inventory/products', body);
-    if (!ok) { alert(`Ошибка: ${data?.error || status}`); return; }
+    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
     els.addProductForm.reset();
     els.addProductBlock.open = false;
     await loadProducts();
@@ -2717,12 +2664,12 @@
       const unit_cost = Number(row.querySelector('.r-cost').value) || 0;
       return { product_id, qty, unit_cost };
     }).filter((it) => it.product_id && it.qty > 0);
-    if (items.length === 0) { alert('Добавь хотя бы одну позицию'); return; }
+    if (items.length === 0) { toast('Добавь хотя бы одну позицию'); return; }
     const body = { items };
     if (supplier_id) body.supplier_id = supplier_id;
     if (invoice_number) body.invoice_number = invoice_number;
     const { ok, data, status } = await apiCall('POST', '/api/inventory/receipts', body);
-    if (!ok) { alert(`Ошибка: ${data?.error || status}`); return; }
+    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
     els.addReceiptForm.reset();
     els.addReceiptBlock.open = false;
     els.receiptItems.innerHTML = '';
@@ -2753,7 +2700,7 @@
 
   function openTechCardEditor(serviceId) {
     if (cachedProducts.length === 0) {
-      alert('Сначала создай хотя бы один расходник.');
+      toast('Сначала создай хотя бы один расходник.');
       return;
     }
     els.editTechCardBlock.open = true;
@@ -2771,7 +2718,7 @@
   }
 
   els.editTechCardToggle?.addEventListener('click', () => {
-    if (cachedTechCards.length === 0) { alert('Сначала добавь услугу в "Услуги"'); return; }
+    if (cachedTechCards.length === 0) { toast('Сначала добавь услугу в "Услуги"'); return; }
     openTechCardEditor(cachedTechCards[0].service_id);
   });
   els.editTechCardCancel?.addEventListener('click', () => {
@@ -2789,10 +2736,10 @@
       const qty_per_service = Number(row.querySelector('.tc-qty').value);
       return { product_id, qty_per_service };
     }).filter((it) => it.product_id && it.qty_per_service > 0);
-    if (items.length === 0) { alert('Добавь хотя бы одну позицию'); return; }
+    if (items.length === 0) { toast('Добавь хотя бы одну позицию'); return; }
     const { ok, data, status } = await call('PUT', '/api/inventory/tech-cards',
       { service_id, items }, store.access);
-    if (!ok) { alert(`Ошибка: ${data?.error || status}`); return; }
+    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
     els.editTechCardForm.reset();
     els.editTechCardBlock.open = false;
     els.techCardItems.innerHTML = '';
@@ -3176,7 +3123,7 @@
     const MAX = 15 * 1024 * 1024;
     for (const file of files) {
       if (file.size > MAX) {
-        alert(`Файл "${file.name}" слишком большой (макс. 15 МБ)`);
+        toast(`Файл "${file.name}" слишком большой (макс. 15 МБ)`);
         continue;
       }
       const reader = new FileReader();
@@ -3202,7 +3149,7 @@
 
   async function copyPortalLink() {
     const token = await getClientToken();
-    if (!token) { alert('Не удалось получить ссылку'); return; }
+    if (!token) { toast('Не удалось получить ссылку'); return; }
     const url = `${location.origin}/portal.html?t=${token}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -3215,7 +3162,7 @@
 
   async function copyUploadLink() {
     const token = await getClientToken();
-    if (!token) { alert('Не удалось получить ссылку'); return; }
+    if (!token) { toast('Не удалось получить ссылку'); return; }
     const url = `${location.origin}/upload.html?token=${token}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -3269,12 +3216,15 @@
     }
     els.clientModalBackdrop.hidden = false;
     els.clientModal.hidden = false;
+    _clientModalRelease = trapFocus(els.clientModal);
     setTimeout(() => els.clFullName.focus(), 50);
   }
 
+  let _clientModalRelease = null;
   function closeClientModal() {
     els.clientModalBackdrop.hidden = true;
     els.clientModal.hidden = true;
+    if (_clientModalRelease) { _clientModalRelease(); _clientModalRelease = null; }
   }
 
   async function submitClientForm(e) {
@@ -3412,7 +3362,7 @@
   }
 
   function showImportPreview(rows) {
-    if (!rows.length) { alert('Файл пустой'); return; }
+    if (!rows.length) { toast('Файл пустой'); return; }
     const headers = rows[0];
     importColumnMap = detectColumnMap(headers);
     importParsedRows = rows.slice(1).filter((r) => r.some(Boolean));
@@ -3466,7 +3416,7 @@
       document.getElementById('importDoImport').hidden = true;
       void loadClientsAll();
     } catch (e) {
-      alert('Ошибка импорта: ' + e.message);
+      toast('Ошибка импорта: ' + e.message);
       btn.disabled = false;
       btn.textContent = 'Импортировать';
     }
@@ -3627,12 +3577,12 @@
   els.clBonusAdjSave?.addEventListener('click', async () => {
     if (!_clCurrentId) return;
     const delta = parseFloat(els.clBonusAdjAmount?.value) || 0;
-    if (delta === 0) { alert('Введите сумму изменения.'); return; }
+    if (delta === 0) { toast('Введите сумму изменения.'); return; }
     const existing = clientsState.items.find((c) => c.id === _clCurrentId);
     const currentBalance = Number(existing?.bonus_balance || 0);
     const newBalance = Math.max(0, currentBalance + delta);
     const r = await apiCall('PATCH', `/api/clients/${_clCurrentId}`, { bonus_balance: newBalance });
-    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
     if (els.clBonusDisplay) els.clBonusDisplay.textContent = formatPrice(newBalance) + ' бонусов';
     if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = true;
     if (els.clBonusAdjAmount) els.clBonusAdjAmount.value = '';
@@ -3669,7 +3619,7 @@
     btn.textContent = '⏳';
     try {
       const tokenRes = await apiCall('GET', `/api/clients/${btn.dataset.clientId}/upload-link`);
-      if (!tokenRes.ok) { alert('Не удалось получить токен портала'); return; }
+      if (!tokenRes.ok) { toast('Не удалось получить токен портала'); return; }
       const portalUrl = `${location.origin}/portal.html?t=${tokenRes.data.upload_token}`;
       const message = `Здравствуйте! Ваш личный кабинет Samaya — история визитов, бонусы и онлайн-запись: ${portalUrl}`;
       const r = await apiCall('POST', '/api/whatsapp/send', { phone, message });
@@ -3677,7 +3627,7 @@
         btn.textContent = '✓ Отправлено';
         setTimeout(() => { btn.textContent = '🏠 Портал в WA'; btn.disabled = false; }, 3000);
       } else {
-        alert('Ошибка: ' + (r.data?.error || r.status));
+        toast('Ошибка: ' + (r.data?.error || r.status));
         btn.disabled = false;
         btn.innerHTML = '&#127968; Портал в WA';
       }
@@ -3697,9 +3647,9 @@
     try {
       const r = await apiCall('POST', '/api/whatsapp/send', { phone, message });
       if (r.ok) {
-        alert('Сообщение отправлено!');
+        toast('Сообщение отправлено!');
       } else {
-        alert('Ошибка: ' + (r.data?.error || r.status));
+        toast('Ошибка: ' + (r.data?.error || r.status));
       }
     } finally {
       btn.disabled = false;
@@ -3858,9 +3808,9 @@
     }
     if (failCount === 0) {
       localStorage.removeItem('fin_data');
-      alert(`Перенесено ${okCount} записей. Локальные данные удалены.`);
+      toast(`Перенесено ${okCount} записей. Локальные данные удалены.`);
     } else {
-      alert(`Перенесено ${okCount} из ${okCount + failCount}. Локальные данные оставлены — попробуйте ещё раз.`);
+      toast(`Перенесено ${okCount} из ${okCount + failCount}. Локальные данные оставлены — попробуйте ещё раз.`);
     }
   }
 
@@ -4010,7 +3960,7 @@
       btn.addEventListener('click', async () => {
         if (!confirm('Удалить операцию?')) return;
         const r = await finApi('DELETE', `/operations/${btn.dataset.delid}`);
-        if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+        if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
         await renderFinanceView();
       });
     });
@@ -4038,7 +3988,7 @@
       btn.addEventListener('click', async () => {
         if (!confirm('Удалить счёт? Если есть операции — счёт переедет в архив.')) return;
         const r = await finApi('DELETE', `/accounts/${btn.dataset.delaccid}`);
-        if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+        if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
         await renderFinanceView();
       });
     });
@@ -4089,7 +4039,7 @@
         btn.addEventListener('click', async () => {
           if (!confirm(`Удалить статью "${items.find((x) => x.id === btn.dataset.id)?.name}"?`)) return;
           const r = await finApi('DELETE', `/categories/${btn.dataset.id}`);
-          if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+          if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
           cachedFinCategories[btn.dataset.kind] = cachedFinCategories[btn.dataset.kind].filter((x) => x.id !== btn.dataset.id);
           renderList(listEl, cachedFinCategories[btn.dataset.kind], kind);
         });
@@ -4109,7 +4059,7 @@
       const name = nameEl?.value.trim();
       if (!name) return;
       const r = await finApi('POST', '/categories', { name, kind });
-      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
       cachedFinCategories[kind] = [...cachedFinCategories[kind], r.data];
       formEl.hidden = true;
       formEl.reset();
@@ -4126,7 +4076,7 @@
             btn.addEventListener('click', async () => {
               if (!confirm(`Удалить статью "${items.find((x) => x.id === btn.dataset.id)?.name}"?`)) return;
               const res = await finApi('DELETE', `/categories/${btn.dataset.id}`);
-              if (!res.ok) { alert('Ошибка: ' + (res.data?.error || res.status)); return; }
+              if (!res.ok) { toast('Ошибка: ' + (res.data?.error || res.status)); return; }
               cachedFinCategories[kind] = cachedFinCategories[kind].filter((x) => x.id !== btn.dataset.id);
               renderListInline(cachedFinCategories[kind]);
             });
@@ -4171,7 +4121,7 @@
         const c = cachedFinCounterparties.find((x) => x.id === btn.dataset.cpartyDel);
         if (!confirm(`Деактивировать контрагента "${c?.name}"?`)) return;
         const res = await finApi('DELETE', `/counterparties/${btn.dataset.cpartyDel}`);
-        if (!res.ok) { alert('Ошибка: ' + (res.data?.error || res.status)); return; }
+        if (!res.ok) { toast('Ошибка: ' + (res.data?.error || res.status)); return; }
         await renderFinCounterparties();
       }));
   }
@@ -4221,7 +4171,7 @@
     const r = id
       ? await finApi('PATCH', `/counterparties/${id}`, body)
       : await finApi('POST', '/counterparties', body);
-    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
     closeCpartyModal();
     await renderFinCounterparties();
   });
@@ -4487,7 +4437,7 @@
         counterparty_id: els.finIncomeCparty?.value || undefined,
         note: els.finIncomeNote.value.trim() || undefined,
       });
-      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
       closeFinModal(els.finIncomeBackdrop, els.finIncomeModal, els.finIncomeForm);
       await renderFinanceView();
     });
@@ -4516,7 +4466,7 @@
         counterparty_id: els.finExpenseCparty?.value || undefined,
         note: els.finExpenseNote.value.trim() || undefined,
       });
-      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
       closeFinModal(els.finExpenseBackdrop, els.finExpenseModal, els.finExpenseForm);
       await renderFinanceView();
     });
@@ -4538,7 +4488,7 @@
       e.preventDefault();
       const fromId = els.finTransferFrom.value;
       const toId = els.finTransferTo.value;
-      if (fromId === toId) { alert('Выберите разные счета.'); return; }
+      if (fromId === toId) { toast('Выберите разные счета.'); return; }
       const r = await finApi('POST', '/operations/transfer', {
         from_account_id: fromId,
         to_account_id: toId,
@@ -4546,7 +4496,7 @@
         op_date: els.finTransferDate.value,
         note: els.finTransferNote.value.trim() || undefined,
       });
-      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
       closeFinModal(els.finTransferBackdrop, els.finTransferModal, els.finTransferForm);
       await renderFinanceView();
     });
@@ -4571,7 +4521,7 @@
         type: 'cash',
         initial_balance: parseFloat(els.finAccountInitBal.value) || 0,
       });
-      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
       closeFinModal(els.finAccountBackdrop, els.finAccountModal, els.finAccountForm);
       await renderFinanceView();
     });
@@ -4690,12 +4640,6 @@
     cachedSalFinAccounts = r.ok ? (r.data?.items || []).filter((a) => a.is_active) : [];
   }
 
-  function fmtMoney(n) {
-    if (n == null || isNaN(n)) return '—';
-    if (n === 0) return '—';
-    return n.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
-  }
-
   // ----- Migration of localStorage salary data → backend -----
   async function migrateLocalStorageSalary() {
     if (salMigrationDone) return;
@@ -4746,9 +4690,9 @@
     if (failSchemes === 0 && failAcc === 0) {
       localStorage.removeItem(SAL_LS_SCHEMES);
       localStorage.removeItem(SAL_LS_ACCRUALS);
-      alert(`Перенесено: ${okSchemes} схем(ы), ${okAcc} начислений. Локальные данные удалены.`);
+      toast(`Перенесено: ${okSchemes} схем(ы), ${okAcc} начислений. Локальные данные удалены.`);
     } else {
-      alert(`Перенесено схем ${okSchemes}/${okSchemes + failSchemes}, начислений ${okAcc}/${okAcc + failAcc}. Локальные данные оставлены.`);
+      toast(`Перенесено схем ${okSchemes}/${okSchemes + failSchemes}, начислений ${okAcc}/${okAcc + failAcc}. Локальные данные оставлены.`);
     }
     await salLoadSchemes();
   }
@@ -4942,14 +4886,14 @@
             effective_from: todayLocalISO(),
             notes: s.notes || undefined,
           });
-          if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+          if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
           await salLoadSchemes();
           await salLoadCalc(salPeriodRange(salPeriod));
           renderSalarySchemes();
         } else if (act === 'del') {
           if (!confirm('Удалить схему?')) return;
           const r = await salApi('DELETE', `/schemes/${id}`);
-          if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+          if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
           await salLoadSchemes();
           await salLoadCalc(salPeriodRange(salPeriod));
           renderSalarySchemes();
@@ -5109,15 +5053,15 @@
         };
       })
       .filter(Boolean);
-    if (!items.length) { alert('Нет начислений (у всех total = 0).'); return; }
+    if (!items.length) { toast('Нет начислений (у всех total = 0).'); return; }
     const r = await salApi('POST', '/accruals/bulk', { items });
-    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
     salClosePayrollModal();
     await salLoadAccrualsApi();
     await salLoadSettlements();
     if (salActiveTab === 'accruals') renderSalaryAccruals();
     if (salActiveTab === 'settlements') renderSalarySettlements();
-    alert(`Начислено для ${r.data?.count || items.length} сотрудника(ов).`);
+    toast(`Начислено для ${r.data?.count || items.length} сотрудника(ов).`);
   }
 
   // ----- Sprint 2: Accruals storage helpers -----
@@ -5576,7 +5520,7 @@
               renderSalaryCommissions();
             } else {
               cb.checked = !cb.checked;
-              alert('Ошибка: ' + (r.data?.error || r.status));
+              toast('Ошибка: ' + (r.data?.error || r.status));
             }
           });
         });
@@ -5606,7 +5550,7 @@
         if (!confirm('Удалить правило комиссии?')) return;
         const r = await salApi('DELETE', `/commissions/${btn.dataset.commDel}`);
         if (r.ok) { await salLoadCommissions(); renderSalaryCommissions(); }
-        else alert('Ошибка: ' + (r.data?.error || r.status));
+        else toast('Ошибка: ' + (r.data?.error || r.status));
       });
     });
   }
@@ -5795,7 +5739,7 @@
       btn.addEventListener('click', async () => {
         if (!confirm('Удалить шаблон?')) return;
         const r = await setApi('DELETE', `/schedule-templates/${btn.dataset.tmplId}`);
-        if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+        if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
         await loadScheduleTemplates();
         renderScheduleTemplates();
       });
@@ -5893,7 +5837,7 @@
       wa_reminder_tpl_2h: (document.getElementById('setReminderTpl2h')?.value || '').trim() || null,
     };
     const r = await setApi('PUT', '/company', { settings_jsonb: settings });
-    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
     cachedCompanyProfile = r.data;
     if (okEl) { okEl.hidden = false; setTimeout(() => { okEl.hidden = true; }, 2000); }
   });
@@ -5946,7 +5890,7 @@
 
   async function openMasterCard(masterId) {
     const r = await apiCall('GET', `/api/salons/masters/${masterId}`);
-    if (!r.ok) { alert('Не удалось загрузить сотрудника: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Не удалось загрузить сотрудника: ' + (r.data?.error || r.status)); return; }
     mcCurrentMaster = r.data;
     document.getElementById('mcBackdrop').hidden = false;
     document.getElementById('mcModal').hidden = false;
@@ -6067,7 +6011,7 @@
     if (!mcCurrentMaster) return;
     if (!confirm(`Удалить сотрудника «${mcCurrentMaster.display_name}»? Записи и история останутся.`)) return;
     const r = await apiCall('DELETE', `/api/salons/masters/${mcCurrentMaster.id}`);
-    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
     closeMasterCard();
     await loadMasters();
   }
@@ -6078,7 +6022,7 @@
       ? { is_active: true, dismissed_at: null }
       : { is_active: false, dismissed_at: new Date().toISOString() };
     const r = await apiCall('PATCH', `/api/salons/masters/${mcCurrentMaster.id}`, payload);
-    if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
     mcCurrentMaster = r.data;
     mcRenderProfile();
     await loadMasters();
@@ -6180,10 +6124,10 @@
         .filter((r) => r.querySelector('input').checked)
         .map((r) => r.dataset.serviceId);
       const r = await apiCall('PUT', `/api/salons/masters/${mcCurrentMaster.id}/services`, { service_ids: ids });
-      if (!r.ok) { alert('Ошибка: ' + (r.data?.error || r.status)); return; }
+      if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
       mcCurrentMaster.service_ids = ids;
       await loadMasters();
-      alert(`Сохранено: ${ids.length} услуг`);
+      toast(`Сохранено: ${ids.length} услуг`);
     });
   }
 
@@ -6331,7 +6275,7 @@
     }
     closeInvShiftModal();
     await loadProducts();
-    alert(`Списано ${items.length} позиций. Стоимость: ${formatPrice(r.data.total_cost || 0)}`);
+    toast(`Списано ${items.length} позиций. Стоимость: ${formatPrice(r.data.total_cost || 0)}`);
   }
 
   async function openInvCheckModal() {
@@ -6402,7 +6346,7 @@
     }
     closeInvCheckModal();
     await loadProducts();
-    alert(`Инвентаризация применена. Изменено позиций: ${r.data.total_changes || 0}`);
+    toast(`Инвентаризация применена. Изменено позиций: ${r.data.total_changes || 0}`);
   }
 
   // Wiring
@@ -7002,7 +6946,7 @@
     btn.disabled = false; btn.textContent = 'Провести оплату';
 
     if (!ok) {
-      alert('Ошибка: ' + (data?.error || 'неизвестная ошибка'));
+      toast('Ошибка: ' + (data?.error || 'неизвестная ошибка'));
       return;
     }
     // Update client bonus balance
@@ -7213,13 +7157,13 @@
     const testMode = document.getElementById('waTestMode');
     if (!badge) return;
 
-    const r = await fetch('/api/whatsapp/status');
+    const r = await apiCall('GET', '/api/whatsapp/status');
     if (!r.ok) {
       badge.className = 'pill pill-danger';
       badge.textContent = 'Ошибка';
       return;
     }
-    const s = await r.json();
+    const s = r.data;
 
     if (s.test_mode) {
       badge.className = 'pill pill-mute';
@@ -7247,9 +7191,9 @@
     if (testMode) testMode.hidden = true;
 
     // fetch QR
-    const qrRes = await fetch('/api/whatsapp/qr');
+    const qrRes = await apiCall('GET', '/api/whatsapp/qr');
     if (qrRes.ok) {
-      const qd = await qrRes.json();
+      const qd = qrRes.data;
       if (qd.qr && qrWrap && qrImg) {
         qrImg.src = qd.qr;
         qrWrap.hidden = false;
@@ -7270,7 +7214,7 @@
     const btn = document.getElementById('waRestartBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Перезапуск…'; }
     try {
-      await fetch('/api/whatsapp/restart', { method: 'POST' });
+      await apiCall('POST', '/api/whatsapp/restart');
       clearInterval(waPollingTimer);
       waPollingTimer = null;
       await loadWaStatus();
@@ -7337,8 +7281,8 @@
     const progressBar = document.getElementById('broadcastProgressBar');
     const progressLabel = document.getElementById('broadcastProgressLabel');
 
-    if (!msg) { alert('Напишите сообщение'); return; }
-    if (_broadcastRecipients.length === 0) { alert('Нет клиентов в выбранном сегменте с номером телефона'); return; }
+    if (!msg) { toast('Напишите сообщение'); return; }
+    if (_broadcastRecipients.length === 0) { toast('Нет клиентов в выбранном сегменте с номером телефона'); return; }
     if (!confirm(`Отправить рассылку ${_broadcastRecipients.length} клиентам (${SEGMENT_LABELS[seg] || seg})?`)) return;
 
     if (btn) { btn.disabled = true; btn.textContent = 'Отправка…'; }
@@ -7419,9 +7363,9 @@
     const badge = document.getElementById('waBroadcastStatusBadge');
     if (!badge) return;
     try {
-      const r = await fetch('/api/whatsapp/status');
+      const r = await apiCall('GET', '/api/whatsapp/status');
       if (!r.ok) { badge.className = 'pill pill-danger'; badge.textContent = 'WA недоступен'; return; }
-      const s = await r.json();
+      const s = r.data;
       if (s.test_mode) { badge.className = 'pill pill-mute'; badge.textContent = 'Тест-режим'; }
       else if (s.ready) { badge.className = 'pill pill-success'; badge.textContent = 'WhatsApp подключён'; }
       else { badge.className = 'pill pill-warn'; badge.textContent = 'WA не подключён'; }

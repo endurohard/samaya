@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import type { PoolClient } from 'pg';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
@@ -112,7 +113,7 @@ router.get('/movements', async (req, res, next) => {
 // Принимает массив items: [{product_id, qty, note?}], опц master_id (для отчётности).
 const consumptionSchema = z.object({
   master_id: z.string().uuid().nullable().optional(),
-  consumed_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  consumed_at: isoDate().optional(),
   shift_note: z.string().max(500).optional(),
   items: z.array(z.object({
     product_id: z.string().uuid(),
@@ -178,7 +179,7 @@ router.post('/consumption', requireRole(['owner', 'admin', 'master']), async (re
 // Принимает items: [{product_id, actual_qty}]. По каждому считает разницу с
 // текущим stock_qty и пишет movement с типом 'adjustment' (qty signed).
 const inventoryCheckSchema = z.object({
-  checked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  checked_at: isoDate().optional(),
   note: z.string().max(500).optional(),
   items: z.array(z.object({
     product_id: z.string().uuid(),

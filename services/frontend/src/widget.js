@@ -102,7 +102,7 @@
     els.servicesList.innerHTML = state.services.map((s) => `
       <div class="w-item ${state.selectedServices.has(s.id) ? 'selected' : ''}" data-id="${s.id}">
         <div class="w-item-check"></div>
-        <div class="w-item-color" style="background: ${escapeHtml(s.color || '#6366f1')}"></div>
+        <div class="w-item-color" style="background: ${escapeHtml(s.color || '#7c3aed')}"></div>
         <div class="w-item-main">
           <div class="w-item-name">${escapeHtml(s.name)}</div>
           <div class="w-item-meta">${escapeHtml(s.category_name || '')} · ${s.duration_minutes} мин</div>

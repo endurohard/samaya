@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -7,8 +8,8 @@ const router = Router();
 router.use(authenticate);
 
 const querySchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDate(),
+  to: isoDate(),
 });
 
 router.get('/:masterId', async (req, res, next) => {
@@ -28,7 +29,7 @@ router.get('/:masterId', async (req, res, next) => {
 });
 
 const itemSchema = z.object({
-  work_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  work_date: isoDate(),
   is_day_off: z.boolean().optional().default(false),
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),

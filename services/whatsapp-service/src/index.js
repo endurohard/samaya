@@ -1,6 +1,7 @@
 import express from 'express';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
+import { authenticate } from './auth.js';
 
 const PORT = Number(process.env.PORT || 3008);
 const app = express();
@@ -8,6 +9,9 @@ app.use(express.json({ limit: '1mb' }));
 
 // ── Health ──
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'whatsapp-service' }));
+
+// Все /api/whatsapp/* требуют внутренний токен или JWT админа
+app.use('/api/whatsapp', authenticate);
 
 // ── Status ──
 app.get('/api/whatsapp/status', (_req, res) => res.json(wa.getStatus()));

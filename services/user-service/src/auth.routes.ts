@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import * as authService from './auth.service';
 import { config } from './config';
+import { verifyAccess } from './jwt';
 
 const router = Router();
 
@@ -23,8 +24,27 @@ router.post('/register', async (req, res, next) => {
     if (!company_id) {
       return res.status(400).json({ error: 'company_id required (no default configured)' });
     }
+    // Публичная регистрация — только client. Роли персонала (owner/admin/master)
+    // может выдать лишь авторизованный owner/admin этой же компании.
+    let role: typeof input.role = 'client';
+    if (input.role && input.role !== 'client') {
+      const h = req.headers.authorization;
+      let allowed = false;
+      if (h?.startsWith('Bearer ')) {
+        try {
+          const p = await verifyAccess(h.slice(7));
+          allowed = ['owner', 'admin'].includes(p.role) && p.company_id === company_id;
+        } catch {
+          // невалидный токен → forbidden ниже
+        }
+      }
+      if (!allowed) {
+        return res.status(403).json({ error: 'staff registration requires admin token', code: 'STAFF_REGISTER_FORBIDDEN' });
+      }
+      role = input.role;
+    }
     const result = await authService.register(
-      { ...input, company_id },
+      { ...input, role, company_id },
       { ip: req.ip, ua: req.headers['user-agent'] as string | undefined },
     );
     return res.status(201).json(result);

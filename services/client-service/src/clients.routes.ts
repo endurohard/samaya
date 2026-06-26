@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from './validators';
 import { authenticate, requireRole } from './middleware';
 import {
   listClients, segmentCounts, createClient, updateClient,
@@ -107,7 +108,7 @@ const importRowSchema = z.object({
   full_name: z.string().min(1).max(200),
   email: z.string().email().optional().nullable().or(z.literal('').transform(() => null)),
   gender: z.enum(['male', 'female']).optional().nullable().or(z.literal('').transform(() => null)),
-  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal('').transform(() => null)),
+  birthday: isoDate().optional().nullable().or(z.literal('').transform(() => null)),
   comment: z.string().max(1000).optional().nullable().or(z.literal('').transform(() => null)),
 });
 const importSchema = z.object({
@@ -211,6 +212,20 @@ router.get('/:id/upload-link', async (req, res, next) => {
   try {
     const r = await pool.query(
       `SELECT upload_token FROM clients.clients WHERE company_id = $1 AND id = $2 AND is_deleted = FALSE`,
+      [req.auth!.company_id, req.params.id],
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });
+    return res.json({ upload_token: r.rows[0].upload_token });
+  } catch (e) { return next(e); }
+});
+
+// POST /:id/regenerate-portal-token  — перевыпуск токена портала (если ссылка утекла)
+router.post('/:id/regenerate-portal-token', requireRole('admin'), async (req, res, next) => {
+  try {
+    const r = await pool.query(
+      `UPDATE clients.clients SET upload_token = uuid_generate_v4()
+       WHERE company_id = $1 AND id = $2 AND is_deleted = FALSE
+       RETURNING upload_token`,
       [req.auth!.company_id, req.params.id],
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });

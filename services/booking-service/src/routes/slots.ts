@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
@@ -11,7 +12,7 @@ const router = Router();
 const slotsSchema = z.object({
   company_id: z.string().uuid().optional(),
   master_id: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: isoDate(),
   service_ids: z.string().min(1), // CSV: "id1,id2"
 });
 

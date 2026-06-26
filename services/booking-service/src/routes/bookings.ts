@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
@@ -12,8 +13,8 @@ router.use(authenticate);
 
 // ===== List bookings =====
 const listSchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDate(),
+  to: isoDate(),
   master_id: z.string().uuid().optional(),
   client_phone: z.string().min(5).optional(),
   client_id: z.string().uuid().optional(),
@@ -44,7 +45,11 @@ router.get('/', async (req, res, next) => {
       params.push(q.status);
       where += ` AND b.status = $${params.length}`;
     }
-    const limitClause = q.limit ? ` LIMIT ${q.limit}` : '';
+    let limitClause = '';
+    if (q.limit) {
+      params.push(q.limit);
+      limitClause = ` LIMIT $${params.length}`;
+    }
 
     const { rows } = await pool.query(
       `SELECT b.id, b.master_id, b.manager_id, b.client_id, b.client_phone, b.client_name,
@@ -73,8 +78,8 @@ router.get('/', async (req, res, next) => {
 
 // ===== Sales list (completed bookings) =====
 const salesListSchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: isoDate().optional(),
+  to: isoDate().optional(),
   master_id: z.string().uuid().optional(),
   payment_method: z.enum(['cash', 'card', 'online']).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
@@ -125,8 +130,8 @@ router.get('/sales', async (req, res, next) => {
 
 // ===== CSV Export =====
 const exportSchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDate(),
+  to: isoDate(),
   status: z.enum(['pending', 'confirmed', 'completed', 'canceled', 'no_show']).optional(),
 });
 
@@ -195,8 +200,8 @@ router.get('/export.csv', async (req, res, next) => {
 
 // ===== Analytics =====
 const analyticsSchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: isoDate(),
+  to: isoDate(),
 });
 
 router.get('/analytics', async (req, res, next) => {
@@ -214,7 +219,7 @@ router.get('/analytics', async (req, res, next) => {
            COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_count,
            COUNT(*) FILTER (WHERE status = 'no_show') AS no_show_count
          FROM bookings.bookings
-         WHERE company_id = $1 AND starts_at::date BETWEEN $2::date AND $3::date`,
+         WHERE company_id = $1 AND starts_at >= $2::date AND starts_at < ($3::date + INTERVAL '1 day')`,
         [companyId, q.from, q.to],
       ),
       // Revenue by day
@@ -223,7 +228,7 @@ router.get('/analytics', async (req, res, next) => {
                 COUNT(*) FILTER (WHERE status = 'completed') AS sales,
                 COALESCE(SUM(total_price - discount_amount) FILTER (WHERE status = 'completed'), 0)::float8 AS revenue
          FROM bookings.bookings
-         WHERE company_id = $1 AND starts_at::date BETWEEN $2::date AND $3::date
+         WHERE company_id = $1 AND starts_at >= $2::date AND starts_at < ($3::date + INTERVAL '1 day')
          GROUP BY day ORDER BY day`,
         [companyId, q.from, q.to],
       ),
@@ -233,7 +238,7 @@ router.get('/analytics', async (req, res, next) => {
                 COUNT(*) FILTER (WHERE b.status = 'completed') AS sales,
                 COALESCE(SUM(b.total_price - b.discount_amount) FILTER (WHERE b.status = 'completed'), 0)::float8 AS revenue
          FROM bookings.bookings b
-         WHERE b.company_id = $1 AND b.starts_at::date BETWEEN $2::date AND $3::date
+         WHERE b.company_id = $1 AND b.starts_at >= $2::date AND b.starts_at < ($3::date + INTERVAL '1 day')
          GROUP BY b.master_id
          ORDER BY revenue DESC LIMIT 20`,
         [companyId, q.from, q.to],
@@ -246,7 +251,7 @@ router.get('/analytics', async (req, res, next) => {
          FROM bookings.booking_services bs
          JOIN bookings.bookings b ON b.id = bs.booking_id
          WHERE b.company_id = $1
-           AND b.starts_at::date BETWEEN $2::date AND $3::date
+           AND b.starts_at >= $2::date AND b.starts_at < ($3::date + INTERVAL '1 day')
            AND b.status = 'completed'
          GROUP BY bs.service_name
          ORDER BY revenue DESC LIMIT 10`,
@@ -352,7 +357,7 @@ router.get('/analytics/masters', async (req, res, next) => {
          LEFT JOIN salons.masters m ON m.id = b.master_id
          LEFT JOIN bookings.reviews r ON r.booking_id = b.id
          WHERE b.company_id = $1
-           AND b.starts_at::date BETWEEN $2::date AND $3::date
+           AND b.starts_at >= $2::date AND b.starts_at < ($3::date + INTERVAL '1 day')
          GROUP BY b.master_id, m.display_name
          ORDER BY revenue DESC`,
         [companyId, q.from, q.to],
@@ -367,7 +372,7 @@ router.get('/analytics/masters', async (req, res, next) => {
          FROM bookings.booking_services bs
          JOIN bookings.bookings b ON b.id = bs.booking_id
          WHERE b.company_id = $1
-           AND b.starts_at::date BETWEEN $2::date AND $3::date
+           AND b.starts_at >= $2::date AND b.starts_at < ($3::date + INTERVAL '1 day')
            AND b.status = 'completed'
          GROUP BY b.master_id, bs.service_name
          ORDER BY b.master_id, revenue DESC`,
