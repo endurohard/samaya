@@ -2164,13 +2164,16 @@
             <div class="toolbar-actions">
               <div class="period-pills" id="analyticsPeriodPills">
                 <button class="period-pill" data-period="today">Сегодня</button>
+                <button class="period-pill" data-period="yesterday">Вчера</button>
                 <button class="period-pill" data-period="week">Неделя</button>
                 <button class="period-pill active" data-period="month">Месяц</button>
                 <button class="period-pill" data-period="year">Год</button>
               </div>
               <div class="tab-pills" id="analyticsTabPills" style="margin-left:12px;">
-                <button class="tab-pill active" data-tab="overview">Обзор</button>
-                <button class="tab-pill" data-tab="masters">По мастерам</button>
+                <button class="tab-pill active" data-tab="overview">Свод</button>
+                <button class="tab-pill" data-tab="masters">По сотрудникам</button>
+                <button class="tab-pill" data-tab="services">По услугам</button>
+                <button class="tab-pill" data-tab="products">По товарам</button>
               </div>
             </div>
           </div>
@@ -2308,6 +2311,37 @@
               <div id="mastersEmpty" style="padding:32px;text-align:center;color:#6b7280;font-size:14px;display:none;">Нет данных за период</div>
             </div>
           </div><!-- /anTabMasters -->
+
+          <!-- По услугам -->
+          <div id="anTabServices" style="display:none;">
+            <div class="card analytics-card">
+              <div class="analytics-card-title">Отчёт по услугам</div>
+              <table class="data-table" id="anServicesTable">
+                <thead><tr>
+                  <th>Услуга</th>
+                  <th style="text-align:right;">Кол-во</th>
+                  <th style="text-align:right;">Ср. цена</th>
+                  <th style="text-align:right;">Выручка</th>
+                </tr></thead>
+                <tbody><tr><td colspan="4" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+          </div><!-- /anTabServices -->
+
+          <!-- По товарам -->
+          <div id="anTabProducts" style="display:none;">
+            <div class="card analytics-card">
+              <div class="analytics-card-title">Отчёт по товарам — расход за период</div>
+              <table class="data-table" id="anProductsTable">
+                <thead><tr>
+                  <th>Товар</th>
+                  <th style="text-align:right;">Расход</th>
+                  <th style="text-align:right;">Себестоимость</th>
+                </tr></thead>
+                <tbody><tr><td colspan="3" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+          </div><!-- /anTabProducts -->
 
         </section>
 

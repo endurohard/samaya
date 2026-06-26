@@ -6553,6 +6553,11 @@ import { trapFocus } from './modules/focus-trap.js';
   function getAnalyticsRange(period) {
     const today = todayLocalISO();
     if (period === 'today')  return { from: today, to: today };
+    if (period === 'yesterday') {
+      const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 1);
+      const y = d.toISOString().slice(0, 10);
+      return { from: y, to: y };
+    }
     if (period === 'week')  {
       const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 6);
       return { from: d.toISOString().slice(0, 10), to: today };
@@ -6705,10 +6710,57 @@ import { trapFocus } from './modules/focus-trap.js';
       }
       if (retention.ok) renderRetention(retention.data);
       if (reviews.ok) renderReviews(reviews.data);
+    } else if (analyticsTab === 'services') {
+      const res = await apiCall('GET', `/api/bookings/analytics/services?from=${from}&to=${to}`);
+      if (res.ok) renderAnServices(res.data.services);
+    } else if (analyticsTab === 'products') {
+      const res = await apiCall('GET', `/api/inventory/stock/consumption-report?from=${from}&to=${to}`);
+      if (res.ok) renderAnProducts(res.data.items);
     } else {
       const res = await apiCall('GET', `/api/bookings/analytics/masters?from=${from}&to=${to}`);
       if (res.ok) renderMasters(res.data.masters);
     }
+  }
+
+  function renderAnServices(services) {
+    const tbody = document.querySelector('#anServicesTable tbody');
+    if (!tbody) return;
+    if (!services || !services.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">Нет данных за период</td></tr>';
+      return;
+    }
+    const totalRev = services.reduce((s, x) => s + (x.revenue || 0), 0);
+    const totalCnt = services.reduce((s, x) => s + (x.count || 0), 0);
+    tbody.innerHTML = services.map((s) => `
+      <tr>
+        <td>${escapeHtml(s.service_name || '—')}</td>
+        <td style="text-align:right;">${s.count}</td>
+        <td style="text-align:right;">${formatPrice(s.avg_price)}</td>
+        <td style="text-align:right;font-weight:600;">${formatPrice(s.revenue)}</td>
+      </tr>`).join('')
+      + `<tr style="border-top:2px solid var(--border);font-weight:700;">
+           <td>Итого</td><td style="text-align:right;">${totalCnt}</td><td></td>
+           <td style="text-align:right;">${formatPrice(totalRev)}</td>
+         </tr>`;
+  }
+
+  function renderAnProducts(items) {
+    const tbody = document.querySelector('#anProductsTable tbody');
+    if (!tbody) return;
+    if (!items || !items.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="table-empty">Расхода за период нет</td></tr>';
+      return;
+    }
+    const totalCost = items.reduce((s, x) => s + (x.cost || 0), 0);
+    tbody.innerHTML = items.map((p) => `
+      <tr>
+        <td>${escapeHtml(p.product_name || '—')}</td>
+        <td style="text-align:right;">${(Number(p.qty) || 0).toLocaleString('ru-RU')} ${escapeHtml(p.unit || '')}</td>
+        <td style="text-align:right;font-weight:600;">${formatPrice(p.cost)}</td>
+      </tr>`).join('')
+      + `<tr style="border-top:2px solid var(--border);font-weight:700;">
+           <td>Итого</td><td></td><td style="text-align:right;">${formatPrice(totalCost)}</td>
+         </tr>`;
   }
 
   function renderMasters(masters) {
@@ -6786,8 +6838,10 @@ import { trapFocus } from './modules/focus-trap.js';
     analyticsTab = pill.dataset.tab;
     document.querySelectorAll('#analyticsTabPills .tab-pill').forEach((p) =>
       p.classList.toggle('active', p === pill));
-    document.getElementById('anTabOverview').style.display = analyticsTab === 'overview' ? '' : 'none';
-    document.getElementById('anTabMasters').style.display = analyticsTab === 'masters' ? '' : 'none';
+    ['overview', 'masters', 'services', 'products'].forEach((t) => {
+      const el = document.getElementById('anTab' + t.charAt(0).toUpperCase() + t.slice(1));
+      if (el) el.style.display = analyticsTab === t ? '' : 'none';
+    });
     void loadAnalytics();
   });
 

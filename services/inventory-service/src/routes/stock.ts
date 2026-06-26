@@ -265,4 +265,29 @@ router.post('/inventory-check', requireRole(['owner', 'admin']), async (req, res
   }
 });
 
+// ===== Отчёт по товарам (расход за период) =====
+const reportSchema = z.object({ from: isoDate(), to: isoDate() });
+router.get('/consumption-report', async (req, res, next) => {
+  try {
+    const q = reportSchema.parse(req.query);
+    const { rows } = await pool.query(
+      `SELECT m.product_id,
+              p.name AS product_name,
+              p.unit,
+              COALESCE(SUM(-m.qty), 0)::float8                              AS qty,
+              COALESCE(SUM(-m.qty * COALESCE(m.unit_cost, 0)), 0)::float8   AS cost
+       FROM inventory.stock_movements m
+       JOIN inventory.products p ON p.id = m.product_id
+       WHERE m.company_id = $1
+         AND m.movement_type = 'consumption'
+         AND m.created_at >= $2::date AND m.created_at < ($3::date + INTERVAL '1 day')
+       GROUP BY m.product_id, p.name, p.unit
+       HAVING SUM(-m.qty) > 0
+       ORDER BY cost DESC`,
+      [req.auth!.company_id, q.from, q.to],
+    );
+    return res.json({ items: rows });
+  } catch (e) { return next(e); }
+});
+
 export default router;

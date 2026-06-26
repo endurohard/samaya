@@ -395,6 +395,32 @@ router.get('/analytics/masters', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Service report (отчёт по услугам) =====
+router.get('/analytics/services', async (req, res, next) => {
+  try {
+    const q = analyticsSchema.parse(req.query);
+    const companyId = req.auth!.company_id;
+    const { rows } = await pool.query(
+      `SELECT bs.service_id,
+              bs.service_name,
+              COUNT(*)::int                                                            AS count,
+              COALESCE(SUM(bs.price), 0)::float8                                       AS revenue,
+              CASE WHEN COUNT(*) > 0
+                THEN ROUND((SUM(bs.price) / COUNT(*))::numeric, 0)::float8
+                ELSE 0 END                                                              AS avg_price
+       FROM bookings.booking_services bs
+       JOIN bookings.bookings b ON b.id = bs.booking_id
+       WHERE b.company_id = $1
+         AND b.starts_at >= $2::date AND b.starts_at < ($3::date + INTERVAL '1 day')
+         AND b.status = 'completed'
+       GROUP BY bs.service_id, bs.service_name
+       ORDER BY revenue DESC`,
+      [companyId, q.from, q.to],
+    );
+    return res.json({ services: rows });
+  } catch (e) { return next(e); }
+});
+
 // ===== Reviews list =====
 router.get('/reviews', async (req, res, next) => {
   try {
