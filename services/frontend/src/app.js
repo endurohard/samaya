@@ -353,6 +353,7 @@ import { trapFocus } from './modules/focus-trap.js';
   let cachedServices = [];
   let cachedServiceCategories = [];
   let svcEditMasters = [];
+  let svcEditMaterialsOrig = '';
   let cachedMasters = [];
   let mastersLoadedAt = 0;
   let cachedBookings = [];
@@ -672,6 +673,7 @@ import { trapFocus } from './modules/focus-trap.js';
     await populateSvcCategoryDropdown(s.category_id || '');
     document.getElementById('svcEditBackdrop').hidden = false;
     void loadSvcMasters(s.id); // подгрузка вкладки «Сотрудники»
+    void loadSvcMaterials(s.id); // подгрузка вкладки «Материалы»
   }
 
   // ----- Вкладки модалки услуги -----
@@ -755,6 +757,50 @@ import { trapFocus } from './modules/focus-trap.js';
     });
   }
 
+  // ----- Вкладка «Материалы»: техкарта (расходники) -----
+  function svcMatNormalize(items) {
+    return items.map((i) => `${i.product_id}:${Number(i.qty_per_service)}`).sort().join(',');
+  }
+  function addSvcMaterialRow(prefill) {
+    const list = document.getElementById('svcEditMaterialsList');
+    if (!list) return;
+    const opts = cachedProducts.filter((p) => p.is_active)
+      .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.unit)})</option>`).join('');
+    const row = document.createElement('div');
+    row.className = 'recipe-row';
+    row.innerHTML = `
+      <select class="svc-mat-product" required>${opts}</select>
+      <input type="number" class="svc-mat-qty" step="any" min="0.001" required placeholder="кол-во" />
+      <button type="button" class="r-del" aria-label="удалить">×</button>`;
+    list.appendChild(row);
+    if (prefill) {
+      row.querySelector('.svc-mat-product').value = prefill.product_id;
+      row.querySelector('.svc-mat-qty').value = prefill.qty_per_service;
+    }
+    row.querySelector('.r-del').addEventListener('click', () => row.remove());
+  }
+  async function loadSvcMaterials(serviceId) {
+    const list = document.getElementById('svcEditMaterialsList');
+    if (list) list.innerHTML = '';
+    svcEditMaterialsOrig = '';
+    if (!cachedProducts.length) {
+      const rp = await apiCall('GET', '/api/inventory/products');
+      cachedProducts = rp.ok ? (rp.data?.items || []) : [];
+    }
+    const rt = await apiCall('GET', '/api/inventory/tech-cards');
+    const tc = (rt.ok ? (rt.data?.items || []) : []).find((t) => t.service_id === serviceId);
+    const items = tc?.items || [];
+    svcEditMaterialsOrig = svcMatNormalize(items);
+    items.forEach((it) => addSvcMaterialRow(it));
+  }
+  document.getElementById('svcEditMaterialAdd')?.addEventListener('click', () => {
+    if (!cachedProducts.filter((p) => p.is_active).length) {
+      toast('Сначала добавьте расходники в разделе «Склад»');
+      return;
+    }
+    addSvcMaterialRow();
+  });
+
   function updateSvcCommLabel() {
     const type = document.getElementById('svcEditCommType')?.value;
     const label = document.getElementById('svcEditCommAmountLabel');
@@ -827,6 +873,22 @@ import { trapFocus } from './modules/focus-trap.js';
         errEl.textContent = r3.data?.error || 'Услуга сохранена, ошибка привязки сотрудников';
         errEl.hidden = false;
         return; // оставляем модалку открытой, чтобы показать ошибку
+      }
+    }
+    // 4. Сохраняем материалы (техкарту), только если изменились
+    const matList = document.getElementById('svcEditMaterialsList');
+    if (matList) {
+      const items = Array.from(matList.querySelectorAll('.recipe-row')).map((row) => ({
+        product_id: row.querySelector('.svc-mat-product')?.value,
+        qty_per_service: Number(row.querySelector('.svc-mat-qty')?.value),
+      })).filter((it) => it.product_id && it.qty_per_service > 0);
+      if (items.length && svcMatNormalize(items) !== svcEditMaterialsOrig) {
+        const r4 = await apiCall('PUT', '/api/inventory/tech-cards', { service_id: serviceId, items });
+        if (!r4.ok) {
+          errEl.textContent = r4.data?.error || 'Услуга сохранена, ошибка материалов';
+          errEl.hidden = false;
+          return;
+        }
       }
     }
     document.getElementById('svcEditBackdrop').hidden = true;

@@ -627,10 +627,11 @@
                 </div>
                 <!-- Вкладка: Материалы -->
                 <div class="svc-tab-panel" data-svcpanel="materials" hidden>
-                  <div class="empty">
-                    Материалы (расходники) услуги настраиваются в разделе
-                    «Склад → Техкарты услуг». Перенос в эту вкладку — в следующем обновлении.
+                  <div class="muted" style="font-size:var(--fs-sm);margin-bottom:10px;">
+                    Расходники, списываемые со склада при выполнении услуги (техкарта).
                   </div>
+                  <div id="svcEditMaterialsList" class="receipt-items"></div>
+                  <button type="button" class="btn-ghost btn-xs" id="svcEditMaterialAdd" style="margin-top:8px;">+ Материал</button>
                 </div>
                 <div class="error" id="svcEditError" hidden></div>
               </div>
