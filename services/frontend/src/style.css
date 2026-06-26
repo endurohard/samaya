@@ -1888,6 +1888,43 @@ body {
 }
 .modal-foot .form-actions { margin: 0; }
 .form-grid-full { grid-column: 1 / -1; }
+
+/* Вкладки модалки услуги */
+.modal-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 12px 14px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.modal-tab:hover { color: var(--text); }
+.modal-tab.active { color: var(--primary, #7c3aed); border-bottom-color: var(--primary, #7c3aed); }
+
+/* Вкладка «Сотрудники» в модалке услуги */
+.svc-masters-list { display: flex; flex-direction: column; gap: 4px; }
+.svc-master-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.svc-master-row .svc-m-name { flex: 1 1 auto; min-width: 0; }
+.svc-master-row .svc-m-price { flex: 0 0 110px; }
+.svc-master-row .svc-m-price:disabled { opacity: 0.5; }
 .btn-link-danger {
   margin-left: auto;
   background: transparent;

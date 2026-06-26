@@ -560,39 +560,76 @@
             </div>
             <form id="svcEditForm">
               <input type="hidden" id="svcEditId" />
+              <div class="modal-tabs" role="tablist">
+                <button type="button" class="modal-tab active" data-svctab="settings">Настройка</button>
+                <button type="button" class="modal-tab" data-svctab="masters">Сотрудники</button>
+                <button type="button" class="modal-tab" data-svctab="materials">Материалы</button>
+              </div>
               <div class="modal-body">
-                <div class="form-grid">
+                <!-- Вкладка: Настройка -->
+                <div class="svc-tab-panel" data-svcpanel="settings">
                   <div>
                     <label for="svcEditName">Название</label>
                     <input id="svcEditName" name="name" type="text" required />
                   </div>
-                  <div>
-                    <label for="svcEditPrice">Цена, ₽</label>
-                    <input id="svcEditPrice" name="price" type="number" min="0" step="100" required />
+                  <div style="margin-top:12px;">
+                    <label for="svcEditCategory">Группа услуг</label>
+                    <div class="input-with-btn">
+                      <select id="svcEditCategory" name="category_id"><option value="">— без группы —</option></select>
+                      <button type="button" class="btn-ghost btn-xs" id="svcEditCatAddToggle" title="Создать группу услуг">+ Новая</button>
+                    </div>
+                    <div class="supplier-add-inline" id="svcEditCatAddInline" hidden>
+                      <input id="svcEditCatNewName" type="text" placeholder="Название группы" autocomplete="off" />
+                      <button type="button" class="btn-primary btn-xs" id="svcEditCatAddSave">Создать</button>
+                      <button type="button" class="btn-ghost btn-xs" id="svcEditCatAddCancel" aria-label="отмена">×</button>
+                    </div>
                   </div>
-                  <div>
-                    <label for="svcEditDuration">Длительность, мин</label>
-                    <input id="svcEditDuration" name="duration_minutes" type="number" min="5" max="480" required />
+                  <div class="form-grid" style="margin-top:12px;">
+                    <div>
+                      <label for="svcEditPrice">Цена, ₽</label>
+                      <input id="svcEditPrice" name="price" type="number" min="0" step="100" required />
+                    </div>
+                    <div>
+                      <label for="svcEditDuration">Длительность, мин</label>
+                      <input id="svcEditDuration" name="duration_minutes" type="number" min="5" max="480" required />
+                    </div>
+                    <div>
+                      <label for="svcEditColor">Цвет</label>
+                      <input id="svcEditColor" name="color" type="color" style="height:36px;padding:2px 4px;" />
+                    </div>
                   </div>
-                  <div>
-                    <label for="svcEditColor">Цвет</label>
-                    <input id="svcEditColor" name="color" type="color" style="height:36px;padding:2px 4px;" />
+                  <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
+                  <div style="font-weight:600;margin-bottom:10px;">Комиссия менеджерам</div>
+                  <div class="form-grid">
+                    <div>
+                      <label for="svcEditCommType">Тип комиссии</label>
+                      <select id="svcEditCommType" name="commission_type">
+                        <option value="">— без комиссии —</option>
+                        <option value="percent">% всем менеджерам</option>
+                        <option value="fixed">Фикс. оформившему запись</option>
+                      </select>
+                    </div>
+                    <div id="svcEditCommAmountWrap">
+                      <label for="svcEditCommAmount" id="svcEditCommAmountLabel">Размер (%)</label>
+                      <input id="svcEditCommAmount" name="commission_amount" type="number" min="0" step="0.01" placeholder="2" />
+                    </div>
                   </div>
                 </div>
-                <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
-                <div style="font-weight:600;margin-bottom:10px;">Комиссия менеджерам</div>
-                <div class="form-grid">
-                  <div>
-                    <label for="svcEditCommType">Тип комиссии</label>
-                    <select id="svcEditCommType" name="commission_type">
-                      <option value="">— без комиссии —</option>
-                      <option value="percent">% всем менеджерам</option>
-                      <option value="fixed">Фикс. оформившему запись</option>
-                    </select>
+                <!-- Вкладка: Сотрудники -->
+                <div class="svc-tab-panel" data-svcpanel="masters" hidden>
+                  <div class="muted" style="font-size:var(--fs-sm);margin-bottom:10px;">
+                    Отметьте сотрудников, выполняющих услугу. Можно задать индивидуальную цену
+                    (пусто — берётся базовая цена услуги).
                   </div>
-                  <div id="svcEditCommAmountWrap">
-                    <label for="svcEditCommAmount" id="svcEditCommAmountLabel">Размер (%)</label>
-                    <input id="svcEditCommAmount" name="commission_amount" type="number" min="0" step="0.01" placeholder="2" />
+                  <div id="svcEditMastersList" class="svc-masters-list">
+                    <div class="empty">Загрузка…</div>
+                  </div>
+                </div>
+                <!-- Вкладка: Материалы -->
+                <div class="svc-tab-panel" data-svcpanel="materials" hidden>
+                  <div class="empty">
+                    Материалы (расходники) услуги настраиваются в разделе
+                    «Склад → Техкарты услуг». Перенос в эту вкладку — в следующем обновлении.
                   </div>
                 </div>
                 <div class="error" id="svcEditError" hidden></div>

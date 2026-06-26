@@ -351,6 +351,8 @@ import { trapFocus } from './modules/focus-trap.js';
   let scheduleMonth = null; // YYYY-MM, текущий месяц расписания
 
   let cachedServices = [];
+  let cachedServiceCategories = [];
+  let svcEditMasters = [];
   let cachedMasters = [];
   let mastersLoadedAt = 0;
   let cachedBookings = [];
@@ -651,7 +653,7 @@ import { trapFocus } from './modules/focus-trap.js';
     });
   }
 
-  function openSvcEditModal(serviceId) {
+  async function openSvcEditModal(serviceId) {
     const s = cachedServices.find((x) => x.id === serviceId);
     if (!s) return;
     const comm = cachedCommissions.find((c) => c.service_id === s.id);
@@ -665,7 +667,92 @@ import { trapFocus } from './modules/focus-trap.js';
     document.getElementById('svcEditCommAmount').value = comm?.amount || '';
     document.getElementById('svcEditError').hidden = true;
     updateSvcCommLabel();
+    svcSwitchTab('settings');
+    toggleSvcCatAdd(false);
+    await populateSvcCategoryDropdown(s.category_id || '');
     document.getElementById('svcEditBackdrop').hidden = false;
+    void loadSvcMasters(s.id); // подгрузка вкладки «Сотрудники»
+  }
+
+  // ----- Вкладки модалки услуги -----
+  function svcSwitchTab(tab) {
+    document.querySelectorAll('#svcEditModal .modal-tab').forEach((b) =>
+      b.classList.toggle('active', b.dataset.svctab === tab));
+    document.querySelectorAll('#svcEditModal .svc-tab-panel').forEach((p) => {
+      p.hidden = p.dataset.svcpanel !== tab;
+    });
+  }
+  document.querySelectorAll('#svcEditModal .modal-tab').forEach((b) => {
+    b.addEventListener('click', () => svcSwitchTab(b.dataset.svctab));
+  });
+
+  // ----- Группа услуг: dropdown + инлайн-создание -----
+  async function populateSvcCategoryDropdown(selectedId) {
+    const sel = document.getElementById('svcEditCategory');
+    if (!sel) return;
+    if (!cachedServiceCategories.length) {
+      const r = await salApi('GET', '/categories');
+      cachedServiceCategories = r.ok ? (r.data?.items || []) : [];
+    }
+    sel.innerHTML = '<option value="">— без группы —</option>'
+      + cachedServiceCategories.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+    sel.value = selectedId || '';
+  }
+  function toggleSvcCatAdd(show) {
+    const inl = document.getElementById('svcEditCatAddInline');
+    if (!inl) return;
+    inl.hidden = !show;
+    if (show) { const i = document.getElementById('svcEditCatNewName'); if (i) { i.value = ''; i.focus(); } }
+  }
+  document.getElementById('svcEditCatAddToggle')?.addEventListener('click', () => {
+    toggleSvcCatAdd(document.getElementById('svcEditCatAddInline').hidden);
+  });
+  document.getElementById('svcEditCatAddCancel')?.addEventListener('click', () => toggleSvcCatAdd(false));
+  async function saveNewSvcCategory() {
+    const inp = document.getElementById('svcEditCatNewName');
+    const name = (inp?.value || '').trim();
+    if (!name) { toast('Введите название группы'); inp?.focus(); return; }
+    const r = await salApi('POST', '/categories', { name });
+    if (!r.ok) { toast(r.status === 409 ? 'Группа с таким названием уже есть' : `Ошибка: ${r.data?.error || r.status}`); return; }
+    cachedServiceCategories = [];
+    await populateSvcCategoryDropdown(r.data?.id || '');
+    toggleSvcCatAdd(false);
+    toast('Группа создана');
+  }
+  document.getElementById('svcEditCatAddSave')?.addEventListener('click', saveNewSvcCategory);
+  document.getElementById('svcEditCatNewName')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveNewSvcCategory(); }
+  });
+
+  // ----- Вкладка «Сотрудники»: список мастеров с индивидуальной ценой -----
+  async function loadSvcMasters(serviceId) {
+    const list = document.getElementById('svcEditMastersList');
+    if (list) list.innerHTML = '<div class="empty">Загрузка…</div>';
+    const r = await salApi('GET', `/services/${serviceId}/masters`);
+    svcEditMasters = r.ok ? (r.data?.items || []) : [];
+    renderSvcMasters();
+  }
+  function renderSvcMasters() {
+    const list = document.getElementById('svcEditMastersList');
+    if (!list) return;
+    if (!svcEditMasters.length) {
+      list.innerHTML = '<div class="empty">Сотрудников пока нет. Добавьте их в разделе «Сотрудники».</div>';
+      return;
+    }
+    list.innerHTML = svcEditMasters.map((m) => `
+      <label class="svc-master-row">
+        <input type="checkbox" class="svc-m-check" data-mid="${escapeHtml(m.master_id)}" ${m.assigned ? 'checked' : ''} />
+        <span class="svc-m-name">${escapeHtml(m.display_name || '—')}</span>
+        <input type="number" class="svc-m-price" data-mid="${escapeHtml(m.master_id)}" min="0" step="100"
+               placeholder="цена ₽" value="${m.custom_price != null ? m.custom_price : ''}" ${m.assigned ? '' : 'disabled'} />
+      </label>
+    `).join('');
+    list.querySelectorAll('.svc-m-check').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const price = list.querySelector(`.svc-m-price[data-mid="${cb.dataset.mid}"]`);
+        if (price) price.disabled = !cb.checked;
+      });
+    });
   }
 
   function updateSvcCommLabel() {
@@ -698,6 +785,7 @@ import { trapFocus } from './modules/focus-trap.js';
       price: parseFloat(fd.get('price')),
       duration_minutes: parseInt(fd.get('duration_minutes')),
       color: fd.get('color') || null,
+      category_id: fd.get('category_id') || null,
     };
     const r1 = await apiCall('PATCH', `/api/salons/services/${serviceId}`, svcPayload);
     if (!r1.ok) {
@@ -722,6 +810,23 @@ import { trapFocus } from './modules/focus-trap.js';
       if (!r2.ok) {
         errEl.textContent = r2.data?.error || 'Услуга сохранена, ошибка комиссии';
         errEl.hidden = false;
+      }
+    }
+    // 3. Сохраняем привязку сотрудников (вкладка «Сотрудники»)
+    const mList = document.getElementById('svcEditMastersList');
+    if (mList && mList.querySelector('.svc-m-check')) {
+      const assignments = Array.from(mList.querySelectorAll('.svc-m-check'))
+        .filter((cb) => cb.checked)
+        .map((cb) => {
+          const priceEl = mList.querySelector(`.svc-m-price[data-mid="${cb.dataset.mid}"]`);
+          const p = priceEl && priceEl.value !== '' ? parseFloat(priceEl.value) : null;
+          return { master_id: cb.dataset.mid, custom_price: (p != null && !isNaN(p)) ? p : null };
+        });
+      const r3 = await salApi('PUT', `/services/${serviceId}/masters`, { assignments });
+      if (!r3.ok) {
+        errEl.textContent = r3.data?.error || 'Услуга сохранена, ошибка привязки сотрудников';
+        errEl.hidden = false;
+        return; // оставляем модалку открытой, чтобы показать ошибку
       }
     }
     document.getElementById('svcEditBackdrop').hidden = true;

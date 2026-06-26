@@ -92,4 +92,67 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
   } catch (e) { return next(e); }
 });
 
+// ===== Сотрудники, выполняющие услугу (с индивидуальной ценой) =====
+// GET — все активные мастера + отметка assigned и кастомная цена/длительность для этой услуги.
+router.get('/:id/masters', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.id AS master_id, m.display_name,
+              (ms.master_id IS NOT NULL) AS assigned,
+              ms.custom_price::float8 AS custom_price,
+              ms.custom_duration_minutes AS custom_duration_minutes
+       FROM salons.masters m
+       LEFT JOIN salons.master_services ms
+              ON ms.master_id = m.id AND ms.service_id = $2
+       WHERE m.company_id = $1 AND m.is_active = TRUE
+       ORDER BY m.sort_order, m.display_name`,
+      [req.auth!.company_id, req.params.id],
+    );
+    return res.json({ items: rows });
+  } catch (e) { return next(e); }
+});
+
+const assignMastersSchema = z.object({
+  assignments: z.array(z.object({
+    master_id: z.string().uuid(),
+    custom_price: z.number().nonnegative().nullable().optional(),
+    custom_duration_minutes: z.number().int().positive().nullable().optional(),
+  })).max(200),
+});
+
+// PUT — заменяет набор мастеров услуги (и их кастомные цены) целиком.
+router.put('/:id/masters', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { assignments } = assignMastersSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    const serviceId = req.params.id;
+    const svc = await client.query(
+      `SELECT id FROM salons.services WHERE company_id = $1 AND id = $2`,
+      [companyId, serviceId],
+    );
+    if (!svc.rows[0]) return next(new HttpError(404, 'service not found'));
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM salons.master_services WHERE service_id = $1`, [serviceId]);
+    for (const a of assignments) {
+      await client.query(
+        `INSERT INTO salons.master_services (master_id, service_id, custom_price, custom_duration_minutes)
+         SELECT $1, $2, $3, $4
+         WHERE EXISTS (SELECT 1 FROM salons.masters WHERE id = $1 AND company_id = $5)
+         ON CONFLICT (master_id, service_id) DO UPDATE
+           SET custom_price = EXCLUDED.custom_price,
+               custom_duration_minutes = EXCLUDED.custom_duration_minutes`,
+        [a.master_id, serviceId, a.custom_price ?? null, a.custom_duration_minutes ?? null, companyId],
+      );
+    }
+    await client.query('COMMIT');
+    return res.json({ ok: true, count: assignments.length });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    return next(e);
+  } finally {
+    client.release();
+  }
+});
+
 export default router;
