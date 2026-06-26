@@ -3701,7 +3701,7 @@ import { trapFocus } from './modules/focus-trap.js';
   let finMigrationDone = false;
   // Phase 2 state
   let finPeriod = localStorage.getItem('fin_period') || 'today';
-  const finFilters = { account_id: '', category_id: '', kind: '' };
+  const finFilters = { account_id: '', category_id: '', kind: '', payment_method: '' };
 
   // Возвращает {from, to, label} для текущего period.
   function finPeriodRange(period) {
@@ -3822,6 +3822,7 @@ import { trapFocus } from './modules/focus-trap.js';
     if (finFilters.account_id) opsQuery += `&account_id=${finFilters.account_id}`;
     if (finFilters.category_id) opsQuery += `&category_id=${finFilters.category_id}`;
     if (finFilters.kind) opsQuery += `&kind=${finFilters.kind}`;
+    if (finFilters.payment_method) opsQuery += `&payment_method=${finFilters.payment_method}`;
     const [accR, opsR, sumR] = await Promise.all([
       finApi('GET', '/accounts'),
       finApi('GET', `/operations?${opsQuery}`),
@@ -3892,6 +3893,15 @@ import { trapFocus } from './modules/focus-trap.js';
     // KPI values
     if (els.finKpiIncome) els.finKpiIncome.textContent = formatPrice(s.income);
     if (els.finKpiExpense) els.finKpiExpense.textContent = formatPrice(s.expense);
+    // Разбивка нал/безнал под доходами и расходами
+    const pm = s.by_payment_method || { cash: { income: 0, expense: 0 }, cashless: { income: 0, expense: 0 } };
+    const breakdownHtml = (kind) =>
+      `<span class="fin-bd-cash">нал ${formatPrice(pm.cash?.[kind] || 0)}</span>`
+      + `<span class="fin-bd-cashless">безнал ${formatPrice(pm.cashless?.[kind] || 0)}</span>`;
+    const incBd = document.getElementById('finKpiIncomeBreakdown');
+    const expBd = document.getElementById('finKpiExpenseBreakdown');
+    if (incBd) incBd.innerHTML = breakdownHtml('income');
+    if (expBd) expBd.innerHTML = breakdownHtml('expense');
     if (els.finKpiProfit) {
       els.finKpiProfit.textContent = formatPrice(s.profit);
       els.finKpiProfit.style.color = s.profit >= 0 ? '#16a34a' : '#dc2626';
@@ -4379,16 +4389,18 @@ import { trapFocus } from './modules/focus-trap.js';
   });
 
   // Filter changes
-  ['finFilterAccount', 'finFilterCategory', 'finFilterKind'].forEach((id) => {
+  ['finFilterAccount', 'finFilterCategory', 'finFilterKind', 'finFilterMethod'].forEach((id) => {
     document.getElementById(id)?.addEventListener('change', (e) => {
-      const key = id === 'finFilterAccount' ? 'account_id' : id === 'finFilterCategory' ? 'category_id' : 'kind';
+      const key = id === 'finFilterAccount' ? 'account_id'
+        : id === 'finFilterCategory' ? 'category_id'
+          : id === 'finFilterMethod' ? 'payment_method' : 'kind';
       finFilters[key] = e.target.value;
       void renderFinanceView();
     });
   });
   document.getElementById('finFiltersReset')?.addEventListener('click', () => {
-    finFilters.account_id = ''; finFilters.category_id = ''; finFilters.kind = '';
-    ['finFilterAccount', 'finFilterCategory', 'finFilterKind'].forEach((id) => {
+    finFilters.account_id = ''; finFilters.category_id = ''; finFilters.kind = ''; finFilters.payment_method = '';
+    ['finFilterAccount', 'finFilterCategory', 'finFilterKind', 'finFilterMethod'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });

@@ -2003,6 +2003,17 @@ body {
 }
 .fin-kpi-income .fin-kpi-val { color: #16a34a; }
 .fin-kpi-expense .fin-kpi-val { color: #dc2626; }
+.fin-kpi-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.fin-kpi-breakdown .fin-bd-cash::before { content: '💵 '; }
+.fin-kpi-breakdown .fin-bd-cashless::before { content: '💳 '; }
 .fin-trans-row { align-items: center; gap: 8px; }
 .fin-pos { color: #16a34a; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fin-neg { color: #dc2626; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }

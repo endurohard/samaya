@@ -16,6 +16,8 @@ const listSchema = z.object({
   category_id: z.string().uuid().optional(),
   counterparty_id: z.string().uuid().optional(),
   kind: z.enum(['income', 'expense', 'transfer_out', 'transfer_in', 'adjust']).optional(),
+  // Вид расчёта: cash = наличный счёт (type='cash'), cashless = безналичный (остальные типы)
+  payment_method: z.enum(['cash', 'cashless']).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 
@@ -48,9 +50,14 @@ router.get('/', async (req, res, next) => {
       params.push(q.kind);
       where += ` AND o.kind = $${params.length}`;
     }
+    if (q.payment_method === 'cash') {
+      where += ` AND a.type = 'cash'`;
+    } else if (q.payment_method === 'cashless') {
+      where += ` AND a.type <> 'cash'`;
+    }
     params.push(q.limit);
     const { rows } = await pool.query(
-      `SELECT o.id, o.account_id, a.name AS account_name,
+      `SELECT o.id, o.account_id, a.name AS account_name, a.type AS account_type,
               o.kind, o.category_id, c.name AS category_name,
               o.counterparty_id, cp.name AS counterparty_name,
               o.amount::float8 AS amount,

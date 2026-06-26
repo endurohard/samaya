@@ -1520,10 +1520,12 @@
               <div class="fin-kpi-card fin-kpi-income">
                 <div class="fin-kpi-label">Доходы</div>
                 <div class="fin-kpi-val" id="finKpiIncome">0 ₽</div>
+                <div class="fin-kpi-breakdown" id="finKpiIncomeBreakdown"></div>
               </div>
               <div class="fin-kpi-card fin-kpi-expense">
                 <div class="fin-kpi-label">Расходы</div>
                 <div class="fin-kpi-val" id="finKpiExpense">0 ₽</div>
+                <div class="fin-kpi-breakdown" id="finKpiExpenseBreakdown"></div>
               </div>
               <div class="fin-kpi-card fin-kpi-balance">
                 <div class="fin-kpi-label">Остаток на конец периода</div>
@@ -1572,6 +1574,14 @@
                       <option value="transfer_in">Перемещение (получено)</option>
                       <option value="transfer_out">Перемещение (отправлено)</option>
                       <option value="adjust">Корректировка</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="finFilterMethod">Вид расчёта</label>
+                    <select id="finFilterMethod">
+                      <option value="">Любой</option>
+                      <option value="cash">Наличный</option>
+                      <option value="cashless">Безналичный</option>
                     </select>
                   </div>
                 </div>

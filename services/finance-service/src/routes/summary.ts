@@ -67,6 +67,39 @@ router.get('/', async (req, res, next) => {
       [companyId],
     );
 
+    // Доходы/расходы по виду расчёта (нал = счёт type='cash', безнал = остальные)
+    const byMethod = await pool.query(
+      `SELECT (a.type = 'cash') AS is_cash,
+              COALESCE(SUM(CASE WHEN o.kind = 'income'  THEN o.amount ELSE 0 END), 0)::float8 AS income,
+              COALESCE(SUM(CASE WHEN o.kind = 'expense' THEN o.amount ELSE 0 END), 0)::float8 AS expense
+       FROM finance.operations o
+       JOIN finance.accounts a ON a.id = o.account_id
+       WHERE o.company_id = $1 AND o.is_deleted = FALSE
+         AND o.op_date >= $2 AND o.op_date <= $3
+       GROUP BY (a.type = 'cash')`,
+      [companyId, q.from, q.to],
+    );
+    // Остаток (closing) по виду расчёта
+    const closingByMethod = await pool.query(
+      `SELECT (type = 'cash') AS is_cash, COALESCE(SUM(current_balance), 0)::float8 AS bal
+       FROM finance.accounts
+       WHERE company_id = $1 AND is_active = TRUE
+       GROUP BY (type = 'cash')`,
+      [companyId],
+    );
+    const by_payment_method = {
+      cash: { income: 0, expense: 0, closing: 0 },
+      cashless: { income: 0, expense: 0, closing: 0 },
+    };
+    for (const r of byMethod.rows as { is_cash: boolean; income: number; expense: number }[]) {
+      const k = r.is_cash ? 'cash' : 'cashless';
+      by_payment_method[k].income = r.income;
+      by_payment_method[k].expense = r.expense;
+    }
+    for (const r of closingByMethod.rows as { is_cash: boolean; bal: number }[]) {
+      by_payment_method[r.is_cash ? 'cash' : 'cashless'].closing = r.bal;
+    }
+
     return res.json({
       from: q.from,
       to: q.to,
@@ -82,6 +115,7 @@ router.get('/', async (req, res, next) => {
         },
         {},
       ),
+      by_payment_method,
     });
   } catch (e) { return next(e); }
 });
