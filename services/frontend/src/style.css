@@ -1135,12 +1135,21 @@ body {
   position: relative;
   border-right: 1px solid var(--border);
   background:
+    /* часовые линии (заметные) — 60px = 1 час */
     repeating-linear-gradient(
       to bottom,
       transparent 0,
       transparent 59px,
-      rgba(207, 213, 224, 0.5) 59px,
-      rgba(207, 213, 224, 0.5) 60px
+      rgba(207, 213, 224, 0.6) 59px,
+      rgba(207, 213, 224, 0.6) 60px
+    ),
+    /* 15-минутные деления (тонкие) — 15px = 15 минут, как в DIKIDI */
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 14px,
+      rgba(207, 213, 224, 0.22) 14px,
+      rgba(207, 213, 224, 0.22) 15px
     );
 }
 .cal-master-col:last-of-type { border-right: 1px solid var(--border); }
