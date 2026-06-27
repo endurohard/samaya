@@ -624,6 +624,7 @@ import { trapFocus } from './modules/focus-trap.js';
     renderMasters();
   }
 
+  const svcCollapsedGroups = new Set();
   function renderServices() {
     if (!els.servicesCounter) return;
     els.servicesCounter.textContent = String(cachedServices.length);
@@ -631,9 +632,8 @@ import { trapFocus } from './modules/focus-trap.js';
       els.servicesList.innerHTML = '<div class="empty">Услуг пока нет.</div>';
       return;
     }
-    // Строим карту комиссий по service_id
     const commMap = new Map(cachedCommissions.map((c) => [c.service_id, c]));
-    els.servicesList.innerHTML = cachedServices.map((s) => {
+    const svcRow = (s) => {
       const comm = commMap.get(s.id);
       const commBadge = comm
         ? `<span class="badge badge-green">${comm.commission_type === 'percent' ? comm.amount + '% менеджерам' : fmtMoney(comm.amount) + ' ₽ оформившему'}</span>`
@@ -643,12 +643,46 @@ import { trapFocus } from './modules/focus-trap.js';
           <div class="dot-color" style="background: ${escapeHtml(s.color || '#7c3aed')}"></div>
           <div class="row-main">
             <div class="row-name">${escapeHtml(s.name)}</div>
-            <div class="row-meta">${escapeHtml(s.category_name || 'без категории')}${commBadge ? ' · ' : ''}${commBadge}</div>
+            ${commBadge ? `<div class="row-meta">${commBadge}</div>` : ''}
           </div>
           <div class="row-stat">${formatPrice(s.price)} · ${s.duration_minutes} мин</div>
-        </div>
-      `;
+        </div>`;
+    };
+    // Группировка по группе услуг (category_name); «без группы» — в конец
+    const NONE = ' none';
+    const groups = new Map();
+    for (const s of cachedServices) {
+      const key = s.category_name || NONE;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    }
+    const keys = [...groups.keys()].sort((a, b) => {
+      if (a === NONE) return 1;
+      if (b === NONE) return -1;
+      return a.localeCompare(b, 'ru');
+    });
+    els.servicesList.innerHTML = keys.map((key) => {
+      const list = groups.get(key);
+      const title = key === NONE ? 'Без группы' : key;
+      const collapsed = svcCollapsedGroups.has(key);
+      return `
+        <div class="svc-group${collapsed ? ' collapsed' : ''}">
+          <div class="svc-group-head" data-group-toggle="${escapeHtml(key)}">
+            <span class="svc-group-caret">▸</span>
+            <span class="svc-group-name">${escapeHtml(title)}</span>
+            <span class="svc-group-count">${list.length}</span>
+          </div>
+          <div class="svc-group-body">${list.map(svcRow).join('')}</div>
+        </div>`;
     }).join('');
+    els.servicesList.querySelectorAll('[data-group-toggle]').forEach((head) => {
+      head.addEventListener('click', () => {
+        const key = head.dataset.groupToggle;
+        if (svcCollapsedGroups.has(key)) svcCollapsedGroups.delete(key);
+        else svcCollapsedGroups.add(key);
+        head.closest('.svc-group').classList.toggle('collapsed');
+      });
+    });
     els.servicesList.querySelectorAll('[data-svc-id]').forEach((row) => {
       row.addEventListener('click', () => openSvcEditModal(row.dataset.svcId));
     });
@@ -6858,7 +6892,7 @@ import { trapFocus } from './modules/focus-trap.js';
       if (res.ok) renderAnProducts(res.data.items);
     } else {
       const res = await apiCall('GET', `/api/bookings/analytics/masters?from=${from}&to=${to}`);
-      if (res.ok) renderMasters(res.data.masters);
+      if (res.ok) renderMastersReport(res.data.masters);
     }
   }
 
@@ -6903,7 +6937,7 @@ import { trapFocus } from './modules/focus-trap.js';
          </tr>`;
   }
 
-  function renderMasters(masters) {
+  function renderMastersReport(masters) {
     const tbody = document.getElementById('mastersTableBody');
     const emptyEl = document.getElementById('mastersEmpty');
     if (!masters || masters.length === 0) {
