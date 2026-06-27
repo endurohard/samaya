@@ -2973,6 +2973,15 @@ body {
   font-size: var(--fs-md);
   cursor: pointer;
 }
+/* Чекбоксы/радио в модалках — натуральная ширина (правило .modal input{width:100%}
+   в media ≤900px растягивало их и выталкивало подпись вправо). */
+.modal input[type="checkbox"], .modal input[type="radio"],
+.bk-modal input[type="checkbox"], .bk-modal input[type="radio"] {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  flex: 0 0 auto;
+}
 .mc-actions {
   display: flex;
   justify-content: space-between;
