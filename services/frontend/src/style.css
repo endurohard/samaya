@@ -2427,6 +2427,17 @@ body {
   flex-direction: column;
   animation: modalPop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+/* Модалки «соседней» структуры (подложка и .modal — siblings, .modal НЕ вложена
+   в .modal-backdrop): центрируем фиксированно ПОВЕРХ подложки. Вложенные
+   (.modal-backdrop > .modal) центрируются флексом подложки и сюда не попадают. */
+.modal-backdrop ~ .modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  z-index: 81;
+}
 .salary-modal { width: min(560px, 100%); }
 .salary-modal-wide { width: min(720px, 100%); }
 /* legacy alias — старое имя анимации могло встречаться в коде */
@@ -3666,6 +3677,15 @@ button, a, .nav-item, .subnav-item, .period-pill, .cal-toggle-btn,
     border: none;
     display: flex;
     flex-direction: column;
+  }
+  /* Соседние модалки на мобиле — фуллскрин (сбрасываем десктопный transform) */
+  .modal-backdrop ~ .modal {
+    position: fixed;
+    inset: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+    max-height: 100dvh;
   }
   .modal-body { flex: 1; overflow-y: auto; }
   .modal-foot { position: sticky; bottom: 0; background: var(--bg-soft); }
