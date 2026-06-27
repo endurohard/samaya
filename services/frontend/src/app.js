@@ -2227,7 +2227,9 @@ import { trapFocus } from './modules/focus-trap.js';
       mc.style.gridRow = String(rowIdx + 2);
       mc.style.gridColumn = '1';
       const initials = (mst.display_name || '?').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
-      mc.innerHTML = `<div class="sch-master-avatar" style="background:${stringToColor(mst.id)}">${escapeHtml(initials || '?')}</div>`;
+      mc.innerHTML = mst.avatar_url
+        ? `<div class="sch-master-avatar" style="background-image:url('${mst.avatar_url}');background-size:cover;background-position:center"></div>`
+        : `<div class="sch-master-avatar" style="background:${stringToColor(mst.id)}">${escapeHtml(initials || '?')}</div>`;
       mc.title = mst.display_name || '';
       grid.appendChild(mc);
 

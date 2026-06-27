@@ -2918,6 +2918,7 @@ body {
   padding: 20px;
   overflow-y: auto;
   flex: 1;
+  display: block; /* панели карточки мастера — блочные (канон .modal-body=flex ломал раскладку) */
 }
 .mc-panel { min-height: 200px; }
 
