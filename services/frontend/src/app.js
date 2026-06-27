@@ -5901,7 +5901,65 @@ import { trapFocus } from './modules/focus-trap.js';
     if (tab === 'templates') renderScheduleTemplates();
     if (tab === 'notifications') renderNotificationsForm();
     if (tab === 'access') void loadAccessUsers();
+    if (tab === 'services') void loadSvcGroups();
   }
+
+  // ===== Управление группами услуг (Настройки → Услуги) =====
+  async function loadSvcGroups() {
+    const listEl = document.getElementById('svcGroupsList');
+    if (listEl) listEl.innerHTML = '<div class="empty">Загрузка…</div>';
+    const r = await setApi('GET', '/categories');
+    const groups = r.ok ? (r.data?.items || []) : [];
+    cachedServiceCategories = groups; // синхронизируем кэш для модалки услуги
+    const cnt = document.getElementById('svcGroupsCounter');
+    if (cnt) cnt.textContent = String(groups.length);
+    if (!listEl) return;
+    if (!groups.length) { listEl.innerHTML = '<div class="empty">Групп пока нет. Добавьте первую выше.</div>'; return; }
+    listEl.innerHTML = groups.map((g) => `
+      <div class="row-item">
+        <div class="row-main"><div class="row-name">${escapeHtml(g.name)}</div></div>
+        <button type="button" class="btn-ghost btn-xs" data-grp-rename="${escapeHtml(g.id)}" data-grp-name="${escapeHtml(g.name)}">Переименовать</button>
+        <button type="button" class="btn-ghost btn-xs" data-grp-del="${escapeHtml(g.id)}">Удалить</button>
+      </div>`).join('');
+    listEl.querySelectorAll('[data-grp-rename]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const name = prompt('Новое название группы:', b.dataset.grpName || '');
+        if (name == null) return;
+        const v = name.trim();
+        if (!v) return;
+        const r2 = await setApi('PATCH', `/categories/${b.dataset.grpRename}`, { name: v });
+        if (!r2.ok) { toast(r2.status === 409 ? 'Группа с таким названием уже есть' : `Ошибка: ${r2.data?.error || r2.status}`); return; }
+        cachedServiceCategories = [];
+        toast('Группа переименована');
+        await loadSvcGroups();
+      });
+    });
+    listEl.querySelectorAll('[data-grp-del]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        if (!confirm('Удалить группу? Услуги останутся, но без группы.')) return;
+        const r2 = await setApi('DELETE', `/categories/${b.dataset.grpDel}`);
+        if (!r2.ok) { toast(`Ошибка: ${r2.data?.error || r2.status}`); return; }
+        cachedServiceCategories = [];
+        toast('Группа удалена');
+        await loadSvcGroups();
+      });
+    });
+  }
+  async function svcGroupAdd() {
+    const inp = document.getElementById('svcGroupNewName');
+    const name = (inp?.value || '').trim();
+    if (!name) { toast('Введите название группы'); inp?.focus(); return; }
+    const r = await setApi('POST', '/categories', { name });
+    if (!r.ok) { toast(r.status === 409 ? 'Группа с таким названием уже есть' : `Ошибка: ${r.data?.error || r.status}`); return; }
+    if (inp) inp.value = '';
+    cachedServiceCategories = [];
+    toast('Группа добавлена');
+    await loadSvcGroups();
+  }
+  document.getElementById('svcGroupAddBtn')?.addEventListener('click', svcGroupAdd);
+  document.getElementById('svcGroupNewName')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); svcGroupAdd(); }
+  });
 
   // ===== RBAC: Доступ к проекту =====
   let accessCatalog = null;   // { modules, role_defaults }

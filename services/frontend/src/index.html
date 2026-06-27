@@ -1850,11 +1850,20 @@
 
           <!-- Tab: Услуги (re-uses main services view via deep-link / iframe alternative) -->
           <div id="setTabServices" hidden>
-            <div class="card empty-card">
-              <div class="empty-icon">🛠</div>
-              <h3>Управление услугами</h3>
-              <p>Полный CRUD доступен в основном разделе «Услуги» в левом меню. Эта вкладка — алиас для удобства навигации.</p>
-              <a class="btn-primary btn-sm" href="#services" id="setOpenServices">Открыть «Услуги»</a>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Группы услуг</h2>
+                <span class="counter" id="svcGroupsCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <a class="btn-ghost btn-sm" href="#services">Открыть «Услуги»</a>
+              </div>
+              <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+                <div class="input-with-btn">
+                  <input id="svcGroupNewName" type="text" placeholder="Название новой группы" autocomplete="off" />
+                  <button type="button" class="btn-primary btn-sm" id="svcGroupAddBtn">Добавить</button>
+                </div>
+              </div>
+              <div id="svcGroupsList" class="data-list"><div class="empty">Загрузка…</div></div>
             </div>
           </div>
 
