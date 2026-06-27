@@ -727,7 +727,7 @@ import { trapFocus } from './modules/focus-trap.js';
     const sel = document.getElementById('svcEditCategory');
     if (!sel) return;
     if (!cachedServiceCategories.length) {
-      const r = await salApi('GET', '/categories');
+      const r = await setApi('GET', '/categories');
       cachedServiceCategories = r.ok ? (r.data?.items || []) : [];
     }
     sel.innerHTML = '<option value="">— без группы —</option>'
@@ -748,7 +748,7 @@ import { trapFocus } from './modules/focus-trap.js';
     const inp = document.getElementById('svcEditCatNewName');
     const name = (inp?.value || '').trim();
     if (!name) { toast('Введите название группы'); inp?.focus(); return; }
-    const r = await salApi('POST', '/categories', { name });
+    const r = await setApi('POST', '/categories', { name });
     if (!r.ok) { toast(r.status === 409 ? 'Группа с таким названием уже есть' : `Ошибка: ${r.data?.error || r.status}`); return; }
     cachedServiceCategories = [];
     await populateSvcCategoryDropdown(r.data?.id || '');
@@ -764,7 +764,7 @@ import { trapFocus } from './modules/focus-trap.js';
   async function loadSvcMasters(serviceId) {
     const list = document.getElementById('svcEditMastersList');
     if (list) list.innerHTML = '<div class="empty">Загрузка…</div>';
-    const r = await salApi('GET', `/services/${serviceId}/masters`);
+    const r = await setApi('GET', `/services/${serviceId}/masters`);
     svcEditMasters = r.ok ? (r.data?.items || []) : [];
     renderSvcMasters();
   }
@@ -902,7 +902,7 @@ import { trapFocus } from './modules/focus-trap.js';
           const p = priceEl && priceEl.value !== '' ? parseFloat(priceEl.value) : null;
           return { master_id: cb.dataset.mid, custom_price: (p != null && !isNaN(p)) ? p : null };
         });
-      const r3 = await salApi('PUT', `/services/${serviceId}/masters`, { assignments });
+      const r3 = await setApi('PUT', `/services/${serviceId}/masters`, { assignments });
       if (!r3.ok) {
         errEl.textContent = r3.data?.error || 'Услуга сохранена, ошибка привязки сотрудников';
         errEl.hidden = false;
