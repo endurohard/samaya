@@ -1884,7 +1884,7 @@ body {
 .modal-tab.active { color: var(--primary, #7c3aed); border-bottom-color: var(--primary, #7c3aed); }
 
 /* Вкладка «Сотрудники» в модалке услуги */
-.svc-masters-list { display: flex; flex-direction: column; gap: 4px; }
+.svc-masters-list { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; }
 .svc-master-row {
   display: flex;
   align-items: center;
@@ -1893,9 +1893,13 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
 }
-.svc-master-row .svc-m-name { flex: 1 1 auto; min-width: 0; }
-.svc-master-row .svc-m-price { flex: 0 0 110px; }
+.svc-master-row > input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
+.svc-master-row .svc-m-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-master-row .svc-m-price { flex: 0 0 96px; width: 96px; min-width: 0; box-sizing: border-box; }
 .svc-master-row .svc-m-price:disabled { opacity: 0.5; }
 
 /* RBAC: группы прав в модалке доступа */
