@@ -1933,6 +1933,10 @@ body {
 .svc-group-count { margin-left: auto; color: var(--text-muted); font-weight: 500; }
 .svc-group-body { padding: 4px 0; }
 .svc-group.collapsed .svc-group-body { display: none; }
+
+/* Кнопки загрузки фото сотрудника в карточке мастера */
+.mc-avatar-actions { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; align-items: center; }
+.mc-avatar-large { background-size: cover; background-position: center; overflow: hidden; }
 .btn-link-danger {
   margin-left: auto;
   background: transparent;

@@ -2709,6 +2709,11 @@
             <div class="mc-profile-grid">
               <div class="mc-avatar-block">
                 <div class="user-avatar mc-avatar-large" id="mcAvatarLarge">?</div>
+                <input type="file" id="mcAvatarFile" accept="image/*" hidden />
+                <div class="mc-avatar-actions">
+                  <button type="button" class="btn-ghost btn-xs" id="mcAvatarUploadBtn">Загрузить фото</button>
+                  <button type="button" class="btn-ghost btn-xs" id="mcAvatarDelBtn" hidden>Удалить</button>
+                </div>
                 <div class="mc-status-toggle" role="radiogroup" aria-label="Статус сотрудника">
                   <button type="button" class="mc-status-btn active" data-mc-status="active">Работает</button>
                   <button type="button" class="mc-status-btn" data-mc-status="inactive">Уволен</button>

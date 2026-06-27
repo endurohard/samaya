@@ -956,9 +956,12 @@ import { trapFocus } from './modules/focus-trap.js';
         ? `<div class="badges">${services.map((s) => `<span class="badge">${escapeHtml(s)}</span>`).join('')}</div>`
         : '';
       const role = m.position || m.specialization || '';
+      const avatar = m.avatar_url
+        ? `<div class="user-avatar small" style="background-image:url('${m.avatar_url}');background-size:cover;background-position:center"></div>`
+        : `<div class="user-avatar small" style="background: ${stringToColor(m.id)}">${escapeHtml((name || '?')[0].toUpperCase())}</div>`;
       return `
         <div class="row-item clickable ${m.is_active ? '' : 'inactive'}" data-master-id="${escapeHtml(m.id)}">
-          <div class="user-avatar small" style="background: ${stringToColor(m.id)}">${escapeHtml((name || '?')[0].toUpperCase())}</div>
+          ${avatar}
           <div class="row-main">
             <div class="row-name">${escapeHtml(name)}</div>
             <div class="row-meta">${escapeHtml(role)}</div>
@@ -1262,8 +1265,11 @@ import { trapFocus } from './modules/focus-trap.js';
       head.className = 'cal-master-head';
       head.style.gridRow = '1'; head.style.gridColumn = String(i + 2);
       const initials = (m.display_name || '?').split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+      const headAvatar = m.avatar_url
+        ? `<div class="cal-master-avatar" style="background-image:url('${m.avatar_url}');background-size:cover;background-position:center;"></div>`
+        : `<div class="cal-master-avatar" style="background:${stringToColor(m.id)};color:#fff;">${escapeHtml(initials || '?')}</div>`;
       head.innerHTML = `
-        <div class="cal-master-avatar" style="background:${stringToColor(m.id)};color:#fff;">${escapeHtml(initials || '?')}</div>
+        ${headAvatar}
         <div class="cal-master-info">
           <div class="cal-master-name">${escapeHtml(m.display_name || '—')}</div>
           <div class="cal-master-hours">${escapeHtml(m._hours || '10:00 – 20:00')}</div>
@@ -6273,11 +6279,78 @@ import { trapFocus } from './modules/focus-trap.js';
     const initials = (name[0] || '?').toUpperCase();
     const headAv = document.getElementById('mcHeadAvatar');
     const largeAv = document.getElementById('mcAvatarLarge');
-    if (headAv) { headAv.textContent = initials; headAv.style.background = stringToColor(m.id); }
-    if (largeAv) { largeAv.textContent = initials; largeAv.style.background = stringToColor(m.id); }
+    applyAvatar(headAv, m, initials);
+    applyAvatar(largeAv, m, initials);
+    const delBtn = document.getElementById('mcAvatarDelBtn');
+    if (delBtn) delBtn.hidden = !m.avatar_url;
     document.getElementById('mcTitle').textContent = name;
     document.getElementById('mcHeadSub').textContent = m.position || m.specialization || '';
   }
+
+  // Показать аватар-картинку (если есть avatar_url) или инициалы на цветном фоне.
+  function applyAvatar(el, m, initials) {
+    if (!el) return;
+    if (m.avatar_url) {
+      el.textContent = '';
+      el.style.backgroundImage = `url("${m.avatar_url}")`;
+      el.style.backgroundSize = 'cover';
+      el.style.backgroundPosition = 'center';
+    } else {
+      el.textContent = initials;
+      el.style.backgroundImage = 'none';
+      el.style.background = stringToColor(m.id);
+    }
+  }
+
+  // Сжать выбранное изображение до max px по большей стороне → data-URL (jpeg).
+  function resizeImageToDataURL(file, max) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = reject;
+        img.onload = () => {
+          let { width: w, height: h } = img;
+          if (w > h && w > max) { h = Math.round(h * max / w); w = max; }
+          else if (h > max) { w = Math.round(w * max / h); h = max; }
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', 0.85));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  document.getElementById('mcAvatarUploadBtn')?.addEventListener('click', () => {
+    document.getElementById('mcAvatarFile')?.click();
+  });
+  document.getElementById('mcAvatarFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !mcCurrentMaster) return;
+    if (!file.type.startsWith('image/')) { toast('Выберите изображение'); return; }
+    try {
+      const dataUrl = await resizeImageToDataURL(file, 256);
+      const r = await apiCall('PATCH', `/api/salons/masters/${mcCurrentMaster.id}`, { avatar_url: dataUrl });
+      if (!r.ok) { toast('Ошибка загрузки фото: ' + (r.data?.error || r.status)); return; }
+      mcCurrentMaster.avatar_url = dataUrl;
+      mcRenderHead();
+      toast('Фото обновлено');
+      await loadMasters({ force: true });
+    } catch { toast('Не удалось обработать изображение'); }
+  });
+  document.getElementById('mcAvatarDelBtn')?.addEventListener('click', async () => {
+    if (!mcCurrentMaster) return;
+    const r = await apiCall('PATCH', `/api/salons/masters/${mcCurrentMaster.id}`, { avatar_url: '' });
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
+    mcCurrentMaster.avatar_url = null;
+    mcRenderHead();
+    await loadMasters({ force: true });
+  });
 
   function mcSwitchTab(tab) {
     mcCurrentTab = tab;
