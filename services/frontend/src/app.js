@@ -6419,7 +6419,7 @@ import { trapFocus } from './modules/focus-trap.js';
         b.classList.toggle('active', b.dataset.mcTab === tab);
       }
     });
-    ['profile', 'schedule', 'services', 'schemes'].forEach((t) => {
+    ['profile', 'schedule', 'services', 'schemes', 'access'].forEach((t) => {
       const panel = document.getElementById('mcPanel' + t.charAt(0).toUpperCase() + t.slice(1));
       if (panel) panel.hidden = (t !== tab);
     });
@@ -6427,6 +6427,78 @@ import { trapFocus } from './modules/focus-trap.js';
     if (tab === 'schedule') void mcLoadSchedule();
     if (tab === 'services') void mcLoadServices();
     if (tab === 'schemes') void mcLoadSchemes();
+    if (tab === 'access') void mcLoadAccess();
+  }
+
+  // ===== Карточка мастера: вкладка «Доступ» (роль + права связанного аккаунта) =====
+  async function mcLoadAccess() {
+    const el = document.getElementById('mcAccessContent');
+    if (!el || !mcCurrentMaster) return;
+    const userId = mcCurrentMaster.user_id;
+    if (!userId) {
+      el.innerHTML = `<div class="empty">У сотрудника нет учётной записи для входа.<br>
+        Создайте её (логин/пароль) — тогда здесь появятся роль и права.</div>`;
+      return;
+    }
+    el.innerHTML = '<div class="empty">Загрузка…</div>';
+    if (!accessCatalog) {
+      const c = await apiCall('GET', '/api/auth/permissions-catalog');
+      accessCatalog = c.ok ? c.data : { modules: [], role_defaults: {} };
+    }
+    const r = await apiCall('GET', '/api/auth/users');
+    if (!r.ok) {
+      el.innerHTML = `<div class="empty">${r.status === 403 ? 'Недостаточно прав для управления доступом.' : 'Ошибка загрузки.'}</div>`;
+      return;
+    }
+    const u = (r.data?.items || []).find((x) => x.id === userId);
+    if (!u) { el.innerHTML = '<div class="empty">Учётная запись сотрудника не найдена.</div>'; return; }
+    const perms = u.permissions || {};
+    const groupsHtml = (accessCatalog.modules || []).map((m) => `
+      <div class="perm-group">
+        <div class="perm-group-title">${escapeHtml(m.label)}</div>
+        <div class="perm-actions">
+          ${m.actions.map((a) => {
+            const key = `${m.key}.${a.key}`;
+            return `<label class="perm-item"><input type="checkbox" class="mc-perm-check" data-key="${escapeHtml(key)}" ${perms[key] ? 'checked' : ''} /><span>${escapeHtml(a.label)}</span></label>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+    el.innerHTML = `
+      <div style="margin-bottom:14px;max-width:320px;">
+        <label for="mcAccessRole">Роль доступа</label>
+        <select id="mcAccessRole">
+          <option value="master">Сотрудник</option>
+          <option value="admin">Администратор</option>
+          <option value="owner">Владелец</option>
+        </select>
+      </div>
+      <div id="mcAccessPermGroups">${groupsHtml}</div>
+      <div class="error" id="mcAccessError" hidden></div>
+      <div class="mc-actions"><button type="button" class="btn-primary" id="mcAccessSave">Сохранить доступ</button></div>`;
+    document.getElementById('mcAccessRole').value = u.role;
+    document.getElementById('mcAccessRole').addEventListener('change', (e) => {
+      const defaults = accessCatalog?.role_defaults?.[e.target.value];
+      if (!defaults) return;
+      document.querySelectorAll('#mcAccessPermGroups .mc-perm-check').forEach((cb) => {
+        cb.checked = !!defaults[cb.dataset.key];
+      });
+    });
+    document.getElementById('mcAccessSave').addEventListener('click', async () => {
+      const errEl = document.getElementById('mcAccessError');
+      errEl.hidden = true;
+      const role = document.getElementById('mcAccessRole').value;
+      const permissions = {};
+      document.querySelectorAll('#mcAccessPermGroups .mc-perm-check').forEach((cb) => {
+        permissions[cb.dataset.key] = cb.checked;
+      });
+      const rr = await apiCall('PATCH', `/api/auth/users/${userId}`, { role, permissions });
+      if (!rr.ok) {
+        errEl.textContent = rr.data?.error || (rr.status === 403 ? 'Недостаточно прав' : 'Ошибка сохранения');
+        errEl.hidden = false;
+        return;
+      }
+      toast('Доступ обновлён');
+    });
   }
 
   function mcRenderProfile() {
