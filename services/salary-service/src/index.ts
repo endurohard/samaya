@@ -4,7 +4,7 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import { config } from './config';
 import { pool } from './db';
-import { errorHandler } from './middleware';
+import { errorHandler, authenticate, requirePermission } from './middleware';
 import schemesRoutes from './routes/schemes';
 import calculateRoutes from './routes/calculate';
 import accrualsRoutes from './routes/accruals';
@@ -27,6 +27,12 @@ app.get('/health', async (_req, res) => {
   } catch {
     return res.status(500).json({ ok: false });
   }
+});
+
+// RBAC (фаза 2): просмотр — salary.view, изменения — salary.manage. owner всегда.
+app.use('/api/salary', authenticate, (req, res, next) => {
+  const key = req.method === 'GET' ? 'salary.view' : 'salary.manage';
+  return requirePermission(key)(req, res, next);
 });
 
 app.use('/api/salary/schemes', schemesRoutes);
