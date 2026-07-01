@@ -7,6 +7,7 @@ export interface AccessPayload extends JWTPayload {
   sub: string;
   company_id: string;
   role: string;
+  permissions?: Record<string, boolean>;
   type: 'access';
 }
 

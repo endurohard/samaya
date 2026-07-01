@@ -4,7 +4,7 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import clientsRoutes from './clients.routes';
 import portalRoutes from './portal.routes';
-import { errorHandler } from './middleware';
+import { errorHandler, authenticate, requirePermission } from './middleware';
 import { config } from './config';
 import { pool } from './db';
 
@@ -27,6 +27,15 @@ app.get('/health', async (_req, res) => {
 
 // Public portal routes — no auth required, mounted before authenticated routes
 app.use('/api/clients/portal', portalRoutes);
+
+// RBAC (фаза 2): просмотр — clients.view, изменения — любое из clients.add/edit/delete.
+// owner всегда; /portal сюда не попадает (смонтирован выше).
+app.use('/api/clients', authenticate, (req, res, next) => {
+  const guard = req.method === 'GET'
+    ? requirePermission('clients.view')
+    : requirePermission('clients.add', 'clients.edit', 'clients.delete');
+  return guard(req, res, next);
+});
 
 app.use('/api/clients', clientsRoutes);
 
