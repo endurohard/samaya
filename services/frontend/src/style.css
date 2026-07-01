@@ -3267,6 +3267,9 @@ body {
 .cl-bonus-row { display: flex; align-items: center; gap: 10px; padding: 8px 0 4px; font-size: var(--fs-base); }
 .cl-bonus-label { color: var(--text-dim); }
 .cl-bonus-val { font-weight: 600; color: #7c3aed; }
+.cl-balance-ops { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; }
+.cl-balance-op { display: flex; justify-content: space-between; gap: 10px; font-size: var(--fs-sm); padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+.cl-balance-op b { white-space: nowrap; color: var(--text); }
 .cl-bonus-adj-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .cl-bonus-adj-form input { flex: 1 1 120px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-base); }
 .bonus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

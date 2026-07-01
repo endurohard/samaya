@@ -477,6 +477,22 @@
                   <button type="button" class="btn-ghost btn-sm" id="clBonusAdjCancel">Отмена</button>
                 </div>
               </div>
+              <!-- Лицевой счёт (баланс для пополнения/списания за услуги) -->
+              <div id="clBalanceSection" hidden style="padding:4px 0 8px;">
+                <div class="cl-bonus-row">
+                  <span class="cl-bonus-label">Лицевой счёт:</span>
+                  <span class="cl-bonus-val" id="clBalanceDisplay">0 ₽</span>
+                  <button type="button" class="btn-ghost btn-sm" id="clBalanceTopupBtn">Пополнить</button>
+                </div>
+                <div id="clBalanceTopupForm" hidden class="cl-bonus-adj-form">
+                  <input id="clBalanceAmount" type="number" step="1" min="1" placeholder="Сумма пополнения" />
+                  <select id="clBalanceAccount"><option value="">— счёт (нал/безнал) —</option></select>
+                  <input id="clBalanceNote" type="text" placeholder="Комментарий" maxlength="200" />
+                  <button type="button" class="btn-primary btn-sm" id="clBalanceSave">Пополнить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="clBalanceCancel">Отмена</button>
+                </div>
+                <div id="clBalanceOps" class="cl-balance-ops"></div>
+              </div>
               <div class="modal-foot">
                 <div class="form-actions">
                   <button type="submit" class="btn-primary" id="clientSubmit">Сохранить</button>
@@ -2225,6 +2241,7 @@
                 <button class="tab-pill" data-tab="masters">По сотрудникам</button>
                 <button class="tab-pill" data-tab="services">По услугам</button>
                 <button class="tab-pill" data-tab="products">По товарам</button>
+                <button class="tab-pill" data-tab="topups">Пополнения</button>
               </div>
             </div>
           </div>
@@ -2393,6 +2410,28 @@
               </table>
             </div>
           </div><!-- /anTabProducts -->
+
+          <!-- Пополнения баланса (нал/безнал + касса по дням) -->
+          <div id="anTabTopups" style="display:none;">
+            <div class="kpi-row">
+              <div class="kpi-card"><div class="kpi-label">Пополнений всего</div><div class="kpi-value" id="anTopupsTotal">—</div></div>
+              <div class="kpi-card"><div class="kpi-label">💵 Наличными</div><div class="kpi-value" id="anTopupsCash">—</div></div>
+              <div class="kpi-card"><div class="kpi-label">💳 Безналичными</div><div class="kpi-value" id="anTopupsCashless">—</div></div>
+              <div class="kpi-card"><div class="kpi-label">Кол-во</div><div class="kpi-value" id="anTopupsCount">—</div></div>
+            </div>
+            <div class="card analytics-card" style="margin-top:16px;">
+              <div class="analytics-card-title">Касса по дням (пополнения)</div>
+              <table class="data-table" id="anTopupsTable">
+                <thead><tr>
+                  <th>Дата</th>
+                  <th style="text-align:right;">Наличными</th>
+                  <th style="text-align:right;">Безналичными</th>
+                  <th style="text-align:right;">Всего</th>
+                </tr></thead>
+                <tbody><tr><td colspan="4" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+          </div><!-- /anTabTopups -->
 
         </section>
 

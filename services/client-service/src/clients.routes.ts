@@ -298,4 +298,114 @@ router.delete('/:id/files/:fileId', requireRole('admin', 'master'), async (req, 
   } catch (e) { return next(e); }
 });
 
+// ===== Лицевой счёт клиента: пополнение + история =====
+const topupSchema = z.object({
+  amount: z.number().positive(),
+  // финансовый счёт (нал/безнал); если задан — пишем доход в кассу
+  account_id: z.string().uuid().nullable().optional(),
+  note: z.string().max(500).optional(),
+});
+
+router.post('/:id/balance/topup', requireRole('admin', 'owner'), async (req, res, next) => {
+  const cx = await pool.connect();
+  try {
+    const input = topupSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    const clientId = req.params.id;
+    await cx.query('BEGIN');
+    const cli = await cx.query(
+      `SELECT id FROM clients.clients WHERE company_id = $1 AND id = $2 AND is_deleted = FALSE`,
+      [companyId, clientId],
+    );
+    if (!cli.rows[0]) { await cx.query('ROLLBACK'); return res.status(404).json({ error: 'client not found' }); }
+
+    let payment_method: string | null = null;
+    let financeOpId: string | null = null;
+    if (input.account_id) {
+      const acc = await cx.query(
+        `SELECT id, type FROM finance.accounts WHERE company_id = $1 AND id = $2`,
+        [companyId, input.account_id],
+      );
+      if (!acc.rows[0]) { await cx.query('ROLLBACK'); return res.status(400).json({ error: 'invalid account_id' }); }
+      payment_method = acc.rows[0].type === 'cash' ? 'cash' : 'cashless';
+      const fop = await cx.query(
+        `INSERT INTO finance.operations (company_id, account_id, kind, amount, op_date, note, created_by_user_id)
+         VALUES ($1, $2, 'income', $3, CURRENT_DATE, $4, $5) RETURNING id`,
+        [companyId, input.account_id, input.amount, input.note || 'Пополнение баланса клиента', req.auth!.sub],
+      );
+      financeOpId = fop.rows[0].id;
+      await cx.query(
+        `UPDATE finance.accounts SET current_balance = current_balance + $1 WHERE id = $2 AND company_id = $3`,
+        [input.amount, input.account_id, companyId],
+      );
+    }
+    const upd = await cx.query(
+      `UPDATE clients.clients SET balance = balance + $1, updated_at = NOW()
+       WHERE company_id = $2 AND id = $3 RETURNING balance::float8 AS balance`,
+      [input.amount, companyId, clientId],
+    );
+    await cx.query(
+      `INSERT INTO clients.balance_operations
+         (company_id, client_id, kind, amount, payment_method, finance_op_id, note, created_by)
+       VALUES ($1, $2, 'topup', $3, $4, $5, $6, $7)`,
+      [companyId, clientId, input.amount, payment_method, financeOpId, input.note || null, req.auth!.sub],
+    );
+    await cx.query('COMMIT');
+    return res.json({ balance: upd.rows[0].balance });
+  } catch (e) {
+    await cx.query('ROLLBACK').catch(() => {});
+    return next(e);
+  } finally {
+    cx.release();
+  }
+});
+
+router.get('/:id/balance/operations', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, kind, amount::float8 AS amount, payment_method, note, created_at
+       FROM clients.balance_operations
+       WHERE company_id = $1 AND client_id = $2
+       ORDER BY created_at DESC LIMIT 200`,
+      [req.auth!.company_id, req.params.id],
+    );
+    return res.json({ items: rows });
+  } catch (e) { return next(e); }
+});
+
+// ===== Аналитика пополнений: нал/безнал + по дням (касса по дням) =====
+router.get('/balance/topups-report', async (req, res, next) => {
+  try {
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return res.status(400).json({ error: 'from/to (YYYY-MM-DD) required' });
+    }
+    const companyId = req.auth!.company_id;
+    const totals = await pool.query(
+      `SELECT
+         COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cash'), 0)::float8     AS cash,
+         COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cashless'), 0)::float8 AS cashless,
+         COALESCE(SUM(amount), 0)::float8                                            AS total,
+         COUNT(*)::int                                                               AS count
+       FROM clients.balance_operations
+       WHERE company_id = $1 AND kind = 'topup'
+         AND created_at >= $2::date AND created_at < ($3::date + INTERVAL '1 day')`,
+      [companyId, from, to],
+    );
+    const byDay = await pool.query(
+      `SELECT created_at::date AS day,
+              COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cash'), 0)::float8     AS cash,
+              COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cashless'), 0)::float8 AS cashless,
+              COALESCE(SUM(amount), 0)::float8                                            AS total
+       FROM clients.balance_operations
+       WHERE company_id = $1 AND kind = 'topup'
+         AND created_at >= $2::date AND created_at < ($3::date + INTERVAL '1 day')
+       GROUP BY day ORDER BY day`,
+      [companyId, from, to],
+    );
+    return res.json({ totals: totals.rows[0], by_day: byDay.rows });
+  } catch (e) { return next(e); }
+});
+
 export default router;

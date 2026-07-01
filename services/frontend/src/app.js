@@ -225,6 +225,16 @@ import { trapFocus } from './modules/focus-trap.js';
     clBonusAdjNote: document.getElementById('clBonusAdjNote'),
     clBonusAdjSave: document.getElementById('clBonusAdjSave'),
     clBonusAdjCancel: document.getElementById('clBonusAdjCancel'),
+    clBalanceSection: document.getElementById('clBalanceSection'),
+    clBalanceDisplay: document.getElementById('clBalanceDisplay'),
+    clBalanceTopupBtn: document.getElementById('clBalanceTopupBtn'),
+    clBalanceTopupForm: document.getElementById('clBalanceTopupForm'),
+    clBalanceAmount: document.getElementById('clBalanceAmount'),
+    clBalanceAccount: document.getElementById('clBalanceAccount'),
+    clBalanceNote: document.getElementById('clBalanceNote'),
+    clBalanceSave: document.getElementById('clBalanceSave'),
+    clBalanceCancel: document.getElementById('clBalanceCancel'),
+    clBalanceOps: document.getElementById('clBalanceOps'),
     // bonus program tab
     clientsTabBonus: document.getElementById('clientsTabBonus'),
     bonusSettingsSave: document.getElementById('bonusSettingsSave'),
@@ -3445,7 +3455,17 @@ import { trapFocus } from './modules/focus-trap.js';
         if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = true;
         if (els.clBonusAdjAmount) els.clBonusAdjAmount.value = '';
       }
+      // Лицевой счёт (баланс)
+      if (els.clBalanceSection) {
+        els.clBalanceSection.hidden = false;
+        if (els.clBalanceDisplay) els.clBalanceDisplay.textContent = formatPrice(Number(c.balance || 0));
+        if (els.clBalanceTopupForm) els.clBalanceTopupForm.hidden = true;
+        if (els.clBalanceAmount) els.clBalanceAmount.value = '';
+        if (els.clBalanceNote) els.clBalanceNote.value = '';
+        void loadClientBalance(c.id);
+      }
     } else {
+      if (els.clBalanceSection) els.clBalanceSection.hidden = true;
       els.clientModalTitle.textContent = 'Новый клиент';
       els.clientId.value = '';
       els.clientDelete.hidden = true;
@@ -3805,6 +3825,52 @@ import { trapFocus } from './modules/focus-trap.js';
 
   // Client modal bonus section
   let _clCurrentId = null; // set by openClientModal, used for bonus adj
+
+  // ===== Лицевой счёт клиента: загрузка счетов + история, пополнение =====
+  async function loadClientBalance(clientId) {
+    if (els.clBalanceAccount) {
+      const ra = await apiCall('GET', '/api/finance/accounts');
+      const accs = ra.ok ? (ra.data?.items || []) : [];
+      els.clBalanceAccount.innerHTML = '<option value="">— счёт (нал/безнал) —</option>'
+        + accs.filter((a) => a.is_active !== false)
+            .map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)} (${a.type === 'cash' ? 'нал' : 'безнал'})</option>`).join('');
+    }
+    if (els.clBalanceOps) {
+      const ro = await apiCall('GET', `/api/clients/${clientId}/balance/operations`);
+      const ops = ro.ok ? (ro.data?.items || []) : [];
+      els.clBalanceOps.innerHTML = ops.length
+        ? ops.map((o) => {
+            const sign = (o.kind === 'topup' || o.kind === 'refund') ? '+' : (o.kind === 'charge' ? '−' : '');
+            const pm = o.payment_method === 'cash' ? 'нал' : o.payment_method === 'cashless' ? 'безнал' : '';
+            const date = new Date(o.created_at).toLocaleDateString('ru-RU');
+            const label = o.kind === 'topup' ? 'Пополнение' : o.kind === 'charge' ? 'Списание' : o.kind === 'refund' ? 'Возврат' : 'Коррекция';
+            return `<div class="cl-balance-op"><span>${date} · ${label}${pm ? ' · ' + pm : ''}${o.note ? ' · ' + escapeHtml(o.note) : ''}</span><b>${sign}${formatPrice(o.amount)}</b></div>`;
+          }).join('')
+        : '<div class="empty" style="padding:8px 0;font-size:var(--fs-sm)">Операций пока нет.</div>';
+    }
+  }
+  els.clBalanceTopupBtn?.addEventListener('click', () => {
+    if (els.clBalanceTopupForm) { els.clBalanceTopupForm.hidden = !els.clBalanceTopupForm.hidden; els.clBalanceAmount?.focus(); }
+  });
+  els.clBalanceCancel?.addEventListener('click', () => { if (els.clBalanceTopupForm) els.clBalanceTopupForm.hidden = true; });
+  els.clBalanceSave?.addEventListener('click', async () => {
+    const id = _clCurrentId;
+    if (!id) return;
+    const amount = Number(els.clBalanceAmount?.value);
+    const account_id = els.clBalanceAccount?.value || null;
+    const note = els.clBalanceNote?.value?.trim() || undefined;
+    if (!amount || amount <= 0) { toast('Введите сумму пополнения'); return; }
+    const r = await apiCall('POST', `/api/clients/${id}/balance/topup`, { amount, account_id, note });
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
+    if (els.clBalanceDisplay) els.clBalanceDisplay.textContent = formatPrice(Number(r.data?.balance || 0));
+    if (els.clBalanceTopupForm) els.clBalanceTopupForm.hidden = true;
+    if (els.clBalanceAmount) els.clBalanceAmount.value = '';
+    if (els.clBalanceNote) els.clBalanceNote.value = '';
+    const c = clientsState.items.find((x) => x.id === id);
+    if (c) c.balance = r.data?.balance;
+    toast('Баланс пополнен');
+    void loadClientBalance(id);
+  });
 
   els.clBonusAdjBtn?.addEventListener('click', () => {
     if (els.clBonusAdjForm) els.clBonusAdjForm.hidden = false;
@@ -7095,6 +7161,9 @@ import { trapFocus } from './modules/focus-trap.js';
     } else if (analyticsTab === 'products') {
       const res = await apiCall('GET', `/api/inventory/stock/consumption-report?from=${from}&to=${to}`);
       if (res.ok) renderAnProducts(res.data.items);
+    } else if (analyticsTab === 'topups') {
+      const res = await apiCall('GET', `/api/clients/balance/topups-report?from=${from}&to=${to}`);
+      if (res.ok) renderAnTopups(res.data);
     } else {
       const res = await apiCall('GET', `/api/bookings/analytics/masters?from=${from}&to=${to}`);
       if (res.ok) renderMastersReport(res.data.masters);
@@ -7139,6 +7208,35 @@ import { trapFocus } from './modules/focus-trap.js';
       </tr>`).join('')
       + `<tr style="border-top:2px solid var(--border);font-weight:700;">
            <td>Итого</td><td></td><td style="text-align:right;">${formatPrice(totalCost)}</td>
+         </tr>`;
+  }
+
+  function renderAnTopups(data) {
+    const t = (data && data.totals) || { cash: 0, cashless: 0, total: 0, count: 0 };
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    set('anTopupsTotal', formatPrice(t.total));
+    set('anTopupsCash', formatPrice(t.cash));
+    set('anTopupsCashless', formatPrice(t.cashless));
+    set('anTopupsCount', String(t.count || 0));
+    const tbody = document.querySelector('#anTopupsTable tbody');
+    if (!tbody) return;
+    const days = (data && data.by_day) || [];
+    if (!days.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">Пополнений за период нет</td></tr>';
+      return;
+    }
+    tbody.innerHTML = days.map((d) => `
+      <tr>
+        <td>${escapeHtml(String(d.day).slice(0, 10))}</td>
+        <td style="text-align:right;">${formatPrice(d.cash)}</td>
+        <td style="text-align:right;">${formatPrice(d.cashless)}</td>
+        <td style="text-align:right;font-weight:600;">${formatPrice(d.total)}</td>
+      </tr>`).join('')
+      + `<tr style="border-top:2px solid var(--border);font-weight:700;">
+           <td>Итого</td>
+           <td style="text-align:right;">${formatPrice(t.cash)}</td>
+           <td style="text-align:right;">${formatPrice(t.cashless)}</td>
+           <td style="text-align:right;">${formatPrice(t.total)}</td>
          </tr>`;
   }
 
@@ -7217,7 +7315,7 @@ import { trapFocus } from './modules/focus-trap.js';
     analyticsTab = pill.dataset.tab;
     document.querySelectorAll('#analyticsTabPills .tab-pill').forEach((p) =>
       p.classList.toggle('active', p === pill));
-    ['overview', 'masters', 'services', 'products'].forEach((t) => {
+    ['overview', 'masters', 'services', 'products', 'topups'].forEach((t) => {
       const el = document.getElementById('anTab' + t.charAt(0).toUpperCase() + t.slice(1));
       if (el) el.style.display = analyticsTab === t ? '' : 'none';
     });

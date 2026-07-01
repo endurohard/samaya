@@ -162,7 +162,8 @@ export async function listClients(p: ListParams) {
     ${STATS_CTE}
     SELECT
       c.id, c.phone::text AS phone, c.full_name, c.birthday, c.gender, c.email::text AS email,
-      c.comment, c.source, c.avatar_color, c.bonus_balance, c.is_blocked, c.is_deleted,
+      c.comment, c.source, c.avatar_color, c.bonus_balance,
+      c.balance::float8 AS balance, c.is_blocked, c.is_deleted,
       c.created_at,
       s.total_visits,
       s.last_visit_at,
@@ -347,7 +348,8 @@ export async function getClient(companyId: string, id: string) {
     `${STATS_CTE}
      SELECT
        c.id, c.phone::text AS phone, c.full_name, c.birthday, c.gender, c.email::text AS email,
-       c.comment, c.source, c.avatar_color, c.bonus_balance, c.is_blocked, c.is_deleted,
+       c.comment, c.source, c.avatar_color, c.bonus_balance,
+       c.balance::float8 AS balance, c.is_blocked, c.is_deleted,
        c.upload_token, c.created_at,
        s.total_visits, s.last_visit_at, s.total_paid,
        CASE WHEN s.total_visits > 0 THEN s.total_paid / s.total_visits ELSE 0 END AS avg_check,
