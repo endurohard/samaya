@@ -1676,7 +1676,7 @@ import { trapFocus } from './modules/focus-trap.js';
       const status = STATUS_LABEL[b.status] || { ru: b.status, cls: 'pill-mute', icon: '' };
       const isActive = b.status === 'pending' || b.status === 'confirmed';
       const payBadge = b.status === 'completed' && b.payment_method
-        ? `<span class="pay-badge pay-${b.payment_method}">${{ cash: 'Нал', card: 'Карта', online: 'Онлайн' }[b.payment_method] || ''}</span>`
+        ? `<span class="pay-badge pay-${b.payment_method}">${{ cash: 'Нал', card: 'Карта', online: 'Онлайн', balance: 'Баланс' }[b.payment_method] || ''}</span>`
         : '';
       const actions = isActive
         ? `<button class="btn-ghost btn-xs" data-action="cancel" data-id="${b.id}">Отменить</button>
@@ -1882,7 +1882,7 @@ import { trapFocus } from './modules/focus-trap.js';
         ${b.notes ? `<span class="bk-meta-label">Заметка</span><span class="bk-meta-val">${escapeHtml(b.notes)}</span>` : ''}
         <span class="bk-meta-label">Источник</span>
         <span class="bk-meta-val">${escapeHtml(SOURCE_LABEL[b.source] || b.source || 'Вручную')}</span>
-        ${b.payment_method ? `<span class="bk-meta-label">Оплата</span><span class="bk-meta-val">${{ cash: '✓ Наличные', card: '✓ Карта', online: '✓ Онлайн' }[b.payment_method] || b.payment_method}</span>` : ''}
+        ${b.payment_method ? `<span class="bk-meta-label">Оплата</span><span class="bk-meta-val">${{ cash: '✓ Наличные', card: '✓ Карта', online: '✓ Онлайн', balance: '✓ С баланса' }[b.payment_method] || b.payment_method}</span>` : ''}
         ${b.discount_pct > 0 ? `<span class="bk-meta-label">Скидка</span><span class="bk-meta-val">${b.discount_pct}%</span>` : ''}
       </div>
       ${svcRows ? `
@@ -7483,7 +7483,7 @@ import { trapFocus } from './modules/focus-trap.js';
 
   // ===== SALES =====
 
-  const PAYMENT_LABELS = { cash: 'Наличные', card: 'Карта', online: 'Онлайн' };
+  const PAYMENT_LABELS = { cash: 'Наличные', card: 'Карта', online: 'Онлайн', balance: 'С баланса' };
 
   let salesPeriod = 'today';
   let salesCurrentBookingId = null;

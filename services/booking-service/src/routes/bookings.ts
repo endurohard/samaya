@@ -675,7 +675,7 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
 
 // ===== Complete (оформить продажу) =====
 const completeSchema = z.object({
-  payment_method: z.enum(['cash', 'card', 'online']).default('cash'),
+  payment_method: z.enum(['cash', 'card', 'online', 'balance']).default('cash'),
   discount_pct: z.number().min(0).max(100).default(0),
   promo_code: z.string().optional(),
   bonus_spend: z.number().min(0).default(0),
@@ -738,6 +738,41 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       await client.query('ROLLBACK');
       return next(new HttpError(404, 'booking not found or not completable'));
     }
+
+    // Оплата с лицевого счёта клиента: списываем сумму к оплате с баланса.
+    if (input.payment_method === 'balance') {
+      const bk = upd.rows[0];
+      const paid = bk.paid_amount; // total − discount − bonus_spend
+      if (!bk.client_id) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'нет привязанного клиента для оплаты с баланса', 'NO_CLIENT'));
+      }
+      const bal = await client.query(
+        `SELECT balance::float8 AS balance FROM clients.clients
+         WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+        [req.auth!.company_id, bk.client_id],
+      );
+      if (!bal.rows[0]) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'клиент не найден', 'NO_CLIENT'));
+      }
+      if (bal.rows[0].balance < paid) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'недостаточно средств на лицевом счёте', 'INSUFFICIENT_BALANCE'));
+      }
+      await client.query(
+        `UPDATE clients.clients SET balance = balance - $1, updated_at = NOW()
+         WHERE company_id = $2 AND id = $3`,
+        [paid, req.auth!.company_id, bk.client_id],
+      );
+      await client.query(
+        `INSERT INTO clients.balance_operations
+           (company_id, client_id, kind, amount, booking_id, note, created_by)
+         VALUES ($1, $2, 'charge', $3, $4, $5, $6)`,
+        [req.auth!.company_id, bk.client_id, paid, bk.id, 'Оплата услуги с лицевого счёта', req.auth!.sub],
+      );
+    }
+
     await client.query(
       `INSERT INTO bookings.booking_events_outbox (event_type, booking_id, company_id, payload)
        VALUES ('booking.completed', $1, $2, $3::jsonb)`,
