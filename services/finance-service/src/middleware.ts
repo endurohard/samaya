@@ -39,6 +39,19 @@ export function requireRole(roles: string[]) {
   };
 }
 
+// RBAC: доступ по гранулярному праву. owner — всегда; если в токене нет
+// permissions (старый токен) — пропускаем (fail-open, безопасно на переходный период).
+export function requirePermission(...keys: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) return res.status(401).json({ error: 'unauthenticated' });
+    if (req.auth.role === 'owner') return next();
+    const perms = req.auth.permissions;
+    if (!perms) return next();
+    if (keys.some((k) => perms[k] === true)) return next();
+    return res.status(403).json({ error: 'forbidden', code: 'PERMISSION_DENIED', required: keys });
+  };
+}
+
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ZodError) {
     return res.status(400).json({ error: 'validation', details: err.flatten().fieldErrors });

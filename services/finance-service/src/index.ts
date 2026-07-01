@@ -4,7 +4,7 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import { config } from './config';
 import { pool } from './db';
-import { errorHandler } from './middleware';
+import { errorHandler, authenticate, requirePermission } from './middleware';
 import accountsRoutes from './routes/accounts';
 import categoriesRoutes from './routes/categories';
 import counterpartiesRoutes from './routes/counterparties';
@@ -27,6 +27,13 @@ app.get('/health', async (_req, res) => {
   } catch {
     return res.status(500).json({ ok: false });
   }
+});
+
+// RBAC (фаза 2): единый гейт на весь finance — просмотр требует finance.view,
+// любые изменения — finance.manage. owner проходит всегда.
+app.use('/api/finance', authenticate, (req, res, next) => {
+  const key = req.method === 'GET' ? 'finance.view' : 'finance.manage';
+  return requirePermission(key)(req, res, next);
 });
 
 // Auth-protected routes (under /api/finance via Kong)
