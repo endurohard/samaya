@@ -4,7 +4,7 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import { config } from './config';
 import { pool } from './db';
-import { errorHandler } from './middleware';
+import { errorHandler, authenticate, requirePermission } from './middleware';
 import productsRoutes from './routes/products';
 import suppliersRoutes from './routes/suppliers';
 import warehousesRoutes from './routes/warehouses';
@@ -28,6 +28,12 @@ app.get('/health', async (_req, res) => {
   } catch {
     return res.status(500).json({ ok: false });
   }
+});
+
+// RBAC (фаза 2): просмотр — inventory.view, изменения — inventory.manage. owner всегда.
+app.use('/api/inventory', authenticate, (req, res, next) => {
+  const key = req.method === 'GET' ? 'inventory.view' : 'inventory.manage';
+  return requirePermission(key)(req, res, next);
 });
 
 app.use('/api/inventory/products', productsRoutes);
