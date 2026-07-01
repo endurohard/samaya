@@ -608,6 +608,9 @@ import { trapFocus } from './modules/focus-trap.js';
       els.addServiceToggle.style.display = canMutate ? '' : 'none';
       els.addMasterToggle.style.display = canMutate ? '' : 'none';
 
+      // RBAC фаза 2: гейтинг навигации по правам
+      applyNavPermissions(role, claims && claims.permissions);
+
       // Preload data for sidebar counters
       void loadServices();
       void loadMasters();
@@ -622,6 +625,36 @@ import { trapFocus } from './modules/focus-trap.js';
       // На неавторизованном — насильно профиль
       if (currentView !== 'profile') setView('profile');
     }
+  }
+
+  // RBAC фаза 2: какие права нужны для пунктов навигации (view → permission).
+  // Не гейтим: today, profile, masters, promotion, messages.
+  const NAV_PERM = {
+    journal: 'bookings.view',
+    schedule: 'schedule.view',
+    clients: 'clients.view',
+    services: 'services.view',
+    salary: 'salary.view',
+    sales: 'bookings.view',
+    analytics: 'analytics.view',
+    finance: 'finance.view',
+    inventory: 'inventory.view',
+    settings: 'settings.manage',
+  };
+  function hasPerm(perms, key) {
+    // owner проверяется отдельно; fail-open если в токене нет прав (старый токен)
+    return !perms || perms[key] === true;
+  }
+  function applyNavPermissions(role, perms) {
+    const isOwner = role === 'owner';
+    document.querySelectorAll('.nav-item[data-view]').forEach((el) => {
+      const key = NAV_PERM[el.dataset.view];
+      const allowed = !key || isOwner || hasPerm(perms, key);
+      el.style.display = allowed ? '' : 'none';
+    });
+    // Если текущий раздел скрыт по правам — уводим на «Сегодня»
+    const curKey = NAV_PERM[currentView];
+    if (curKey && !isOwner && !hasPerm(perms, curKey)) setView('today');
   }
 
   // ===== Services =====
