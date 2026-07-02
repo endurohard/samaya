@@ -602,14 +602,21 @@ import { trapFocus } from './modules/focus-trap.js';
       }
       if (els.topbarUserName) els.topbarUserName.textContent = name;
 
-      // Role-based UI
+      // Role-based UI + RBAC фаза 2: гейтинг кнопок действий по правам
       const role = claims ? claims.role : 'client';
       const canMutate = role === 'owner' || role === 'admin';
-      els.addServiceToggle.style.display = canMutate ? '' : 'none';
+      const perms = claims && claims.permissions;
+      const can = (key) => role === 'owner' || !perms || perms[key] === true;
+      els.addServiceToggle.style.display = (canMutate && can('services.manage')) ? '' : 'none';
       els.addMasterToggle.style.display = canMutate ? '' : 'none';
+      [['finAddIncomeBtn', 'finance.manage'], ['finAddExpenseBtn', 'finance.manage'],
+       ['finTransferBtn', 'finance.manage'], ['finAddAccountBtn', 'finance.manage']].forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = can(key) ? '' : 'none';
+      });
 
       // RBAC фаза 2: гейтинг навигации по правам
-      applyNavPermissions(role, claims && claims.permissions);
+      applyNavPermissions(role, perms);
 
       // Preload data for sidebar counters
       void loadServices();
