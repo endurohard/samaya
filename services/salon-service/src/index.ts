@@ -4,7 +4,8 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import { config } from './config';
 import { pool } from './db';
-import { errorHandler } from './middleware';
+import { errorHandler, authenticate, requirePermission } from './middleware';
+import type { Request, Response, NextFunction } from 'express';
 import categoriesRoutes from './routes/categories';
 import servicesRoutes from './routes/services';
 import mastersRoutes from './routes/masters';
@@ -33,13 +34,21 @@ app.get('/health', async (_req, res) => {
 // Public routes — без auth (для виджета записи)
 app.use('/api/salons/public', publicRoutes);
 
+// RBAC (фаза 2): гейт по методу — GET=viewKey, изменения=writeKeys. owner всегда.
+const gate = (viewKey: string, ...writeKeys: string[]) =>
+  (req: Request, res: Response, next: NextFunction) =>
+    (req.method === 'GET' ? requirePermission(viewKey) : requirePermission(...writeKeys))(req, res, next);
+// company GET открыт (профиль/виджет), PUT — settings.manage
+const companyGate = (req: Request, res: Response, next: NextFunction) =>
+  (req.method === 'GET' ? (_r: Request, _s: Response, n: NextFunction) => n() : requirePermission('settings.manage'))(req, res, next);
+
 // Auth-protected routes
-app.use('/api/salons/categories', categoriesRoutes);
-app.use('/api/salons/services', servicesRoutes);
-app.use('/api/salons/schedule', scheduleRoutes);   // /:masterId
-app.use('/api/salons/masters', mastersRoutes);
-app.use('/api/salons/company', companyRoutes);
-app.use('/api/salons/schedule-templates', templatesRoutes);
+app.use('/api/salons/categories', authenticate, gate('services.view', 'services.manage'), categoriesRoutes);
+app.use('/api/salons/services', authenticate, gate('services.view', 'services.manage'), servicesRoutes);
+app.use('/api/salons/schedule', authenticate, gate('schedule.view', 'schedule.edit'), scheduleRoutes);   // /:masterId
+app.use('/api/salons/masters', mastersRoutes);   // без гейта: список мастеров нужен во всех разделах (запись/журнал), запись — role-gated
+app.use('/api/salons/company', authenticate, companyGate, companyRoutes);
+app.use('/api/salons/schedule-templates', authenticate, gate('schedule.view', 'schedule.edit'), templatesRoutes);
 
 app.use(errorHandler);
 
