@@ -636,19 +636,24 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
 // ===== Cancel =====
 const cancelSchema = z.object({
   cancel_reason: z.string().max(500).optional(),
+  // no_show=true — клиент не пришёл: статус no_show вместо canceled.
+  // На зарплату/выручку не влияет (учитывается только status='completed'),
+  // но нужно для статистики (no-show rate).
+  no_show: z.boolean().optional(),
 });
 
 router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const input = cancelSchema.parse(req.body ?? {});
+    const newStatus = input.no_show ? 'no_show' : 'canceled';
     await client.query('BEGIN');
     const upd = await client.query(
       `UPDATE bookings.bookings
-       SET status = 'canceled', canceled_at = NOW(), cancel_reason = $3
+       SET status = $4, canceled_at = NOW(), cancel_reason = $3
        WHERE company_id = $1 AND id = $2 AND status IN ('pending', 'confirmed')
        RETURNING *, total_price::float8 AS total_price`,
-      [req.auth!.company_id, req.params.id, input.cancel_reason ?? null],
+      [req.auth!.company_id, req.params.id, input.cancel_reason ?? null, newStatus],
     );
     if (!upd.rows[0]) {
       await client.query('ROLLBACK');
@@ -656,12 +661,13 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
     }
     await client.query(
       `INSERT INTO bookings.booking_events_outbox (event_type, booking_id, company_id, payload)
-       VALUES ('booking.canceled', $1, $2, $3::jsonb)`,
+       VALUES ($4, $1, $2, $3::jsonb)`,
       [upd.rows[0].id, req.auth!.company_id, JSON.stringify({
         booking_id: upd.rows[0].id,
         canceled_by: req.auth!.sub,
         cancel_reason: input.cancel_reason ?? null,
-      })],
+        no_show: !!input.no_show,
+      }), input.no_show ? 'booking.no_show' : 'booking.canceled'],
     );
     await client.query('COMMIT');
     return res.json(upd.rows[0]);

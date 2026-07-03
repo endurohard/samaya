@@ -1942,6 +1942,14 @@ import { trapFocus } from './modules/focus-trap.js';
     if (confirmBtn) confirmBtn.hidden = b.status !== 'pending';
     const cancelBtn2 = document.getElementById('bkModalCancel2');
     if (cancelBtn2) cancelBtn2.hidden = !isActive;
+    const noShowBtn = document.getElementById('bkModalNoShow');
+    if (noShowBtn) noShowBtn.hidden = !isActive;
+    // Пополнить лицевой счёт — если запись привязана к клиенту и роль admin/owner
+    // (эндпоинт /balance/topup требует admin/owner — не показываем «мёртвую» кнопку мастеру).
+    const topupRole = (decodeJwt(store.access) || {}).role;
+    const canTopup = topupRole === 'owner' || topupRole === 'admin';
+    const topupBtn = document.getElementById('bkModalTopup');
+    if (topupBtn) topupBtn.hidden = !(b.client_id && canTopup);
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = false;
     els.bkModal.hidden = false;
     _bkModalRelease = trapFocus(els.bkModal);
@@ -2053,6 +2061,81 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!confirm('Отменить эту запись?')) return;
     const { ok } = await apiCall('POST', `/api/bookings/${_bkModalCurrent.id}/cancel`, {});
     if (ok) { closeBookingModal(); void loadBookings(); }
+  });
+
+  // «Не пришёл» — статус no_show (клиент не явился). В расчёт зарплаты/выручки не попадает.
+  document.getElementById('bkModalNoShow')?.addEventListener('click', async () => {
+    if (!_bkModalCurrent) return;
+    if (!confirm('Отметить, что клиент не пришёл? Начислений и оплаты по записи не будет.')) return;
+    const { ok } = await apiCall('POST', `/api/bookings/${_bkModalCurrent.id}/cancel`, { no_show: true });
+    if (ok) { toast('Отмечено: клиент не пришёл'); closeBookingModal(); void loadBookings(); }
+    else toast('Не удалось отметить');
+  });
+
+  // ===== Пополнение лицевого счёта клиента прямо из записи =====
+  let _bkTopupClientId = null;
+  function closeBkTopup() {
+    const bd = document.getElementById('bkTopupBackdrop');
+    const md = document.getElementById('bkTopupModal');
+    if (bd) bd.hidden = true;
+    if (md) md.hidden = true;
+    _bkTopupClientId = null;
+  }
+  document.getElementById('bkModalTopup')?.addEventListener('click', async () => {
+    const b = _bkModalCurrent;
+    if (!b || !b.client_id) { toast('Запись не привязана к клиенту'); return; }
+    _bkTopupClientId = b.client_id;
+    const nameEl = document.getElementById('bkTopupClient');
+    if (nameEl) nameEl.textContent = 'Клиент: ' + (b.client_name || b.client_phone || '—');
+    const amtEl = document.getElementById('bkTopupAmount');
+    if (amtEl) amtEl.value = '';
+    const noteEl = document.getElementById('bkTopupNote');
+    if (noteEl) noteEl.value = '';
+    const errEl = document.getElementById('bkTopupError');
+    if (errEl) errEl.hidden = true;
+    // Список счетов (нал/безнал) из финансов
+    const sel = document.getElementById('bkTopupAccount');
+    if (sel) {
+      const ra = await apiCall('GET', '/api/finance/accounts');
+      const accs = ra.ok ? (ra.data?.items || []) : [];
+      sel.innerHTML = '<option value="">— счёт (нал/безнал) —</option>'
+        + accs.filter((a) => a.is_active !== false)
+            .map((a) => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)} (${a.type === 'cash' ? 'нал' : 'безнал'})</option>`).join('');
+    }
+    const bd = document.getElementById('bkTopupBackdrop');
+    const md = document.getElementById('bkTopupModal');
+    if (bd) bd.hidden = false;
+    if (md) md.hidden = false;
+    document.getElementById('bkTopupAmount')?.focus();
+  });
+  document.getElementById('bkTopupClose')?.addEventListener('click', closeBkTopup);
+  document.getElementById('bkTopupCancel')?.addEventListener('click', closeBkTopup);
+  document.getElementById('bkTopupBackdrop')?.addEventListener('click', closeBkTopup);
+  document.getElementById('bkTopupForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = _bkTopupClientId;
+    if (!id) return;
+    const amount = Number(document.getElementById('bkTopupAmount')?.value);
+    const account_id = document.getElementById('bkTopupAccount')?.value || null;
+    const note = document.getElementById('bkTopupNote')?.value?.trim() || undefined;
+    const errEl = document.getElementById('bkTopupError');
+    const btn = document.getElementById('bkTopupSubmit');
+    if (!amount || amount <= 0) {
+      if (errEl) { errEl.textContent = 'Введите сумму пополнения'; errEl.hidden = false; }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Пополняем…'; }
+    const r = await apiCall('POST', `/api/clients/${id}/balance/topup`, { amount, account_id, note });
+    if (btn) { btn.disabled = false; btn.textContent = 'Пополнить'; }
+    if (!r.ok) {
+      if (errEl) { errEl.textContent = 'Ошибка: ' + (r.data?.error || r.status); errEl.hidden = false; }
+      return;
+    }
+    toast('Счёт пополнен на ' + formatPrice(amount));
+    closeBkTopup();
+    // Обновим кэш клиента, если он загружен
+    const c = clientsState?.items?.find?.((x) => x.id === id);
+    if (c && r.data?.balance != null) c.balance = r.data.balance;
   });
 
   els.journalPeriodBtns?.forEach((btn) => {

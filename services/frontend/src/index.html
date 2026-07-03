@@ -2504,10 +2504,37 @@
         <div class="modal-foot bk-modal-foot" id="bkModalFoot">
           <button type="button" class="btn-success btn-sm" id="bkModalComplete" hidden>Оформить продажу</button>
           <button type="button" class="btn-primary btn-sm" id="bkModalConfirm" hidden>Подтвердить</button>
+          <button type="button" class="btn-secondary btn-sm" id="bkModalTopup" hidden>Пополнить счёт</button>
+          <button type="button" class="btn-danger-outline btn-sm" id="bkModalNoShow" hidden>Не пришёл</button>
           <button type="button" class="btn-danger-outline btn-sm" id="bkModalCancel2" hidden>Отменить запись</button>
           <button type="button" class="btn-secondary btn-sm" id="bkModalRepeat" hidden>Повторить запись</button>
           <button type="button" class="btn-ghost btn-sm" id="bkModalClose2">Закрыть</button>
         </div>
+      </div>
+
+      <!-- Modal: пополнить лицевой счёт клиента (из записи) -->
+      <div class="modal-backdrop" id="bkTopupBackdrop" hidden></div>
+      <div class="modal" id="bkTopupModal" hidden role="dialog" aria-modal="true" aria-labelledby="bkTopupTitle">
+        <div class="modal-head">
+          <h3 class="modal-title" id="bkTopupTitle">Пополнить лицевой счёт</h3>
+          <button type="button" class="modal-close" id="bkTopupClose" aria-label="Закрыть">×</button>
+        </div>
+        <form id="bkTopupForm">
+          <div class="modal-body">
+            <div id="bkTopupClient" style="margin-bottom:12px;color:var(--text-dim);font-size:13px;"></div>
+            <label for="bkTopupAmount">Сумма пополнения, ₽</label>
+            <input id="bkTopupAmount" type="number" step="1" min="1" required placeholder="Сумма" />
+            <label for="bkTopupAccount">Счёт зачисления</label>
+            <select id="bkTopupAccount"><option value="">— счёт (нал/безнал) —</option></select>
+            <label for="bkTopupNote">Комментарий</label>
+            <input id="bkTopupNote" type="text" maxlength="200" placeholder="Необязательно" />
+            <div class="form-error" id="bkTopupError" hidden style="color:var(--danger,#ef4444);font-size:13px;margin-top:8px;"></div>
+          </div>
+          <div class="modal-foot">
+            <button type="button" class="btn-secondary" id="bkTopupCancel">Отмена</button>
+            <button type="submit" class="btn-primary" id="bkTopupSubmit">Пополнить</button>
+          </div>
+        </form>
       </div>
 
       <!-- Modal: оформить продажу (complete booking) -->
