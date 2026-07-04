@@ -1193,6 +1193,8 @@ import { trapFocus } from './modules/focus-trap.js';
     return cachedBookings.filter((b) => {
       if (jrnSelectedMasters && !jrnSelectedMasters.has(b.master_id)) return false;
       if (!jrnSelectedMasters && journalFilters.master_id && b.master_id !== journalFilters.master_id) return false;
+      // Отменённые/«не пришёл» скрыты по умолчанию — видны, только если явно выбран этот статус в фильтре
+      if (!journalFilters.status && (b.status === 'canceled' || b.status === 'no_show')) return false;
       if (journalFilters.status && b.status !== journalFilters.status) return false;
       if (journalFilters.source && (b.source || '') !== journalFilters.source) return false;
       if (journalFilters.anon && b.client_phone) return false;
@@ -1294,6 +1296,8 @@ import { trapFocus } from './modules/focus-trap.js';
 
     const byMaster = new Map(masters.map((m) => [m.id, []]));
     cachedBookings.forEach((b) => {
+      // Отменённые и «не пришёл» не показываем в журнале — они доступны через фильтр по статусу / историю действий
+      if (b.status === 'canceled' || b.status === 'no_show') return;
       const arr = byMaster.get(b.master_id);
       if (arr) arr.push(b);
     });
