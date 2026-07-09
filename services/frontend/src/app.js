@@ -571,6 +571,7 @@ import { trapFocus } from './modules/focus-trap.js';
     const access = store.access;
 
     if (user && access) {
+      document.body.classList.remove('guest');
       els.authGuest.hidden = true;
       els.authUser.hidden = false;
 
@@ -622,6 +623,7 @@ import { trapFocus } from './modules/focus-trap.js';
       void loadServices();
       void loadMasters();
     } else {
+      document.body.classList.add('guest');
       els.authGuest.hidden = false;
       els.authUser.hidden = true;
       els.userMini.hidden = true;

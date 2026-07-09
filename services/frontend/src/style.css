@@ -51,6 +51,16 @@ body {
   min-height: 100vh;
 }
 
+/* Гость (до входа): скрываем навигацию и интерактив топбара — виден только экран входа */
+body.guest .app { grid-template-columns: 1fr; }
+body.guest .sidebar,
+body.guest .sidebar-backdrop,
+body.guest .topbar-burger,
+body.guest .topbar-icon-btn,
+body.guest .topbar-user,
+body.guest .topbar-action { display: none; }
+body.guest .auth-card { margin: 32px auto 0; }
+
 /* ===== Sidebar (светлый, DIKIDI-style) ===== */
 .sidebar {
   background: var(--sb-bg);
