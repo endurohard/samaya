@@ -216,7 +216,7 @@
                 <form id="loginForm" class="form">
                   <label for="loginId">Email или телефон</label>
                   <input id="loginId" name="identifier" type="text" required
-                         placeholder="owner@samaya.test или +79604080333" autocomplete="username" />
+                         placeholder="email или телефон" autocomplete="username" />
                   <label for="loginPwd">Пароль</label>
                   <input id="loginPwd" name="password" type="password" required minlength="8" autocomplete="current-password" />
                   <button type="submit" class="btn-primary">Войти</button>
@@ -225,11 +225,11 @@
               <div class="tab-pane" data-pane="register">
                 <form id="registerForm" class="form">
                   <label for="regName">Имя</label>
-                  <input id="regName" name="full_name" type="text" placeholder="Зухра" />
+                  <input id="regName" name="full_name" type="text" placeholder="Имя" />
                   <label for="regEmail">Email</label>
-                  <input id="regEmail" name="email" type="email" placeholder="you@samaya.test" />
+                  <input id="regEmail" name="email" type="email" placeholder="email@example.com" />
                   <label for="regPhone">Телефон</label>
-                  <input id="regPhone" name="phone" type="text" placeholder="+79604080333" />
+                  <input id="regPhone" name="phone" type="text" placeholder="+7 900 000-00-00" />
                   <label for="regPwd">Пароль (мин 8)</label>
                   <input id="regPwd" name="password" type="password" required minlength="8" autocomplete="new-password" />
                   <label for="regRole">Роль</label>
@@ -696,7 +696,7 @@
                   </div>
                   <div>
                     <label for="mPhone">Телефон</label>
-                    <input id="mPhone" name="phone" type="text" placeholder="+79604080333" />
+                    <input id="mPhone" name="phone" type="text" placeholder="+7 900 000-00-00" />
                   </div>
                 </div>
                 <label class="checkbox-row" style="margin-top:8px;">
@@ -786,7 +786,7 @@
                 </div>
                 <div>
                   <label for="bPhone">Телефон клиента</label>
-                  <input id="bPhone" name="client_phone" type="text" required placeholder="+79604080333" />
+                  <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
                 </div>
                 <div>
                   <label for="bName">Имя клиента</label>
