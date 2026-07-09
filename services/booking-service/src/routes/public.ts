@@ -6,6 +6,7 @@ import { HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster } from '../services';
 import { buildConfirmationEmail, buildMasterNotifyEmail } from '../mailer';
 import { enqueueNotification } from '../notification-outbox';
+import { findOrCreateClientId } from '../client-link';
 
 const router = Router();
 
@@ -36,14 +37,19 @@ router.post('/create', async (req, res, next) => {
     const startsAt = new Date(input.starts_at);
     const endsAt = new Date(startsAt.getTime() + totalDuration * 60_000);
 
+    // Привязываем онлайн-запись к карточке клиента (по телефону) — как и админскую.
+    const clientId = await findOrCreateClientId(
+      client, companyId, input.client_phone, input.client_name, 'public_widget',
+    );
+
     const ins = await client.query(
       `INSERT INTO bookings.bookings
-         (company_id, master_id, client_phone, client_name,
+         (company_id, master_id, client_id, client_phone, client_name,
           starts_at, ends_at, status, total_price, source, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,'public_widget',$8)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8,'public_widget',$9)
        RETURNING id, starts_at, ends_at, status, total_price::float8 AS total_price`,
       [
-        companyId, input.master_id,
+        companyId, input.master_id, clientId,
         input.client_phone, input.client_name,
         startsAt.toISOString(), endsAt.toISOString(),
         totalPrice, input.notes ?? null,

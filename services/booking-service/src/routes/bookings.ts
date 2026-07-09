@@ -7,6 +7,7 @@ import { loadServiceSnapshots, assertMaster } from '../services';
 import { config } from '../config';
 import { sendMail, buildReviewEmail } from '../mailer';
 import { notifyMasterNewBooking } from '../notify';
+import { findOrCreateClientId } from '../client-link';
 
 const router = Router();
 router.use(authenticate);
@@ -522,6 +523,11 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     const totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
     const totalPrice = services.reduce((acc, s) => acc + Number(s.price), 0);
 
+    // Привязываем запись к карточке клиента (по телефону), чтобы работали
+    // лицевой счёт/предоплата, история и аналитика по клиенту.
+    const clientId = input.client_id
+      ?? await findOrCreateClientId(client, companyId, input.client_phone, input.client_name, 'admin');
+
     const startsAt = new Date(input.starts_at);
     const endsAt = new Date(startsAt.getTime() + totalDuration * 60_000);
 
@@ -533,7 +539,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
        RETURNING *, total_price::float8 AS total_price`,
       [
         companyId, input.master_id,
-        input.client_id ?? null,
+        clientId,
         input.client_phone ?? null,
         input.client_name ?? null,
         startsAt.toISOString(), endsAt.toISOString(),
