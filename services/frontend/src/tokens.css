@@ -1,32 +1,50 @@
 /* ============================================================
-   tokens.css — единый источник дизайн-токенов для app-страниц
-   (index / book / portal / upload / review).
-   Встраиваемый виджет (widget.css) намеренно самодостаточен и
-   использует собственный namespace --w-*, т.к. встраивается на
-   сторонние сайты, где этот файл не подключён.
-   Подключать ПЕРВЫМ, до остальных стилей страницы.
+   tokens.css — РЕДИЗАЙН «Самая» (бордо + логотип ZB)
+   Замена для services/frontend/src/tokens.css.
+   Тот же набор имён, что и раньше — старые экраны не сломаются.
+   Меняются только ЗНАЧЕНИЯ (бренд-фиолет → фирменное бордо),
+   плюс добавлены премиум-токены (золото-акцент, тёплые нейтрали,
+   Fraunces/Golos, крупнее радиусы, глубже тени).
+
+   Шаг миграции:
+   1) Заменить этот файл.
+   2) В <head> каждого app-экрана добавить подключение шрифтов
+      (см. блок FONTS ниже — вынести в <link>).
+   3) Поставить логотип: положить zb-logo.jpg в public и
+      заменить текстовый логотип на <img src="/zb-logo.jpg">.
    ============================================================ */
+
+/*  FONTS — добавить в <head> перед tokens.css:
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+*/
+
 :root {
-  /* ---------- Нейтральные поверхности ---------- */
-  --bg: #f1f4f8;
-  --bg-soft: #f7f9fb;
+  /* ---------- Нейтральные поверхности (тёплый крем вместо холодного серого) ---------- */
+  --bg: #faf7f4;
+  --bg-soft: #f4efe9;
   --card: #ffffff;
-  --card-hover: #f7f9fb;
-  --border: #e3e8ee;
-  --border-strong: #cdd5df;
+  --card-hover: #faf7f4;
+  --border: #ece4de;
+  --border-strong: #ddd0c7;
 
-  /* ---------- Текст ---------- */
-  --text: #1f2937;
-  --text-dim: #5f6b7a;
-  --text-muted: #9aa3b2;
+  /* ---------- Текст (тёплый уголь) ---------- */
+  --text: #2a2320;
+  --text-dim: #7a6f68;
+  --text-muted: #a89b94;
 
-  /* ---------- Бренд (единый фиолет) ---------- */
-  --primary: #7c3aed;
-  --primary-hover: #6d28d9;
-  --primary-soft: #f3effe;
-  --primary-dark: #5b21b6;
+  /* ---------- Бренд — БОРДО (из логотипа ZB, #93494B) ---------- */
+  --primary: #93494b;
+  --primary-hover: #7a3b3d;
+  --primary-soft: #f4e9e9;
+  --primary-dark: #5e2b2d;
 
-  /* ---------- Семантика ---------- */
+  /* ---------- Акцент — тёплое золото (бордо + золото = премиум) ---------- */
+  --accent-gold: #b8894e;
+  --accent-gold-soft: #faf1e3;
+
+  /* ---------- Семантика (без изменений — универсальны) ---------- */
   --success: #10b981;
   --success-hover: #0ea372;
   --success-soft: #d1fae5;
@@ -36,43 +54,43 @@
   --danger-hover: #dc2626;
   --danger-soft: #fee2e2;
 
-  /* ---------- Алиасы совместимости ----------
-     Сохраняют старые имена из book/portal/upload, чтобы
-     удаление локальных :root ничего не ломало. */
+  /* ---------- Алиасы совместимости (старые имена book/portal/upload) ---------- */
   --primary-light: var(--primary-soft);
   --muted: var(--text-dim);
   --surface: var(--bg-soft);
   --card-bg: var(--card);
   --success-bg: #f0fdf4;
-  --accent: var(--primary); /* был не определён → синие фоллбэки #3b82f6; теперь бренд */
+  --accent: var(--primary);
 
-  /* ---------- Радиусы (доминанты 6/8/10 сохранены точно) ---------- */
-  --radius-sm: 6px;   /* + сворачивает 2,3,4,5,7 */
-  --radius-md: 8px;
-  --radius-lg: 10px;  /* + сворачивает 12 */
-  --radius: 8px;      /* дефолт = md (для legacy var(--radius)) */
+  /* ---------- Радиусы (крупнее — премиальнее) ---------- */
+  --radius-sm: 8px;    /* было 6 */
+  --radius-md: 10px;   /* было 8 */
+  --radius: 12px;      /* дефолт */
+  --radius-lg: 16px;   /* карточки — было 10 */
+  --radius-xl: 20px;   /* hero-блоки */
   --radius-pill: 999px;
 
-  /* ---------- Тени (3 уровня высоты — значения по реальным доминантам) ---------- */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);   /* карточки */
-  --shadow-md: 0 8px 28px rgba(15, 23, 42, 0.18);  /* модалки, дропдауны */
-  --shadow-lg: 0 24px 64px rgba(15, 23, 42, 0.25); /* большие оверлеи */
+  /* ---------- Тени (глубже и мягче, в тёплом угле) ---------- */
+  --shadow-sm: 0 1px 2px rgba(42, 32, 32, 0.05);
+  --shadow-md: 0 10px 30px rgba(42, 32, 32, 0.10);
+  --shadow-lg: 0 24px 60px rgba(42, 32, 32, 0.18);
+  --shadow-brand: 0 8px 20px rgba(147, 73, 75, 0.28); /* для кнопок бренда */
 
-  /* ---------- Focus-кольцо (бренд-фиолет, было индиго) ---------- */
-  --ring: 0 0 0 3px rgba(124, 58, 237, 0.25);
+  /* ---------- Focus-кольцо (бордо) ---------- */
+  --ring: 0 0 0 3px rgba(147, 73, 75, 0.25);
   --ring-danger: 0 0 0 3px rgba(239, 68, 68, 0.28);
 
-  /* ---------- Типографическая шкала (роли сохранены, выбросы свёрнуты) ---------- */
-  --fs-xs: 11px;    /* + сворачивает 9,10 */
+  /* ---------- Типографическая шкала (чуть крупнее: база 15px) ---------- */
+  --fs-xs: 11px;
   --fs-sm: 12px;
-  --fs-base: 13px;  /* плотный body админки */
-  --fs-md: 14px;    /* + сворачивает 15 */
-  --fs-lg: 16px;    /* + сворачивает 17 */
-  --fs-xl: 18px;    /* + сворачивает 20 */
-  --fs-2xl: 22px;   /* + сворачивает 24 */
+  --fs-base: 13px;
+  --fs-md: 15px;    /* база интерфейса — было 14 */
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
   --fs-3xl: 28px;
 
-  /* ---------- Шкала отступов (8pt-сетка) ---------- */
+  /* ---------- Шкала отступов (8pt) ---------- */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -80,6 +98,14 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  /* ---------- Шрифт ---------- */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  /* ---------- Шрифты ---------- */
+  --font-sans: "Golos Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: "Fraunces", Georgia, serif; /* заголовки экранов, крупные цифры */
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
+
+/* Заголовки экранов и крупные числа — фирменным серифом.
+   Применять точечно: h1/h2 экранов, .today-title, .kpi-val, суммы. */
+/*  Пример использования:
+    .today-title, .card-hero-value { font-family: var(--font-display); font-weight: 600; }
+*/

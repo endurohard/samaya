@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Личный кабинет — Samaya</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/tokens.css" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,7 +23,7 @@
     main { max-width: 720px; margin: 0 auto; padding: 20px 16px 60px; }
 
     /* Hero card */
-    .hero { background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); border-radius: 16px; padding: 24px; color: #fff; margin-bottom: 20px; }
+    .hero { background: linear-gradient(135deg, #7a3b3d 0%, #b3696b 100%); border-radius: 16px; padding: 24px; color: #fff; margin-bottom: 20px; }
     .hero-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     .hero-phone { font-size: 14px; opacity: .75; margin-bottom: 20px; }
     .hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -82,7 +85,7 @@
     .book-cta h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
     .book-cta p { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
     .btn-primary { background: var(--primary); color: #fff; border: none; border-radius: 10px; padding: 12px 28px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background .2s; }
-    .btn-primary:hover { background: #6d28d9; }
+    .btn-primary:hover { background: #7a3b3d; }
 
     /* Empty state */
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
@@ -101,7 +104,7 @@
 
 <header>
   <div class="header-inner">
-    <div class="brand">💅 <span>Samaya</span></div>
+    <div class="brand"><img src="/zb-logo.jpg" alt="ZB" style="width:28px;height:28px;border-radius:6px;object-fit:cover;vertical-align:middle;margin-right:6px;"><span>Samaya</span></div>
     <div style="margin-left:auto;font-size:13px;color:var(--muted);" id="headerName"></div>
   </div>
 </header>

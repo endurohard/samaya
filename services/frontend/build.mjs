@@ -11,7 +11,7 @@ const OUT = 'dist';
 
 // Точки входа, которые бандлятся и хешируются
 const JS_ENTRIES = ['app.js', 'widget.js'];
-const CSS_ENTRIES = ['tokens.css', 'style.css', 'widget.css'];
+const CSS_ENTRIES = ['tokens.css', 'style.css', 'patch.css', 'widget.css'];
 
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
