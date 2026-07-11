@@ -7,6 +7,9 @@ const schema = z.object({
   JWT_SECRET: z.string().min(32),
   DEFAULT_COMPANY_ID: z.string().uuid().optional(),
   LOG_LEVEL: z.string().default('info'),
+  // Каталог для загруженных медиа (видео-превью услуг). Тот же volume монтируется
+  // read-only в nginx фронта и раздаётся как /media/*.
+  MEDIA_DIR: z.string().default('/data/media'),
 });
 
 const parsed = schema.safeParse(process.env);

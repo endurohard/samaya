@@ -1,16 +1,49 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import fs from 'node:fs';
+import path from 'node:path';
+import multer from 'multer';
 import { pool } from '../db';
+import { config } from '../config';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
 const router = Router();
 router.use(authenticate);
+
+// ===== Видео-превью услуг: хранится на диске (volume service_media), в БД — путь.
+// Тот же каталог монтируется read-only в nginx фронта и раздаётся как /media/*.
+const MEDIA_SERVICES_DIR = path.join(config.MEDIA_DIR, 'services');
+function ensureMediaDir(): void {
+  try { fs.mkdirSync(MEDIA_SERVICES_DIR, { recursive: true }); } catch { /* создастся при первой записи / смонтированным volume */ }
+}
+ensureMediaDir();
+
+const VIDEO_EXT: Record<string, string> = {
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+};
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300 МБ
+
+const uploadVideo = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => { ensureMediaDir(); cb(null, MEDIA_SERVICES_DIR); },
+    // Имя = <service_id>.<ext> — один ролик на услугу, перезапись при повторной загрузке.
+    filename: (req, file, cb) => cb(null, `${req.params.id}.${VIDEO_EXT[file.mimetype] ?? 'bin'}`),
+  }),
+  limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!(file.mimetype in VIDEO_EXT)) return cb(new Error('UNSUPPORTED_TYPE'));
+    cb(null, true);
+  },
+}).single('video');
 
 router.get('/', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT s.id, s.company_id, s.category_id, s.name, s.price, s.duration_minutes,
               s.color, s.tech_card_id, s.is_active, s.created_at, s.updated_at,
+              s.description, s.video_path, s.video_mime, s.preview_enabled,
               c.name AS category_name
        FROM salons.services s
        LEFT JOIN salons.service_categories c ON c.id = s.category_id
@@ -29,6 +62,7 @@ const createSchema = z.object({
   duration_minutes: z.number().int().positive(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
   is_active: z.boolean().optional(),
+  description: z.string().max(5000).nullable().optional(),
 });
 
 router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
@@ -88,6 +122,61 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
       [req.auth!.company_id, req.params.id],
     );
     if (!rows[0]) return next(new HttpError(404, 'service not found'));
+    return res.status(204).end();
+  } catch (e) { return next(e); }
+});
+
+// ===== Видео-превью услуги =====
+// POST /:id/preview-video — загрузить/заменить ролик (multipart, поле "video").
+router.post('/:id/preview-video', requireRole(['owner', 'admin']), (req, res, next) => {
+  uploadVideo(req, res, (err: unknown) => {
+    if (err) {
+      const e = err as { message?: string; code?: string };
+      if (e.message === 'UNSUPPORTED_TYPE') return next(new HttpError(400, 'unsupported video type (mp4/webm/mov)', 'UNSUPPORTED_TYPE'));
+      if (e.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'video too large', 'FILE_TOO_LARGE'));
+      return next(err);
+    }
+    (async () => {
+      const file = req.file;
+      if (!file) throw new HttpError(400, 'no file (field "video")');
+      const svc = await pool.query<{ video_path: string | null }>(
+        `SELECT video_path FROM salons.services WHERE company_id = $1 AND id = $2`,
+        [req.auth!.company_id, req.params.id],
+      );
+      if (!svc.rows[0]) {
+        fs.unlink(file.path, () => {});
+        throw new HttpError(404, 'service not found');
+      }
+      const rel = `services/${file.filename}`;
+      // Удаляем прежний ролик, если у него другое расширение (иначе останется мусор).
+      const prev = svc.rows[0].video_path;
+      if (prev && prev !== rel) fs.unlink(path.join(config.MEDIA_DIR, prev), () => {});
+      await pool.query(
+        `UPDATE salons.services
+           SET video_path = $3, video_mime = $4, preview_enabled = TRUE, updated_at = NOW()
+         WHERE company_id = $1 AND id = $2`,
+        [req.auth!.company_id, req.params.id, rel, file.mimetype],
+      );
+      return res.json({ video_path: rel, video_mime: file.mimetype, preview_enabled: true });
+    })().catch(next);
+  });
+});
+
+// DELETE /:id/preview-video — убрать ролик и выключить превью.
+router.delete('/:id/preview-video', requireRole(['owner', 'admin']), async (req, res, next) => {
+  try {
+    const svc = await pool.query<{ video_path: string | null }>(
+      `SELECT video_path FROM salons.services WHERE company_id = $1 AND id = $2`,
+      [req.auth!.company_id, req.params.id],
+    );
+    if (!svc.rows[0]) return next(new HttpError(404, 'service not found'));
+    if (svc.rows[0].video_path) fs.unlink(path.join(config.MEDIA_DIR, svc.rows[0].video_path), () => {});
+    await pool.query(
+      `UPDATE salons.services
+         SET video_path = NULL, video_mime = NULL, preview_enabled = FALSE, updated_at = NOW()
+       WHERE company_id = $1 AND id = $2`,
+      [req.auth!.company_id, req.params.id],
+    );
     return res.status(204).end();
   } catch (e) { return next(e); }
 });

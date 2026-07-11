@@ -55,6 +55,8 @@ services:
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      # Пропускать крупные тела (загрузка видео-превью услуг через шлюз).
+      KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE: 320m
     volumes:
       - ./kong:/kong:ro
     ports:
@@ -116,10 +118,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      MEDIA_DIR: /data/media
     expose:
       - "3002"
     networks:
       - samaya-network
+    volumes:
+      - service-media:/data/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -305,6 +310,9 @@ services:
       - "${FRONTEND_PORT:-3000}:80"
     networks:
       - samaya-network
+    volumes:
+      # Видео-превью услуг раздаём напрямую nginx'ом (стриминг/Range) из общего volume.
+      - service-media:/usr/share/nginx/html/media:ro
     depends_on:
       - kong
     mem_limit: 128m
@@ -365,3 +373,4 @@ volumes:
   postgres_data:
   redis_data:
   whatsapp_session:
+  service-media:

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#93494b" />
+  <title>Услуга — Samaya</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/tokens.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    header {
+      width: 100%;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .header-inner {
+      max-width: 720px; margin: 0 auto;
+      display: flex; align-items: center; gap: 10px;
+      height: 56px; padding: 0 20px;
+    }
+    .header-inner img { width: 30px; height: 30px; border-radius: 7px; object-fit: cover; }
+    .header-inner .brand { font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+    main { width: 100%; max-width: 720px; padding: 20px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+    }
+    .video-wrap { background: #000; aspect-ratio: 16 / 9; }
+    .video-wrap video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+    .body { padding: 20px; }
+    .title {
+      font-family: var(--font-display);
+      font-weight: 600; font-size: var(--fs-2xl);
+      letter-spacing: -0.01em; line-height: 1.2;
+    }
+    .meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    .price {
+      font-family: var(--font-display);
+      font-weight: 600; font-size: var(--fs-xl);
+      color: var(--primary);
+    }
+    .duration {
+      font-size: var(--fs-sm); color: var(--text-dim);
+      background: var(--bg-soft); border-radius: var(--radius-pill);
+      padding: 4px 12px;
+    }
+    .desc {
+      margin-top: 16px; color: var(--text-dim);
+      font-size: var(--fs-md); line-height: 1.6; white-space: pre-wrap;
+    }
+    .cta {
+      display: block; text-align: center; text-decoration: none;
+      margin-top: 20px; padding: 14px;
+      background: var(--primary); color: #fff;
+      border-radius: var(--radius-md); font-weight: 600;
+      box-shadow: var(--shadow-brand);
+    }
+    .cta:hover { background: var(--primary-hover); }
+    .state {
+      max-width: 720px; margin: 60px auto; padding: 0 20px;
+      text-align: center; color: var(--text-dim);
+    }
+    .state h2 { font-family: var(--font-display); color: var(--text); margin-bottom: 8px; }
+    footer { color: var(--text-muted); font-size: var(--fs-xs); padding: 24px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <img src="/zb-logo.jpg" alt="ZB" />
+      <span class="brand">Samaya</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="loading" class="state">Загрузка…</div>
+
+    <div id="notfound" class="state" hidden>
+      <h2>Услуга не найдена</h2>
+      <p>Возможно, ссылка устарела или превью ещё не опубликовано.</p>
+    </div>
+
+    <div id="card" class="card" hidden>
+      <div class="video-wrap">
+        <video id="player" controls playsinline preload="metadata"></video>
+      </div>
+      <div class="body">
+        <div class="title" id="svcName"></div>
+        <div class="meta">
+          <span class="price" id="svcPrice"></span>
+          <span class="duration" id="svcDuration"></span>
+        </div>
+        <div class="desc" id="svcDesc"></div>
+        <a class="cta" href="/book.html">Записаться</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>© Samaya</footer>
+
+  <script>
+    (function () {
+      var id = new URLSearchParams(location.search).get('id');
+      var loading = document.getElementById('loading');
+      var notfound = document.getElementById('notfound');
+      var card = document.getElementById('card');
+
+      function fail() { loading.hidden = true; card.hidden = true; notfound.hidden = false; }
+
+      function fmtPrice(v) {
+        try { return new Intl.NumberFormat('ru-RU').format(v) + ' ₽'; }
+        catch (e) { return v + ' ₽'; }
+      }
+      function fmtDuration(min) {
+        if (!min) return '';
+        var h = Math.floor(min / 60), m = min % 60;
+        return (h ? h + ' ч ' : '') + (m ? m + ' мин' : (h ? '' : min + ' мин'));
+      }
+
+      if (!id) { fail(); return; }
+
+      fetch('/api/salons/public/services/' + encodeURIComponent(id) + '/preview')
+        .then(function (r) { if (!r.ok) throw new Error('nf'); return r.json(); })
+        .then(function (s) {
+          document.getElementById('svcName').textContent = s.name || 'Услуга';
+          document.title = (s.name || 'Услуга') + ' — Samaya';
+          document.getElementById('svcPrice').textContent = fmtPrice(s.price || 0);
+          var dur = fmtDuration(s.duration_minutes);
+          var durEl = document.getElementById('svcDuration');
+          if (dur) durEl.textContent = dur; else durEl.hidden = true;
+          var descEl = document.getElementById('svcDesc');
+          if (s.description) descEl.textContent = s.description; else descEl.hidden = true;
+          var player = document.getElementById('player');
+          var src = document.createElement('source');
+          src.src = s.video_url;
+          if (s.video_mime) src.type = s.video_mime;
+          player.appendChild(src);
+          loading.hidden = true;
+          card.hidden = false;
+        })
+        .catch(fail);
+    })();
+  </script>
+</body>
+</html>

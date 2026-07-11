@@ -27,6 +27,33 @@ router.get('/services', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// Превью услуги для публичной страницы-плеера (/service.html?id=...).
+// Отдаём только услуги с загруженным роликом (preview_enabled) и активные.
+router.get('/services/:id/preview', async (req, res, next) => {
+  try {
+    const company_id = getCompanyId(req);
+    const { rows } = await pool.query(
+      `SELECT s.id, s.name, s.description, s.price::float8 AS price,
+              s.duration_minutes, s.video_path, s.video_mime
+       FROM salons.services s
+       WHERE s.company_id = $1 AND s.id = $2
+         AND s.is_active = TRUE AND s.preview_enabled = TRUE AND s.video_path IS NOT NULL`,
+      [company_id, req.params.id],
+    );
+    const s = rows[0];
+    if (!s) throw new HttpError(404, 'preview not found');
+    return res.json({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      price: s.price,
+      duration_minutes: s.duration_minutes,
+      video_url: `/media/${s.video_path}`,
+      video_mime: s.video_mime,
+    });
+  } catch (e) { return next(e); }
+});
+
 router.get('/masters', async (req, res, next) => {
   try {
     const company_id = getCompanyId(req);

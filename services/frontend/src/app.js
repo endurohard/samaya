@@ -749,9 +749,11 @@ import { trapFocus } from './modules/focus-trap.js';
     document.getElementById('svcEditName').value = s.name;
     document.getElementById('svcEditPrice').value = s.price;
     document.getElementById('svcEditDuration').value = s.duration_minutes;
-    document.getElementById('svcEditColor').value = s.color || '#7c3aed';
+    document.getElementById('svcEditColor').value = s.color || '#93494b';
     document.getElementById('svcEditCommType').value = comm?.commission_type || '';
     document.getElementById('svcEditCommAmount').value = comm?.amount || '';
+    document.getElementById('svcEditDesc').value = s.description || '';
+    renderSvcPreview(s);
     document.getElementById('svcEditError').hidden = true;
     updateSvcCommLabel();
     svcSwitchTab('settings');
@@ -772,6 +774,81 @@ import { trapFocus } from './modules/focus-trap.js';
   }
   document.querySelectorAll('#svcEditModal .modal-tab').forEach((b) => {
     b.addEventListener('click', () => svcSwitchTab(b.dataset.svctab));
+  });
+
+  // ----- Вкладка «Превью»: описание + видео-ролик + ссылка для клиента -----
+  function svcPreviewLink(id) { return `${location.origin}/service.html?id=${id}`; }
+  function renderSvcPreview(s) {
+    const curEl = document.getElementById('svcPreviewCurrent');
+    const delBtn = document.getElementById('svcPreviewDelete');
+    const linkWrap = document.getElementById('svcPreviewLinkWrap');
+    const fileEl = document.getElementById('svcPreviewFile');
+    const progEl = document.getElementById('svcPreviewProgress');
+    if (fileEl) fileEl.value = '';
+    if (progEl) { progEl.hidden = true; progEl.textContent = ''; }
+    const hasVideo = !!(s.preview_enabled && s.video_path);
+    if (curEl) curEl.textContent = hasVideo
+      ? `Загружено (${(s.video_mime || '').replace('video/', '') || 'видео'})`
+      : 'Видео не загружено';
+    if (delBtn) delBtn.hidden = !hasVideo;
+    if (linkWrap) linkWrap.hidden = !hasVideo;
+    if (hasVideo) {
+      const link = svcPreviewLink(s.id);
+      document.getElementById('svcPreviewLink').value = link;
+      document.getElementById('svcPreviewOpen').href = link;
+    }
+  }
+  async function reloadSvcAndPreview(id) {
+    await loadServices();
+    renderServices();
+    const fresh = cachedServices.find((x) => x.id === id);
+    if (fresh) renderSvcPreview(fresh);
+  }
+  // Загрузка видео (multipart, с прогрессом) — отдельным запросом, не через сохранение услуги.
+  document.getElementById('svcPreviewUpload')?.addEventListener('click', () => {
+    const id = document.getElementById('svcEditId').value;
+    const file = document.getElementById('svcPreviewFile').files[0];
+    const progEl = document.getElementById('svcPreviewProgress');
+    if (!id) return;
+    if (!file) { toast('Выберите видеофайл'); return; }
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/salons/services/${id}/preview-video`);
+    xhr.setRequestHeader('Authorization', `Bearer ${store.access}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        progEl.hidden = false;
+        progEl.textContent = `Загрузка… ${Math.round((e.loaded / e.total) * 100)}%`;
+      }
+    };
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        progEl.textContent = 'Готово ✓';
+        toast('Видео загружено');
+        await reloadSvcAndPreview(id);
+      } else {
+        let msg = `Ошибка ${xhr.status}`;
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_e) { /* ignore */ }
+        progEl.hidden = false; progEl.textContent = msg;
+        toast(msg);
+      }
+    };
+    xhr.onerror = () => { progEl.hidden = false; progEl.textContent = 'Сетевая ошибка'; };
+    const fd = new FormData(); fd.append('video', file);
+    progEl.hidden = false; progEl.textContent = 'Загрузка… 0%';
+    xhr.send(fd);
+  });
+  document.getElementById('svcPreviewDelete')?.addEventListener('click', async () => {
+    const id = document.getElementById('svcEditId').value;
+    if (!id) return;
+    if (!confirm('Удалить видео-превью услуги?')) return;
+    const r = await apiCall('DELETE', `/api/salons/services/${id}/preview-video`, null);
+    if (r.ok) { toast('Видео удалено'); await reloadSvcAndPreview(id); }
+    else toast(r.data?.error || 'Ошибка удаления');
+  });
+  document.getElementById('svcPreviewCopy')?.addEventListener('click', async () => {
+    const link = document.getElementById('svcPreviewLink').value;
+    try { await navigator.clipboard.writeText(link); toast('Ссылка скопирована'); }
+    catch (_e) { document.getElementById('svcPreviewLink').select(); toast('Скопируйте вручную'); }
   });
 
   // ----- Группа услуг: dropdown + инлайн-создание -----
@@ -918,6 +995,7 @@ import { trapFocus } from './modules/focus-trap.js';
       duration_minutes: parseInt(fd.get('duration_minutes')),
       color: fd.get('color') || null,
       category_id: fd.get('category_id') || null,
+      description: (fd.get('description') || '').trim() || null,
     };
     const r1 = await apiCall('PATCH', `/api/salons/services/${serviceId}`, svcPayload);
     if (!r1.ok) {

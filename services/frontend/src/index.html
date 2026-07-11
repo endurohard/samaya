@@ -584,6 +584,7 @@
                 <button type="button" class="modal-tab active" data-svctab="settings">Настройка</button>
                 <button type="button" class="modal-tab" data-svctab="masters">Сотрудники</button>
                 <button type="button" class="modal-tab" data-svctab="materials">Материалы</button>
+                <button type="button" class="modal-tab" data-svctab="preview">Превью</button>
               </div>
               <div class="modal-body">
                 <!-- Вкладка: Настройка -->
@@ -633,6 +634,33 @@
                       <label for="svcEditCommAmount" id="svcEditCommAmountLabel">Размер (%)</label>
                       <input id="svcEditCommAmount" name="commission_amount" type="number" min="0" step="0.01" placeholder="2" />
                     </div>
+                  </div>
+                </div>
+                <!-- Вкладка: Превью (страница-плеер для клиента) -->
+                <div class="svc-tab-panel" data-svcpanel="preview" hidden>
+                  <div>
+                    <label for="svcEditDesc">Описание услуги</label>
+                    <textarea id="svcEditDesc" name="description" rows="4" placeholder="Что входит, эффект, показания…" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;resize:vertical;font-family:inherit;"></textarea>
+                    <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">Показывается на странице-плеере под видео. Сохраняется кнопкой «Сохранить».</div>
+                  </div>
+                  <div style="margin-top:16px;">
+                    <label>Видео-ролик</label>
+                    <div id="svcPreviewCurrent" class="muted" style="font-size:var(--fs-sm);margin:6px 0;">—</div>
+                    <input id="svcPreviewFile" type="file" accept="video/mp4,video/webm,video/quicktime" style="display:block;margin:8px 0;font-size:12px;" />
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <button type="button" class="btn-primary btn-sm" id="svcPreviewUpload">Загрузить видео</button>
+                      <button type="button" class="btn-ghost btn-sm" id="svcPreviewDelete" hidden>Удалить видео</button>
+                    </div>
+                    <div id="svcPreviewProgress" class="muted" style="font-size:var(--fs-xs);margin-top:6px;" hidden></div>
+                    <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">MP4 / WebM / MOV, до 300 МБ.</div>
+                  </div>
+                  <div id="svcPreviewLinkWrap" style="margin-top:16px;" hidden>
+                    <label>Ссылка для клиента</label>
+                    <div class="input-with-btn">
+                      <input id="svcPreviewLink" type="text" readonly />
+                      <button type="button" class="btn-ghost btn-xs" id="svcPreviewCopy">Копировать</button>
+                    </div>
+                    <a id="svcPreviewOpen" href="#" target="_blank" rel="noopener" class="muted" style="font-size:var(--fs-xs);display:inline-block;margin-top:6px;">Открыть страницу ↗</a>
                   </div>
                 </div>
                 <!-- Вкладка: Сотрудники -->

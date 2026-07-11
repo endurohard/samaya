@@ -17,6 +17,9 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=builder /app/dist ./dist
+# Каталог для медиа (видео-превью услуг). Создаём с правами node, чтобы named volume,
+# монтируемый сюда, унаследовал владельца (иначе запись под USER node → EACCES).
+RUN mkdir -p /data/media/services && chown -R node:node /data
 USER node
 EXPOSE 3002
 ENTRYPOINT ["/sbin/tini", "--"]
