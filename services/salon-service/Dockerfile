@@ -12,7 +12,8 @@ RUN npm run build
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
-RUN apk add --no-cache tini
+# ffmpeg — фоновая конвертация видео-превью услуг в веб-совместимый MP4 (H.264/AAC).
+RUN apk add --no-cache tini ffmpeg
 ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force

@@ -134,8 +134,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    mem_limit: 384m
-    cpus: 0.5
+    mem_limit: 1024m
+    cpus: 1.0
     restart: unless-stopped
 
   booking-service:

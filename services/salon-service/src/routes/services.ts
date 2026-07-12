@@ -6,6 +6,7 @@ import multer from 'multer';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, requireRole, HttpError } from '../middleware';
+import { transcodeServiceVideo } from '../transcode';
 
 const router = Router();
 router.use(authenticate);
@@ -28,8 +29,8 @@ const MAX_VIDEO_BYTES = 300 * 1024 * 1024; // 300 МБ
 const uploadVideo = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => { ensureMediaDir(); cb(null, MEDIA_SERVICES_DIR); },
-    // Имя = <service_id>.<ext> — один ролик на услугу, перезапись при повторной загрузке.
-    filename: (req, file, cb) => cb(null, `${req.params.id}.${VIDEO_EXT[file.mimetype] ?? 'bin'}`),
+    // Оригинал = <service_id>.orig.<ext>; фоновый ffmpeg делает из него <service_id>.mp4.
+    filename: (req, file, cb) => cb(null, `${req.params.id}.orig.${VIDEO_EXT[file.mimetype] ?? 'bin'}`),
   }),
   limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
@@ -43,7 +44,7 @@ router.get('/', async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT s.id, s.company_id, s.category_id, s.name, s.price, s.duration_minutes,
               s.color, s.tech_card_id, s.is_active, s.created_at, s.updated_at,
-              s.description, s.video_path, s.video_mime, s.preview_enabled,
+              s.description, s.video_path, s.video_mime, s.preview_enabled, s.video_status,
               c.name AS category_name
        FROM salons.services s
        LEFT JOIN salons.service_categories c ON c.id = s.category_id
@@ -147,17 +148,16 @@ router.post('/:id/preview-video', requireRole(['owner', 'admin']), (req, res, ne
         fs.unlink(file.path, () => {});
         throw new HttpError(404, 'service not found');
       }
-      const rel = `services/${file.filename}`;
-      // Удаляем прежний ролик, если у него другое расширение (иначе останется мусор).
-      const prev = svc.rows[0].video_path;
-      if (prev && prev !== rel) fs.unlink(path.join(config.MEDIA_DIR, prev), () => {});
+      // Помечаем «в обработке» (старый ролик, если был, продолжает работать до готовности
+      // нового) и запускаем конвертацию в фоне — ответ отдаём сразу.
       await pool.query(
-        `UPDATE salons.services
-           SET video_path = $3, video_mime = $4, preview_enabled = TRUE, updated_at = NOW()
+        `UPDATE salons.services SET video_status = 'processing', updated_at = NOW()
          WHERE company_id = $1 AND id = $2`,
-        [req.auth!.company_id, req.params.id, rel, file.mimetype],
+        [req.auth!.company_id, req.params.id],
       );
-      return res.json({ video_path: rel, video_mime: file.mimetype, preview_enabled: true });
+      const origRel = `services/${file.filename}`;
+      void transcodeServiceVideo(req.auth!.company_id, req.params.id, origRel, file.mimetype);
+      return res.json({ video_status: 'processing' });
     })().catch(next);
   });
 });
@@ -170,10 +170,16 @@ router.delete('/:id/preview-video', requireRole(['owner', 'admin']), async (req,
       [req.auth!.company_id, req.params.id],
     );
     if (!svc.rows[0]) return next(new HttpError(404, 'service not found'));
-    if (svc.rows[0].video_path) fs.unlink(path.join(config.MEDIA_DIR, svc.rows[0].video_path), () => {});
+    // Удаляем все файлы услуги (mp4/оригинал/tmp), а не только текущий video_path.
+    try {
+      for (const f of fs.readdirSync(MEDIA_SERVICES_DIR)) {
+        if (f.startsWith(`${req.params.id}.`)) fs.unlink(path.join(MEDIA_SERVICES_DIR, f), () => {});
+      }
+    } catch { /* каталога может не быть */ }
     await pool.query(
       `UPDATE salons.services
-         SET video_path = NULL, video_mime = NULL, preview_enabled = FALSE, updated_at = NOW()
+         SET video_path = NULL, video_mime = NULL, preview_enabled = FALSE,
+             video_status = NULL, updated_at = NOW()
        WHERE company_id = $1 AND id = $2`,
       [req.auth!.company_id, req.params.id],
     );

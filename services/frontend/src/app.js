@@ -754,6 +754,7 @@ import { trapFocus } from './modules/focus-trap.js';
     document.getElementById('svcEditCommAmount').value = comm?.amount || '';
     document.getElementById('svcEditDesc').value = s.description || '';
     renderSvcPreview(s);
+    if (s.video_status === 'processing') pollSvcPreview(s.id, 60); else stopSvcPoll();
     document.getElementById('svcEditError').hidden = true;
     updateSvcCommLabel();
     svcSwitchTab('settings');
@@ -786,17 +787,40 @@ import { trapFocus } from './modules/focus-trap.js';
     const progEl = document.getElementById('svcPreviewProgress');
     if (fileEl) fileEl.value = '';
     if (progEl) { progEl.hidden = true; progEl.textContent = ''; }
+    const status = s.video_status;
     const hasVideo = !!(s.preview_enabled && s.video_path);
-    if (curEl) curEl.textContent = hasVideo
-      ? `Загружено (${(s.video_mime || '').replace('video/', '') || 'видео'})`
-      : 'Видео не загружено';
-    if (delBtn) delBtn.hidden = !hasVideo;
+    let txt;
+    if (status === 'processing') txt = '⏳ Конвертация видео… (обновится автоматически)';
+    else if (status === 'failed') txt = '⚠ Загружено без конвертации — показываем как есть';
+    else if (hasVideo) txt = '✓ Видео готово';
+    else txt = 'Видео не загружено';
+    if (curEl) curEl.textContent = txt;
+    if (delBtn) delBtn.hidden = !(hasVideo || status);
     if (linkWrap) linkWrap.hidden = !hasVideo;
     if (hasVideo) {
       const link = svcPreviewLink(s.id);
       document.getElementById('svcPreviewLink').value = link;
       document.getElementById('svcPreviewOpen').href = link;
     }
+  }
+  // Автообновление статуса, пока идёт фоновая конвертация.
+  let _svcPollTimer = null;
+  function stopSvcPoll() { if (_svcPollTimer) { clearTimeout(_svcPollTimer); _svcPollTimer = null; } }
+  function pollSvcPreview(id, tries) {
+    stopSvcPoll();
+    if (tries <= 0) return;
+    _svcPollTimer = setTimeout(async () => {
+      // Останавливаемся, если модалку закрыли или открыли другую услугу.
+      if (document.getElementById('svcEditBackdrop').hidden
+          || document.getElementById('svcEditId').value !== id) return;
+      await loadServices();
+      const s = cachedServices.find((x) => x.id === id);
+      if (!s) return;
+      renderSvcPreview(s);
+      if (s.video_status === 'processing') pollSvcPreview(id, tries - 1);
+      else if (s.video_status === 'ready') toast('Видео готово');
+      else if (s.video_status === 'failed') toast('Видео загружено (без конвертации)');
+    }, 4000);
   }
   async function reloadSvcAndPreview(id) {
     await loadServices();
@@ -822,9 +846,10 @@ import { trapFocus } from './modules/focus-trap.js';
     };
     xhr.onload = async () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        progEl.textContent = 'Готово ✓';
-        toast('Видео загружено');
+        progEl.hidden = true;
+        toast('Видео загружено, идёт конвертация');
         await reloadSvcAndPreview(id);
+        pollSvcPreview(id, 60); // ~4 мин ожидания конвертации
       } else {
         let msg = `Ошибка ${xhr.status}`;
         try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_e) { /* ignore */ }
@@ -974,13 +999,15 @@ import { trapFocus } from './modules/focus-trap.js';
 
   document.getElementById('svcEditCommType')?.addEventListener('change', updateSvcCommLabel);
   document.getElementById('svcEditClose')?.addEventListener('click', () => {
+    stopSvcPoll();
     document.getElementById('svcEditBackdrop').hidden = true;
   });
   document.getElementById('svcEditCancel')?.addEventListener('click', () => {
+    stopSvcPoll();
     document.getElementById('svcEditBackdrop').hidden = true;
   });
   document.getElementById('svcEditBackdrop')?.addEventListener('click', (e) => {
-    if (e.target.id === 'svcEditBackdrop') document.getElementById('svcEditBackdrop').hidden = true;
+    if (e.target.id === 'svcEditBackdrop') { stopSvcPoll(); document.getElementById('svcEditBackdrop').hidden = true; }
   });
   document.getElementById('svcEditForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
