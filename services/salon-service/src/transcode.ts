@@ -20,7 +20,12 @@ function runFfmpeg(input: string, output: string): Promise<void> {
     const ff = spawn('ffmpeg', [
       '-i', input,
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-      '-vf', "scale='min(1280,iw)':-2",
+      // 8-bit 4:2:0 обязателен: iPhone HDR/Dolby Vision снимает 10-bit HEVC, иначе на
+      // выходе получился бы 10-bit H.264, который не играет в браузерах. format+pix_fmt
+      // форсируют 8-бит (libx264 сам приведёт 10→8). Универсальная совместимость важнее
+      // точной HDR-передачи; tonemap не используем — требует libzimg, не всегда собран.
+      '-vf', "scale='min(1280,iw)':-2,format=yuv420p",
+      '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '128k',
       '-movflags', '+faststart',
       '-y', output,
