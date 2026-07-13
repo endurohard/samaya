@@ -3311,14 +3311,33 @@ import { trapFocus } from './modules/focus-trap.js';
     return escapeHtml(n.toLocaleString('ru-RU'));
   }
 
+  // Single-flight refresh: при параллельных запросах, поймавших 401, ротируемый
+  // refresh-токен обменивается ровно один раз. Иначе второй параллельный refresh
+  // уходит с уже инвалидированным токеном → ложный разлогин.
+  let _refreshInFlight = null;
+  function refreshTokens() {
+    if (!_refreshInFlight) {
+      _refreshInFlight = call('POST', '/api/auth/refresh', { refresh_token: store.refresh })
+        .then((res) => {
+          if (res.ok && res.data?.access_token) {
+            store.access = res.data.access_token;
+            if (res.data.refresh_token) store.refresh = res.data.refresh_token;
+            return true;
+          }
+          return false;
+        })
+        .catch(() => false)
+        .finally(() => { _refreshInFlight = null; });
+    }
+    return _refreshInFlight;
+  }
+
   async function apiCall(method, path, body) {
     const r = await call(method, path, body, store.access);
     if (r.status === 401 && store.refresh) {
-      // Прозрачный refresh: обновим access и повторим запрос.
-      const refreshRes = await call('POST', '/api/auth/refresh', { refresh_token: store.refresh });
-      if (refreshRes.ok && refreshRes.data?.access_token) {
-        store.access = refreshRes.data.access_token;
-        if (refreshRes.data.refresh_token) store.refresh = refreshRes.data.refresh_token;
+      // Прозрачный refresh (дедуплицированный): обновим access и повторим запрос.
+      const ok = await refreshTokens();
+      if (ok) {
         return await call(method, path, body, store.access);
       }
       // Refresh тоже умер → сессия мертва, очищаем токены и редиректим на профиль.

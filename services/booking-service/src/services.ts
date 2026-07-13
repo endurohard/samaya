@@ -59,3 +59,50 @@ export function toCompanyTime(date: string, time: string): Date {
   const t = time.length === 5 ? `${time}:00` : time;
   return new Date(`${date}T${t}${config.COMPANY_TZ_OFFSET}`);
 }
+
+// Смещение компании (например '+03:00') в минутах.
+function companyOffsetMinutes(): number {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(config.COMPANY_TZ_OFFSET);
+  if (!m) return 0;
+  const sign = m[1] === '-' ? -1 : 1;
+  return sign * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+// Локальная (в TZ компании) дата YYYY-MM-DD для момента времени.
+export function companyLocalDate(instant: Date): string {
+  const shifted = new Date(instant.getTime() + companyOffsetMinutes() * 60_000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * Проверяет, что интервал записи [startsAt, endsAt) лежит в будущем и попадает
+ * в рабочий график мастера на этот день (не выходной, в пределах смены).
+ * Бросает HttpError при нарушении. Использует ту же TZ, что и генерация слотов.
+ */
+export async function assertBookingWithinSchedule(
+  client: PoolClient,
+  companyId: string,
+  masterId: string,
+  startsAt: Date,
+  endsAt: Date,
+): Promise<void> {
+  if (startsAt.getTime() <= Date.now()) {
+    throw new HttpError(400, 'время записи в прошлом', 'PAST_TIME');
+  }
+  const workDate = companyLocalDate(startsAt);
+  const schedRes = await client.query(
+    `SELECT start_time::text AS start_time, end_time::text AS end_time, is_day_off
+     FROM salons.master_schedules
+     WHERE company_id = $1 AND master_id = $2 AND work_date = $3::date`,
+    [companyId, masterId, workDate],
+  );
+  const sched = schedRes.rows[0] as { start_time: string; end_time: string; is_day_off: boolean } | undefined;
+  if (!sched || sched.is_day_off) {
+    throw new HttpError(400, 'мастер не работает в это время', 'OUTSIDE_SCHEDULE');
+  }
+  const dayStart = toCompanyTime(workDate, sched.start_time);
+  const dayEnd = toCompanyTime(workDate, sched.end_time);
+  if (startsAt < dayStart || endsAt > dayEnd) {
+    throw new HttpError(400, 'время записи вне рабочего графика мастера', 'OUTSIDE_SCHEDULE');
+  }
+}

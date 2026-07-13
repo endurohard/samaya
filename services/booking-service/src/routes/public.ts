@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
-import { loadServiceSnapshots, assertMaster } from '../services';
+import { loadServiceSnapshots, assertMaster, assertBookingWithinSchedule } from '../services';
 import { buildConfirmationEmail, buildMasterNotifyEmail } from '../mailer';
 import { enqueueNotification } from '../notification-outbox';
 import { findOrCreateClientId } from '../client-link';
@@ -36,6 +36,10 @@ router.post('/create', async (req, res, next) => {
 
     const startsAt = new Date(input.starts_at);
     const endsAt = new Date(startsAt.getTime() + totalDuration * 60_000);
+
+    // Серверная проверка времени: не в прошлом и в пределах графика мастера.
+    // EXCLUDE-констрейнт в БД ловит только пересечения, но не «вне расписания».
+    await assertBookingWithinSchedule(client, companyId, input.master_id, startsAt, endsAt);
 
     // Привязываем онлайн-запись к карточке клиента (по телефону) — как и админскую.
     const clientId = await findOrCreateClientId(

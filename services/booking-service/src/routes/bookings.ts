@@ -276,14 +276,16 @@ router.get('/retention', async (req, res, next) => {
 
     const summaryRes = await pool.query(
       `WITH combined AS (
-         SELECT client_id, client_phone, client_name,
+         SELECT MAX(client_id) AS client_id,
+                MAX(client_phone) AS client_phone,
+                MAX(client_name) AS client_name,
                 COUNT(*) AS visits,
                 MAX(completed_at) AS last_visit
          FROM bookings.bookings
          WHERE company_id = $1
            AND status = 'completed'
            AND (client_id IS NOT NULL OR client_phone IS NOT NULL)
-         GROUP BY client_id, client_phone, client_name
+         GROUP BY COALESCE(client_id::text, client_phone)
        )
        SELECT
          COUNT(*)                                                                         AS total,
@@ -303,14 +305,16 @@ router.get('/retention', async (req, res, next) => {
 
     const atRiskRes = await pool.query(
       `WITH combined AS (
-         SELECT client_id, client_phone, client_name,
+         SELECT MAX(client_id) AS client_id,
+                MAX(client_phone) AS client_phone,
+                MAX(client_name) AS client_name,
                 COUNT(*) AS visits,
                 MAX(completed_at) AS last_visit
          FROM bookings.bookings
          WHERE company_id = $1
            AND status = 'completed'
            AND (client_id IS NOT NULL OR client_phone IS NOT NULL)
-         GROUP BY client_id, client_phone, client_name
+         GROUP BY COALESCE(client_id::text, client_phone)
        )
        SELECT client_id, client_phone, client_name,
               visits::int,
