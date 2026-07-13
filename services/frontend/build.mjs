@@ -13,6 +13,13 @@ const OUT = 'dist';
 const JS_ENTRIES = ['app.js', 'widget.js'];
 const CSS_ENTRIES = ['tokens.css', 'style.css', 'patch.css', 'widget.css'];
 
+// Внутренние файлы, которые НЕ должны попадать в публичный dist (раздаётся nginx
+// без авторизации): макет журнала записей preview.html и т.п.
+const EXCLUDE_FROM_DIST = new Set(['preview.html']);
+
+// Экранирование строки для использования внутри RegExp (все спецсимволы, не только точка).
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
 
@@ -47,11 +54,12 @@ for (const e of entries) {
   if (!e.isFile()) continue;
   const name = e.name;
   if (JS_ENTRIES.includes(name) || CSS_ENTRIES.includes(name)) continue; // уже собраны
+  if (EXCLUDE_FROM_DIST.has(name)) continue;                              // внутренние — не публикуем
   if (name.endsWith('.html')) {
     let html = await readFile(path.join(SRC, name), 'utf8');
     for (const [orig, hashed] of Object.entries(map)) {
       // /app.js, /app.js?v=..., /style.css?v=... → /app.<hash>.js
-      const re = new RegExp(`/${orig.replace('.', '\\.')}(\\?[^"']*)?`, 'g');
+      const re = new RegExp(`/${escapeRe(orig)}(\\?[^"']*)?`, 'g');
       html = html.replace(re, `/${hashed}`);
     }
     await writeFile(path.join(OUT, name), html);

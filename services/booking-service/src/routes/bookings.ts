@@ -965,18 +965,40 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
 });
 
 // ===== Mark no_show =====
+// Согласовано с /cancel: тот же набор полей (canceled_at) и outbox-событие
+// booking.no_show — чтобы не расходились данные и события для одного состояния.
 router.post('/:id/no-show', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `UPDATE bookings.bookings
-       SET status = 'no_show'
+       SET status = 'no_show', canceled_at = NOW()
        WHERE company_id = $1 AND id = $2 AND status IN ('confirmed', 'pending')
        RETURNING *, total_price::float8 AS total_price`,
       [req.auth!.company_id, req.params.id],
     );
-    if (!rows[0]) return next(new HttpError(404, 'booking not found'));
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return next(new HttpError(404, 'booking not found'));
+    }
+    await client.query(
+      `INSERT INTO bookings.booking_events_outbox (event_type, booking_id, company_id, payload)
+       VALUES ('booking.no_show', $1, $2, $3::jsonb)`,
+      [rows[0].id, req.auth!.company_id, JSON.stringify({
+        booking_id: rows[0].id,
+        marked_by: req.auth!.sub,
+        no_show: true,
+      })],
+    );
+    await client.query('COMMIT');
     return res.json(rows[0]);
-  } catch (e) { return next(e); }
+  } catch (e) {
+    await client.query('ROLLBACK');
+    return next(e);
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

@@ -87,8 +87,18 @@
     setTimeout(() => { els.error.hidden = true; }, 6000);
   }
 
+  // company_id из URL виджета (?company_id=…) — для мультиарендности. Если не задан,
+  // бэкенд подставит DEFAULT_COMPANY_ID (single-salon).
+  const COMPANY_ID = new URLSearchParams(location.search).get('company_id') || '';
+
+  // Добавляет company_id к query, если он задан.
+  function withCompany(path) {
+    if (!COMPANY_ID) return path;
+    return path + (path.includes('?') ? '&' : '?') + 'company_id=' + encodeURIComponent(COMPANY_ID);
+  }
+
   async function api(path) {
-    const res = await fetch(path);
+    const res = await fetch(withCompany(path));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
@@ -267,6 +277,7 @@
     };
     const notes = String(fd.get('notes') || '').trim();
     if (notes) body.notes = notes;
+    if (COMPANY_ID) body.company_id = COMPANY_ID;
 
     if (!body.client_name || !body.client_phone) {
       showError('Имя и телефон обязательны.');

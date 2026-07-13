@@ -19,6 +19,8 @@ interface ReminderRow {
   starts_at: string;
   master_name: string | null;
   services: string;
+  wa_sent: boolean;
+  email_sent: boolean;
 }
 
 function fillTemplate(tpl: string, row: ReminderRow, tz: string): string {
@@ -96,7 +98,9 @@ async function processReminders(): Promise<void> {
     const due24 = await pool.query<ReminderRow>(
       `SELECT b.id, b.company_id,
               b.client_phone, b.client_name,
-              b.starts_at::text AS starts_at,
+              to_char(b.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS starts_at,
+              (b.reminder_wa_sent_at IS NOT NULL)    AS wa_sent,
+              (b.reminder_email_sent_at IS NOT NULL) AS email_sent,
               COALESCE(m.display_name, '') AS master_name,
               COALESCE(c.email::text, '') AS client_email,
               COALESCE(
@@ -115,42 +119,20 @@ async function processReminders(): Promise<void> {
     );
 
     for (const row of due24.rows) {
-      let sent = false;
-      if (wa_reminder && row.client_phone) {
-        try {
-          await sendWa(row.client_phone, fillTemplate(tpl_24h || DEFAULT_TPL_24H, row, timezone));
-          sent = true;
-        } catch (e) {
-          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 24h WA FAIL');
-        }
-      }
-      if (email_reminder && row.client_email) {
-        try {
-          const { subject, html } = buildReminderEmail({
-            clientName: row.client_name || 'клиент',
-            masterName: row.master_name || 'мастер',
-            services: row.services,
-            startsAt: row.starts_at,
-            hoursAhead: 24,
-            timezone,
-          });
-          await sendMail({ to: row.client_email, subject, html });
-          sent = true;
-        } catch (e) {
-          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 24h email FAIL');
-        }
-      }
-      if (sent) {
-        await pool.query(`UPDATE bookings.bookings SET reminder_sent_at = NOW() WHERE id = $1`, [row.id]);
-        log.info({ booking_id: row.id }, '[reminders] 24h sent');
-      }
+      await sendReminderRow(row, {
+        wa_reminder, email_reminder, timezone, hoursAhead: 24,
+        tpl: tpl_24h || DEFAULT_TPL_24H,
+        waCol: 'reminder_wa_sent_at', emailCol: 'reminder_email_sent_at', umbrellaCol: 'reminder_sent_at',
+      });
     }
 
     // ── 2h window ──
     const due2h = await pool.query<ReminderRow>(
       `SELECT b.id, b.company_id,
               b.client_phone, b.client_name,
-              b.starts_at::text AS starts_at,
+              to_char(b.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS starts_at,
+              (b.reminder_2h_wa_sent_at IS NOT NULL)    AS wa_sent,
+              (b.reminder_2h_email_sent_at IS NOT NULL) AS email_sent,
               COALESCE(m.display_name, '') AS master_name,
               COALESCE(c.email::text, '') AS client_email,
               COALESCE(
@@ -169,36 +151,68 @@ async function processReminders(): Promise<void> {
     );
 
     for (const row of due2h.rows) {
-      let sent = false;
-      if (wa_reminder && row.client_phone) {
-        try {
-          await sendWa(row.client_phone, fillTemplate(tpl_2h || DEFAULT_TPL_2H, row, timezone));
-          sent = true;
-        } catch (e) {
-          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 2h WA FAIL');
-        }
-      }
-      if (email_reminder && row.client_email) {
-        try {
-          const { subject, html } = buildReminderEmail({
-            clientName: row.client_name || 'клиент',
-            masterName: row.master_name || 'мастер',
-            services: row.services,
-            startsAt: row.starts_at,
-            hoursAhead: 2,
-            timezone,
-          });
-          await sendMail({ to: row.client_email, subject, html });
-          sent = true;
-        } catch (e) {
-          log.error({ booking_id: row.id, err: (e as Error).message }, '[reminders] 2h email FAIL');
-        }
-      }
-      if (sent) {
-        await pool.query(`UPDATE bookings.bookings SET reminder_2h_sent_at = NOW() WHERE id = $1`, [row.id]);
-        log.info({ booking_id: row.id }, '[reminders] 2h sent');
-      }
+      await sendReminderRow(row, {
+        wa_reminder, email_reminder, timezone, hoursAhead: 2,
+        tpl: tpl_2h || DEFAULT_TPL_2H,
+        waCol: 'reminder_2h_wa_sent_at', emailCol: 'reminder_2h_email_sent_at', umbrellaCol: 'reminder_2h_sent_at',
+      });
     }
+  }
+}
+
+interface ReminderSendCfg {
+  wa_reminder: boolean;
+  email_reminder: boolean;
+  timezone: string;
+  hoursAhead: 2 | 24;
+  tpl: string;
+  waCol: string;
+  emailCol: string;
+  umbrellaCol: string;
+}
+
+// Отправляет напоминание по каждому включённому каналу независимо: канал, который
+// уже отправлен (по своей отметке), повторно не шлётся — так провал одного канала
+// не приводит к дублю другого. Умбрелла-флаг ставится, когда все применимые каналы
+// либо отправлены, либо неприменимы.
+async function sendReminderRow(row: ReminderRow, cfg: ReminderSendCfg): Promise<void> {
+  const waApplicable = cfg.wa_reminder && !!row.client_phone;
+  const emailApplicable = cfg.email_reminder && !!row.client_email;
+
+  let waDone = !waApplicable || row.wa_sent;
+  let emailDone = !emailApplicable || row.email_sent;
+
+  if (waApplicable && !row.wa_sent) {
+    try {
+      await sendWa(row.client_phone!, fillTemplate(cfg.tpl, row, cfg.timezone));
+      await pool.query(`UPDATE bookings.bookings SET ${cfg.waCol} = NOW() WHERE id = $1`, [row.id]);
+      waDone = true;
+    } catch (e) {
+      log.error({ booking_id: row.id, err: (e as Error).message }, `[reminders] ${cfg.hoursAhead}h WA FAIL`);
+    }
+  }
+
+  if (emailApplicable && !row.email_sent) {
+    try {
+      const { subject, html } = buildReminderEmail({
+        clientName: row.client_name || 'клиент',
+        masterName: row.master_name || 'мастер',
+        services: row.services,
+        startsAt: row.starts_at,
+        hoursAhead: cfg.hoursAhead,
+        timezone: cfg.timezone,
+      });
+      await sendMail({ to: row.client_email!, subject, html });
+      await pool.query(`UPDATE bookings.bookings SET ${cfg.emailCol} = NOW() WHERE id = $1`, [row.id]);
+      emailDone = true;
+    } catch (e) {
+      log.error({ booking_id: row.id, err: (e as Error).message }, `[reminders] ${cfg.hoursAhead}h email FAIL`);
+    }
+  }
+
+  if (waDone && emailDone) {
+    await pool.query(`UPDATE bookings.bookings SET ${cfg.umbrellaCol} = NOW() WHERE id = $1`, [row.id]);
+    log.info({ booking_id: row.id }, `[reminders] ${cfg.hoursAhead}h sent`);
   }
 }
 

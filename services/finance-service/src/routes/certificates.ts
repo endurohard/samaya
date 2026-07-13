@@ -152,7 +152,15 @@ router.post('/:id/redeem', authenticate, requireRole(['owner', 'admin', 'master'
       [c.id, input.booking_id ?? null, spend, req.auth!.sub, input.notes ?? null],
     );
     await client.query('COMMIT');
-    return res.json({ amount_used: spend, new_balance: newBalance, status: newStatus });
+    // Явно сообщаем, если списали меньше запрошенного (не хватило баланса сертификата),
+    // чтобы вызывающий не считал погашение полным.
+    return res.json({
+      amount_used: spend,
+      requested: input.amount,
+      partial: spend < input.amount,
+      new_balance: newBalance,
+      status: newStatus,
+    });
   } catch (e) {
     await client.query('ROLLBACK');
     return next(e);

@@ -283,10 +283,16 @@ function switchTab(tab) {
 }
 
 // File upload
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 МБ — совпадает с надписью и лимитом бэка
+
 document.getElementById('fileInput').addEventListener('change', async (e) => {
   const files = Array.from(e.target.files);
   if (!files.length) return;
   for (const file of files) {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`Файл «${file.name}» больше 15 МБ — не загружен.`);
+      continue;
+    }
     try {
       const data = await fileToBase64(file);
       const res = await fetch(`/api/clients/portal/${token}/files`, {
@@ -297,8 +303,12 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
       if (res.ok) {
         const f = await res.json();
         DATA.files.unshift(f);
+      } else {
+        alert(`Не удалось загрузить «${file.name}» (ошибка ${res.status}).`);
       }
-    } catch { /* ignore */ }
+    } catch {
+      alert(`Не удалось загрузить «${file.name}».`);
+    }
   }
   e.target.value = '';
   document.getElementById('tabContent').innerHTML = renderTab();
@@ -315,7 +325,18 @@ function fileToBase64(file) {
 
 async function deleteFile(fileId) {
   if (!confirm('Удалить файл?')) return;
-  await fetch(`/api/clients/portal/${token}/files/${fileId}`, { method: 'DELETE' });
+  let res;
+  try {
+    res = await fetch(`/api/clients/portal/${token}/files/${fileId}`, { method: 'DELETE' });
+  } catch {
+    alert('Не удалось удалить файл.');
+    return;
+  }
+  // Удаляем из UI только если сервер подтвердил — иначе файл «пропал» лишь визуально.
+  if (!res.ok) {
+    alert(`Не удалось удалить файл (ошибка ${res.status}).`);
+    return;
+  }
   DATA.files = DATA.files.filter(f => f.id !== fileId);
   document.getElementById('tabContent').innerHTML = renderTab();
 }
