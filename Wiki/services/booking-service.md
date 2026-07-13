@@ -92,7 +92,15 @@ EXCLUDE USING gist (
 
 - **Нет валидации в schedule** при ручном создании из админки: админ может поставить запись на 21:00 даже если мастер работает до 20:00. Слоты-эндпоинт это не позволит, но прямой POST позволит. Добавить в Phase 0a iteration.
 - **Воркер outbox** не реализован — события только пишутся, не публикуются.
-- **TZ один на всю инсталляцию** — `COMPANY_TZ_OFFSET` env. Для multi-tenant SaaS нужно поле `companies.timezone`.
+- **TZ:** слоты и валидация времени считаются по per-company IANA `salons.company_profile.timezone` (учёт DST) с fallback на `COMPANY_TZ_OFFSET` env — см. `src/tz.ts` и аудит [[../decisions/2026-07-13-security-correctness-audit]] (M15).
 - **Rate-limit** только глобальный Kong (600/min). Per-IP/per-phone лимит против бот-флуда — Phase 1.
 - **Нет напоминаний** клиенту (SMS/WhatsApp за день/час до приёма) — Phase 1.
 - **Нет переноса** записи (move to another time/master) одной операцией — пока через cancel + create.
+
+## Аудит 2026-07-13
+
+См. [[../decisions/2026-07-13-security-correctness-audit]]. Затронуто в booking-service:
+бонусы (C1) двигают `bonus_balance` с валидацией; валидация времени публичной записи
+(H2, `assertBookingWithinSchedule`); retention по `client_id` (H6); нормализация телефона
+в записях (M5); RBAC fail-closed (M8) и роль `master` только со своими записями (M9);
+per-company TZ (M15); `/no-show` согласован с `/cancel` (L1); пер-канальные напоминания (L2).

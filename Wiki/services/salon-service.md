@@ -82,3 +82,9 @@ DELETE на услугу/мастера — **soft-delete** (`is_active = FALSE`
 - **Нет фронта для категорий** — создание через curl или PATCH `category_id` в форме услуги.
 - **Нет UI для расписания** — bulk PUT работает, но grid-эдитор как у dikidi — следующая итерация (это самый объёмный экран).
 - **`master_services.custom_price`/`custom_duration_minutes`** — поля в БД есть, но фронт пока их не редактирует.
+
+## Аудит 2026-07-13
+
+См. [[../decisions/2026-07-13-security-correctness-audit]]. ffmpeg-транскод превью: очередь
+с лимитом параллелизма + таймаут (M11, защита от OOM при mem_limit 1g); уникальный tmp на
+задачу против гонки повторной загрузки (M12); RBAC fail-closed (M8).

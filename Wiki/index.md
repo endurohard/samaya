@@ -18,6 +18,7 @@
 - [[decisions/2026-04-25-mvp-scope]] — ADR-001: scope Phase 0 MVP, отложенные модули, архитектурные правила
 - [[decisions/2026-04-25-inventory-in-mvp]] — ADR-002: бамп inventory + tech-cards в Phase 0 (двухэтапная 0a/0b)
 - [[decisions/2026-04-25-clients-segments-in-mvp]] — ADR-003: client-service + сегменты на лету в Phase 0a
+- [[decisions/2026-07-13-security-correctness-audit]] — Аудит корректности/безопасности: ~30 находок (бонусы, poison event, двойная выплата ЗП, RBAC fail-closed, TZ) → PR #1
 
 ## Services
 - [[services/user-service]] (3001) — auth, пользователи, компании, роли — **готов**

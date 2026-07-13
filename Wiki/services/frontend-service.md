@@ -114,3 +114,11 @@ services/frontend/
 `aggregateTop()` строит топ-N + бакет «Остальные»; donut рисуется через stroke-dasharray на circle r=15.915 (длина окружности = 100), палитра `CHART_PALETTE` из 6 цветов. В центре — total. Легенда — UL с точкой/label/value.
 
 **В range-режимах** (week/month) каждая строка списка получает префикс-дату «26 апреля» (`MONTHS_RU_GENITIVE`).
+
+## Аудит 2026-07-13
+
+См. [[../decisions/2026-07-13-security-correctness-audit]]. Single-flight refresh против
+ложного разлогина (H4); виджет показывает время слотов в TZ салона (M16) и защищён от
+stale-ответа `loadSlots` (L10); портал — проверка ответов и валидация 15 МБ (L11); `build.mjs`
+не публикует `preview.html` в `dist` и экранирует все точки (L12); проброс `company_id` в
+публичные страницы (L13).
