@@ -15,13 +15,18 @@ const SERVICE_ID   = 'ssssssss-ssss-ssss-ssss-ssssssssssss';
 const PRODUCT_ID   = 'pppppppp-pppp-pppp-pppp-pppppppppppp';
 const LOT_ID       = 'llllllll-llll-llll-llll-llllllllllll';
 
-// Minimal PoolClient-like mock
+// Minimal PoolClient-like mock. Транзакционные control-запросы
+// (SAVEPOINT / RELEASE / ROLLBACK TO) не потребляют очередь ответов — так тесты
+// остаются независимыми от точного размещения точек сохранения.
 function makeClient(responses: Array<{ rows: unknown[]; rowCount?: number }>) {
   let i = 0;
   return {
-    query: vi.fn().mockImplementation(() =>
-      Promise.resolve(responses[i++] ?? { rows: [], rowCount: 0 }),
-    ),
+    query: vi.fn().mockImplementation((sql: string) => {
+      if (/^\s*(SAVEPOINT|RELEASE|ROLLBACK TO)/i.test(sql)) {
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve(responses[i++] ?? { rows: [], rowCount: 0 });
+    }),
   };
 }
 

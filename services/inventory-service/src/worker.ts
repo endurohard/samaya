@@ -141,22 +141,33 @@ async function processEvent(client: import('pg').PoolClient, eventId: string, lo
     let consumedAny = false;
     let insufficientCount = 0;
 
+    // Агрегируем потребление по продукту через все услуги записи: если две услуги
+    // используют один расходник, суммируем и списываем один раз. Иначе повторный
+    // INSERT движения для той же пары (booking, product, lot) даёт 23505.
+    const qtyByProduct = new Map<string, number>();
     for (const svc of services) {
       const tcItems = await loadTechCardItems(client, ev.company_id, svc.service_id);
       if (tcItems.length === 0) continue; // нет техкарты — пропускаем услугу
       consumedAny = true;
       for (const item of tcItems) {
-        const remaining = await consumeFifo(
-          client,
-          ev.company_id,
+        qtyByProduct.set(
           item.product_id,
-          warehouseId,
-          item.qty_per_service,
-          ev.booking_id,
-          log,
+          (qtyByProduct.get(item.product_id) ?? 0) + item.qty_per_service,
         );
-        if (remaining > 0) insufficientCount++;
       }
+    }
+
+    for (const [productId, qty] of qtyByProduct) {
+      const remaining = await consumeFifo(
+        client,
+        ev.company_id,
+        productId,
+        warehouseId,
+        qty,
+        ev.booking_id,
+        log,
+      );
+      if (remaining > 0) insufficientCount++;
     }
 
     if (!consumedAny) {
@@ -231,20 +242,22 @@ export async function consumeFifo(
     const take = Math.min(remaining, Number(lot.qty_remaining));
     if (take <= 0) continue;
 
-    // Атомарный декремент партии (двойная страховка против race — даже с FOR UPDATE)
-    const upd = await client.query(
-      `UPDATE inventory.stock_lots
-         SET qty_remaining = qty_remaining - $1
-       WHERE id = $2 AND qty_remaining >= $1`,
-      [take, lot.id],
-    );
-    if (upd.rowCount !== 1) {
-      log.warn({ lotId: lot.id, take }, 'unexpected lot update result; skipping');
-      continue;
-    }
-
-    // Запись движения (идемпотентность через UNIQUE source/product/lot)
+    // Декремент партии + запись движения — атомарно в одной точке сохранения.
+    // SAVEPOINT нужен, чтобы 23505 (идемпотентность) не абортил всю транзакцию
+    // события (25P02) — иначе событие становится «отравленным» и крутится вечно.
+    await client.query('SAVEPOINT mv');
     try {
+      const upd = await client.query(
+        `UPDATE inventory.stock_lots
+           SET qty_remaining = qty_remaining - $1
+         WHERE id = $2 AND qty_remaining >= $1`,
+        [take, lot.id],
+      );
+      if (upd.rowCount !== 1) {
+        await client.query('ROLLBACK TO SAVEPOINT mv');
+        log.warn({ lotId: lot.id, take }, 'unexpected lot update result; skipping');
+        continue;
+      }
       await client.query(
         `INSERT INTO inventory.stock_movements
            (company_id, product_id, lot_id, warehouse_id, movement_type, qty,
@@ -252,17 +265,14 @@ export async function consumeFifo(
          VALUES ($1, $2, $3, $4, 'consumption', $5, $6, 'booking', $7, NULL)`,
         [companyId, productId, lot.id, warehouseId, -take, lot.unit_cost, bookingId],
       );
+      await client.query('RELEASE SAVEPOINT mv');
     } catch (e: unknown) {
-      // 23505 unique violation — уже было списание для этой пары (booking, product, lot).
-      // Откатываем декремент партии и идём дальше — это не ошибка, это at-least-once retry.
+      await client.query('ROLLBACK TO SAVEPOINT mv');
+      // 23505 — списание для (booking, product, lot) уже зарегистрировано в прошлом
+      // прогоне (at-least-once). Откат к SAVEPOINT отменил и декремент, и вставку;
+      // считаем этот объём уже списанным и идём дальше.
       if ((e as { code?: string }).code === '23505') {
         log.debug({ bookingId, productId, lotId: lot.id }, 'duplicate movement, skipping');
-        await client.query(
-          `UPDATE inventory.stock_lots SET qty_remaining = qty_remaining + $1 WHERE id = $2`,
-          [take, lot.id],
-        );
-        // Пытаемся определить, было ли уже списание этого take именно для этого bookingId
-        // в этой партии. Если да — сами списания уже зарегистрированы, пропускаем.
         remaining -= take;
         continue;
       }
@@ -273,6 +283,7 @@ export async function consumeFifo(
 
   if (remaining > 0) {
     // Не хватило: фиксируем виртуальное движение со ссылкой и флагом
+    await client.query('SAVEPOINT mv_ins');
     try {
       await client.query(
         `INSERT INTO inventory.stock_movements
@@ -282,7 +293,9 @@ export async function consumeFifo(
                  'stock_insufficient: not enough stock at fulfillment time')`,
         [companyId, productId, warehouseId, -remaining, bookingId],
       );
+      await client.query('RELEASE SAVEPOINT mv_ins');
     } catch (e: unknown) {
+      await client.query('ROLLBACK TO SAVEPOINT mv_ins');
       if ((e as { code?: string }).code !== '23505') throw e;
       // дубль виртуального движения — игнор
     }

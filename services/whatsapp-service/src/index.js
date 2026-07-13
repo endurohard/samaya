@@ -40,13 +40,42 @@ app.post('/api/whatsapp/send', async (req, res) => {
   }
 });
 
-// ── Broadcast (sequential, с задержкой между сообщениями) ──
+// ── Broadcast (фоновый job) ──
 // Body: { recipients: [{phone, name}], message: string }
-// Поддерживает шаблон {name} → имя клиента
-let _broadcastRunning = false;
+// Поддерживает шаблон {name} → имя клиента.
+// Рассылка выполняется в фоне: POST сразу возвращает 202, прогресс — через
+// GET /api/whatsapp/broadcast/status. Иначе долгая рассылка обрывается по
+// proxy-timeout шлюза, а клиент не узнаёт результат.
+let _broadcast = { running: false, total: 0, sent: 0, failed: [], started_at: null, finished_at: null };
 
-app.post('/api/whatsapp/broadcast', async (req, res) => {
-  if (_broadcastRunning) {
+async function runBroadcast(recipients, message) {
+  const DELAY = Number(process.env.BROADCAST_DELAY_MS || 2500);
+  const total = recipients.length;
+  console.log(`[WA][broadcast] Starting: ${total} recipients`);
+  try {
+    for (const { phone, name } of recipients) {
+      const text = message.replace(/\{name\}/g, name || '');
+      try {
+        await wa.sendMessage(phone, text);
+        _broadcast.sent++;
+        console.log(`[WA][broadcast] ${_broadcast.sent}/${total} → ${phone}`);
+      } catch (err) {
+        console.error(`[WA][broadcast] FAIL → ${phone}: ${err.message}`);
+        _broadcast.failed.push({ phone, error: err.message });
+      }
+      if (_broadcast.sent + _broadcast.failed.length < total) {
+        await new Promise(r => setTimeout(r, DELAY));
+      }
+    }
+  } finally {
+    _broadcast.running = false;
+    _broadcast.finished_at = new Date().toISOString();
+    console.log(`[WA][broadcast] Done: sent=${_broadcast.sent} failed=${_broadcast.failed.length}`);
+  }
+}
+
+app.post('/api/whatsapp/broadcast', (req, res) => {
+  if (_broadcast.running) {
     return res.status(409).json({ error: 'broadcast_running', message: 'Рассылка уже идёт' });
   }
   const { recipients, message } = req.body || {};
@@ -57,34 +86,27 @@ app.post('/api/whatsapp/broadcast', async (req, res) => {
     return res.status(400).json({ error: 'message required' });
   }
 
-  _broadcastRunning = true;
-  const total = recipients.length;
-  let sent = 0;
-  const failed = [];
+  _broadcast = {
+    running: true, total: recipients.length, sent: 0, failed: [],
+    started_at: new Date().toISOString(), finished_at: null,
+  };
+  // Запускаем в фоне; ошибки внутри уже пойманы в runBroadcast.
+  runBroadcast(recipients, message).catch(err => {
+    console.error('[WA][broadcast] fatal:', err.message);
+  });
+  return res.status(202).json({ accepted: true, total: recipients.length });
+});
 
-  // Delay between messages (ms) — снижает риск блокировки WA
-  const DELAY = Number(process.env.BROADCAST_DELAY_MS || 2500);
-
-  console.log(`[WA][broadcast] Starting: ${total} recipients`);
-
-  for (const { phone, name } of recipients) {
-    const text = message.replace(/\{name\}/g, name || '');
-    try {
-      await wa.sendMessage(phone, text);
-      sent++;
-      console.log(`[WA][broadcast] ${sent}/${total} → ${phone}`);
-    } catch (err) {
-      console.error(`[WA][broadcast] FAIL → ${phone}: ${err.message}`);
-      failed.push({ phone, error: err.message });
-    }
-    if (sent + failed.length < total) {
-      await new Promise(r => setTimeout(r, DELAY));
-    }
-  }
-
-  _broadcastRunning = false;
-  console.log(`[WA][broadcast] Done: sent=${sent} failed=${failed.length}`);
-  return res.json({ total, sent, failed_count: failed.length, failed });
+app.get('/api/whatsapp/broadcast/status', (_req, res) => {
+  return res.json({
+    running: _broadcast.running,
+    total: _broadcast.total,
+    sent: _broadcast.sent,
+    failed_count: _broadcast.failed.length,
+    failed: _broadcast.failed,
+    started_at: _broadcast.started_at,
+    finished_at: _broadcast.finished_at,
+  });
 });
 
 // ── Restart ──
@@ -95,6 +117,14 @@ app.post('/api/whatsapp/restart', async (_req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// Не роняем процесс из-за необработанных ошибок в фоновых задачах (Puppeteer/сеть).
+process.on('unhandledRejection', (reason) => {
+  console.error('[WA] unhandledRejection:', reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[WA] uncaughtException:', err?.message || err);
 });
 
 app.listen(PORT, () => {

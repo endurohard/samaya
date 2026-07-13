@@ -691,14 +691,30 @@ const completeSchema = z.object({
   discount_pct: z.number().min(0).max(100).default(0),
   promo_code: z.string().optional(),
   bonus_spend: z.number().min(0).default(0),
-  bonus_accrual: z.number().min(0).default(0),
+  // bonus_accrual больше не принимается от клиента — начисление считает сервер
+  // по настройкам бонусной программы (см. ниже). Поле игнорируется, если прислано.
 });
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const input = completeSchema.parse(req.body ?? {});
     await client.query('BEGIN');
+
+    // Блокируем запись и берём текущие значения до апдейта.
+    const cur = await client.query(
+      `SELECT id, client_id, status, total_price::float8 AS total_price
+       FROM bookings.bookings
+       WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+      [req.auth!.company_id, req.params.id],
+    );
+    if (!cur.rows[0] || !['confirmed', 'pending'].includes(cur.rows[0].status)) {
+      await client.query('ROLLBACK');
+      return next(new HttpError(404, 'booking not found or not completable'));
+    }
+    const bk0 = cur.rows[0];
 
     let promoId: string | null = null;
     let discountPct = input.discount_pct;
@@ -723,32 +739,113 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       }
     }
 
+    const discountAmount = round2(bk0.total_price * discountPct / 100);
+    const checkAmount = round2(bk0.total_price - discountAmount); // сумма к оплате до бонусов
+
+    // ── Бонусная программа ──────────────────────────────────────────────
+    // Настройки: settings_jsonb->'bonus' = { enabled, accrual_rate, max_spend_pct }
+    const bonusCfgRes = await client.query(
+      `SELECT settings_jsonb->'bonus' AS bonus FROM salons.company_profile WHERE company_id = $1`,
+      [req.auth!.company_id],
+    );
+    const bonusCfg = bonusCfgRes.rows[0]?.bonus ?? {};
+    const bonusEnabled = bonusCfg.enabled !== false; // по умолчанию включена
+    const maxSpendPct = Math.min(100, Math.max(0, Number(bonusCfg.max_spend_pct ?? 100)));
+    const accrualRate = Math.max(0, Number(bonusCfg.accrual_rate ?? 0));
+
+    let bonusSpend = round2(Math.max(0, input.bonus_spend));
+    let clientBonusBalance = 0;
+    if (bk0.client_id) {
+      const cb = await client.query(
+        `SELECT bonus_balance::float8 AS bb FROM clients.clients
+         WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+        [req.auth!.company_id, bk0.client_id],
+      );
+      clientBonusBalance = cb.rows[0]?.bb ?? 0;
+    }
+
+    // Валидация списания бонусов (иначе — 400, чтобы не скрывать ошибки клиента).
+    if (bonusSpend > 0) {
+      if (!bonusEnabled) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'бонусная программа отключена', 'BONUS_DISABLED'));
+      }
+      if (!bk0.client_id) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'нет привязанного клиента для списания бонусов', 'NO_CLIENT'));
+      }
+      if (bonusSpend > clientBonusBalance) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'недостаточно бонусов на счёте клиента', 'INSUFFICIENT_BONUS'));
+      }
+      if (bonusSpend > checkAmount) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, 'списываемых бонусов больше суммы чека', 'BONUS_OVER_CHECK'));
+      }
+      const maxByPct = round2(checkAmount * maxSpendPct / 100);
+      if (bonusSpend > maxByPct) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(400, `бонусами можно оплатить не более ${maxSpendPct}% чека`, 'BONUS_LIMIT'));
+      }
+    }
+
+    const paidAmount = round2(Math.max(0, checkAmount - bonusSpend));
+    // Начисление считает сервер: accrual_rate % от фактически оплаченной суммы.
+    const bonusAccrual =
+      bonusEnabled && bk0.client_id && accrualRate > 0 ? round2(paidAmount * accrualRate / 100) : 0;
+
     const upd = await client.query(
       `UPDATE bookings.bookings
        SET status = 'completed', completed_at = NOW(),
            payment_method = $3,
            discount_pct = $4,
-           discount_amount = ROUND(total_price * $4 / 100, 2),
-           promo_id = $5,
-           promo_code = $6,
-           bonus_spend   = $7,
-           bonus_accrual = $8
+           discount_amount = $5,
+           promo_id = $6,
+           promo_code = $7,
+           bonus_spend   = $8,
+           bonus_accrual = $9
        WHERE company_id = $1 AND id = $2 AND status IN ('confirmed', 'pending')
        RETURNING *,
          total_price::float8 AS total_price,
          discount_amount::float8 AS discount_amount,
          bonus_spend::float8   AS bonus_spend,
          bonus_accrual::float8 AS bonus_accrual,
-         (total_price - discount_amount - bonus_spend)::float8 AS paid_amount`,
+         GREATEST(total_price - discount_amount - bonus_spend, 0)::float8 AS paid_amount`,
       [
         req.auth!.company_id, req.params.id, input.payment_method, discountPct,
-        promoId, input.promo_code?.toUpperCase() ?? null,
-        input.bonus_spend, input.bonus_accrual,
+        discountAmount, promoId, input.promo_code?.toUpperCase() ?? null,
+        bonusSpend, bonusAccrual,
       ],
     );
     if (!upd.rows[0]) {
       await client.query('ROLLBACK');
       return next(new HttpError(404, 'booking not found or not completable'));
+    }
+
+    // Двигаем бонусный счёт клиента атомарно в той же транзакции + журнал.
+    if (bk0.client_id && (bonusSpend > 0 || bonusAccrual > 0)) {
+      await client.query(
+        `UPDATE clients.clients
+         SET bonus_balance = bonus_balance - $1 + $2, updated_at = NOW()
+         WHERE company_id = $3 AND id = $4`,
+        [bonusSpend, bonusAccrual, req.auth!.company_id, bk0.client_id],
+      );
+      if (bonusSpend > 0) {
+        await client.query(
+          `INSERT INTO clients.bonus_operations (company_id, client_id, kind, amount, booking_id, note, created_by)
+           VALUES ($1, $2, 'spend', $3, $4, 'Списание бонусов при оформлении', $5)
+           ON CONFLICT (booking_id, kind) WHERE booking_id IS NOT NULL DO NOTHING`,
+          [req.auth!.company_id, bk0.client_id, bonusSpend, bk0.id, req.auth!.sub],
+        );
+      }
+      if (bonusAccrual > 0) {
+        await client.query(
+          `INSERT INTO clients.bonus_operations (company_id, client_id, kind, amount, booking_id, note, created_by)
+           VALUES ($1, $2, 'accrual', $3, $4, 'Начисление бонусов за визит', $5)
+           ON CONFLICT (booking_id, kind) WHERE booking_id IS NOT NULL DO NOTHING`,
+          [req.auth!.company_id, bk0.client_id, bonusAccrual, bk0.id, req.auth!.sub],
+        );
+      }
     }
 
     // Оплата с лицевого счёта клиента: списываем сумму к оплате с баланса.

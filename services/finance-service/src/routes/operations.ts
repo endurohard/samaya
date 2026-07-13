@@ -114,10 +114,16 @@ router.post('/income', requireRole(['owner', 'admin']), async (req, res, next) =
 });
 
 // ===== POST /expense =====
+const expenseSchema = incomeSchema.extend({
+  // Идемпотентный ключ внешнего источника (напр. { source_type:'salary_payout', source_id:<uuid> }).
+  source_type: z.string().max(50).optional(),
+  source_id: z.string().uuid().optional(),
+});
+
 router.post('/expense', requireRole(['owner', 'admin']), async (req, res, next) => {
   const client = await pool.connect();
   try {
-    const input = incomeSchema.parse(req.body);
+    const input = expenseSchema.parse(req.body);
     await client.query('BEGIN');
     const { id } = await insertOpAndUpdateBalance(client, {
       companyId: req.auth!.company_id,
@@ -130,6 +136,8 @@ router.post('/expense', requireRole(['owner', 'admin']), async (req, res, next) 
       note: input.note ?? null,
       transferGroupId: null,
       createdByUserId: req.auth!.sub,
+      sourceType: input.source_type ?? null,
+      sourceId: input.source_id ?? null,
     });
     await client.query('COMMIT');
     return res.status(201).json({ id });
@@ -250,11 +258,14 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Загружаем операцию + связанные (для transfer удаляем парную)
+    // Загружаем операцию + связанные (для transfer удаляем парную) под блокировкой,
+    // чтобы два конкурентных DELETE не сделали двойной реверс баланса.
     const { rows: ops } = await client.query(
-      `SELECT id, account_id, kind, amount::float8 AS amount, transfer_group_id, is_deleted
+      `SELECT id, account_id, kind, amount::float8 AS amount,
+              balance_delta::float8 AS balance_delta, transfer_group_id, is_deleted
        FROM finance.operations
-       WHERE company_id = $1 AND id = $2`,
+       WHERE company_id = $1 AND id = $2
+       FOR UPDATE`,
       [req.auth!.company_id, req.params.id],
     );
     if (!ops[0]) throw new HttpError(404, 'operation not found');
@@ -264,28 +275,40 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
     let toDelete: typeof ops = [target];
     if (target.transfer_group_id) {
       const { rows: pair } = await client.query(
-        `SELECT id, account_id, kind, amount::float8 AS amount, transfer_group_id, is_deleted
+        `SELECT id, account_id, kind, amount::float8 AS amount,
+                balance_delta::float8 AS balance_delta, transfer_group_id, is_deleted
          FROM finance.operations
-         WHERE company_id = $1 AND transfer_group_id = $2 AND is_deleted = FALSE`,
+         WHERE company_id = $1 AND transfer_group_id = $2 AND is_deleted = FALSE
+         FOR UPDATE`,
         [req.auth!.company_id, target.transfer_group_id],
       );
       toDelete = pair;
     }
     for (const op of toDelete) {
-      // Reverse balance
-      let delta = 0;
-      if (op.kind === 'income' || op.kind === 'transfer_in') delta = -op.amount;
-      else if (op.kind === 'expense' || op.kind === 'transfer_out') delta = op.amount;
-      else if (op.kind === 'adjust') delta = -op.amount;
+      // Reverse balance. Предпочитаем знаковую balance_delta (корректно для adjust);
+      // для legacy-строк без неё — старая ветка по kind.
+      let delta: number;
+      if (op.balance_delta !== null && op.balance_delta !== undefined) {
+        delta = -op.balance_delta;
+      } else if (op.kind === 'income' || op.kind === 'transfer_in') {
+        delta = -op.amount;
+      } else if (op.kind === 'expense' || op.kind === 'transfer_out') {
+        delta = op.amount;
+      } else {
+        delta = -op.amount; // adjust legacy — знак неизвестен, поведение как раньше
+      }
+      // Атомарный guard: помечаем удалённой только если ещё не удалена; если строку
+      // уже забрал конкурентный DELETE — реверс не применяем.
+      const del = await client.query(
+        `UPDATE finance.operations SET is_deleted = TRUE, deleted_at = NOW()
+         WHERE id = $1 AND is_deleted = FALSE`,
+        [op.id],
+      );
+      if (del.rowCount !== 1) continue;
       await client.query(
         `UPDATE finance.accounts SET current_balance = current_balance + $1
          WHERE id = $2 AND company_id = $3`,
         [delta, op.account_id, req.auth!.company_id],
-      );
-      await client.query(
-        `UPDATE finance.operations SET is_deleted = TRUE, deleted_at = NOW()
-         WHERE id = $1`,
-        [op.id],
       );
     }
     await client.query('COMMIT');

@@ -81,6 +81,9 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
         amount: input.amount,
         op_date: input.paid_on,
         note: `Зарплата · ${masterName}` + (input.note ? ` · ${input.note}` : ''),
+        // Идемпотентный ключ: повтор/ретрай не создаст вторую расходную операцию.
+        source_type: 'salary_payout',
+        source_id: payoutId,
       }),
     });
     if (!r.ok) {
@@ -120,19 +123,25 @@ const retrySchema = z.object({
 });
 
 router.post('/:id/retry', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
   try {
     const input = retrySchema.parse(req.body);
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    // Блокируем строку выплаты на всё время ретрая — конкурентные ретраи
+    // сериализуются, а идемпотентность на стороне finance страхует от дубля операции.
+    const { rows } = await client.query(
       `SELECT id, master_id, amount::float8 AS amount, paid_on, status, note
        FROM salary.payouts
-       WHERE company_id = $1 AND id = $2`,
+       WHERE company_id = $1 AND id = $2
+       FOR UPDATE`,
       [req.auth!.company_id, req.params.id],
     );
     const p = rows[0];
-    if (!p) return next(new HttpError(404, 'payout not found'));
-    if (p.status === 'posted') return next(new HttpError(409, 'already posted', 'POSTED'));
+    if (!p) { await client.query('ROLLBACK'); return next(new HttpError(404, 'payout not found')); }
+    if (p.status === 'posted') { await client.query('ROLLBACK'); return next(new HttpError(409, 'already posted', 'POSTED')); }
 
-    const m = await pool.query(
+    const m = await client.query(
       `SELECT display_name AS name FROM salons.masters
        WHERE company_id = $1 AND id = $2`,
       [req.auth!.company_id, p.master_id],
@@ -148,20 +157,23 @@ router.post('/:id/retry', requireRole(['owner', 'admin']), async (req, res, next
         amount: p.amount,
         op_date: p.paid_on,
         note: `Зарплата · ${masterName}` + (p.note ? ` · ${p.note}` : ''),
+        source_type: 'salary_payout',
+        source_id: p.id,
       }),
     });
     if (!r.ok) {
       const errText = await r.text();
-      await pool.query(
+      await client.query(
         `UPDATE salary.payouts SET failure_reason = $1
          WHERE id = $2 AND company_id = $3`,
         [`finance ${r.status}: ${errText.slice(0, 200)}`, p.id, req.auth!.company_id],
       );
+      await client.query('COMMIT');
       return next(new HttpError(502, `finance-service ${r.status}`, 'FINANCE_FAIL'));
     }
     const fin = (await r.json()) as { id: string };
 
-    const final = await pool.query(
+    const final = await client.query(
       `UPDATE salary.payouts SET status = 'posted', posted_at = NOW(),
                                  finance_operation_id = $1, failure_reason = NULL
        WHERE id = $2 AND company_id = $3
@@ -169,8 +181,14 @@ router.post('/:id/retry', requireRole(['owner', 'admin']), async (req, res, next
                  finance_operation_id, status, posted_at`,
       [fin.id, p.id, req.auth!.company_id],
     );
+    await client.query('COMMIT');
     return res.json(final.rows[0]);
-  } catch (e) { return next(e); }
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch { /* noop */ }
+    return next(e);
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

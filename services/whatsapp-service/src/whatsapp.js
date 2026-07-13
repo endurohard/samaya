@@ -23,6 +23,11 @@ class WhatsAppManager {
     this.statusMsg = 'not_started';
     this.lastError = null;
     this._initPromise = null;
+    // Единственная страница Puppeteer — все операции с ней сериализуем через эту
+    // очередь, иначе параллельные отправки перемешивают ввод и сообщение уходит
+    // не тому получателю.
+    this._queue = Promise.resolve();
+    this._healthIv = null;
 
     if (!fs.existsSync(SESSION_DIR)) {
       fs.mkdirSync(SESSION_DIR, { recursive: true });
@@ -47,13 +52,26 @@ class WhatsAppManager {
 
   getQR() { return this.qrDataUrl; }
 
+  // Сериализация операций с единственной страницей. Каждая задача ждёт завершения
+  // предыдущей; ошибка одной задачи не рвёт цепочку для следующих.
+  _enqueue(fn) {
+    const run = this._queue.then(() => fn(), () => fn());
+    // держим «хвост» очереди, но проглатываем результат/ошибку, чтобы не копить unhandled
+    this._queue = run.then(() => {}, () => {});
+    return run;
+  }
+
   // ── Cleanup stale Chrome processes (iTTEST pattern) ──
   async _cleanup() {
     const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
     const hasLock = locks.some(f => fs.existsSync(path.join(SESSION_DIR, f)));
     if (!hasLock) return;
     console.log('[WA] Cleaning stale Chrome locks…');
-    try { await execAsync('pkill -9 chrome 2>/dev/null; pkill -9 chromium 2>/dev/null'); } catch { /* ok */ }
+    // Убиваем только процессы Chromium этой сессии (по userDataDir), а не все
+    // headless-браузеры в контейнере.
+    try {
+      await execAsync(`pkill -9 -f ${JSON.stringify('user-data-dir=' + SESSION_DIR)} 2>/dev/null`);
+    } catch { /* ok */ }
     await new Promise(r => setTimeout(r, 1500));
     for (const f of locks) {
       try { fs.unlinkSync(path.join(SESSION_DIR, f)); } catch { /* ok */ }
@@ -103,8 +121,39 @@ class WhatsAppManager {
       this.statusMsg = 'error';
       this.lastError = err.message;
       this._initPromise = null;
+      // Закрываем частично поднятый браузер, иначе процесс Chromium утекает
+      // и накапливается при повторных сбоях инициализации.
+      try { if (this.browser) await this.browser.close(); } catch { /* ok */ }
+      this.browser = null;
+      this.page = null;
       console.error('[WA] Init error:', err.message);
     }
+  }
+
+  // Периодическая проверка живости веб-сессии. Если телефон разлогинил сессию,
+  // isReady сбрасывается и запускается переинициализация — иначе отправки молча
+  // висят по 30 c на waitForSelector, а статус остаётся 'ready'.
+  _startHealthCheck() {
+    if (this._healthIv) clearInterval(this._healthIv);
+    this._healthIv = setInterval(async () => {
+      if (!this.isReady || !this.page) return;
+      try {
+        const alive = await this.page.evaluate(() => {
+          return !!(document.querySelector('#side')
+            || document.querySelector('[data-testid="chat-list"]'));
+        });
+        if (!alive) {
+          console.warn('[WA] Session appears logged out — reinitializing');
+          this.isReady = false;
+          this.statusMsg = 'disconnected';
+          clearInterval(this._healthIv);
+          this._healthIv = null;
+          this.restart().catch(e => console.error('[WA] auto-restart failed:', e.message));
+        }
+      } catch (e) {
+        console.warn('[WA] Health check error:', e.message);
+      }
+    }, 30_000);
   }
 
   // Poll until authenticated or QR appears
@@ -132,6 +181,7 @@ class WhatsAppManager {
           this.qrDataUrl = null;
           this.statusMsg = 'ready';
           console.log('[WA] Ready!');
+          this._startHealthCheck();
           return;
         }
 
@@ -160,10 +210,14 @@ class WhatsAppManager {
   }
 
   // ── Phone normalization ──
+  // Бросает при мусорном/слишком коротком вводе, иначе можно отправить на «7».
   _normalizePhone(raw) {
-    let d = raw.replace(/[^0-9]/g, '');
+    let d = String(raw || '').replace(/[^0-9]/g, '');
     if (d.startsWith('8')) d = '7' + d.slice(1);
     if (!d.startsWith('7')) d = '7' + d;
+    if (d.length < 11 || d.length > 15) {
+      throw new Error(`invalid phone: ${raw}`);
+    }
     return d;
   }
 
@@ -191,32 +245,46 @@ class WhatsAppManager {
       console.log(`[WA][TEST] → ${clean}: ${message.slice(0, 80)}`);
       return { success: true, test_mode: true, phone: clean };
     }
-    if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
-
+    // Валидируем номер до постановки в очередь, чтобы плохой ввод не занимал слот.
     const clean = this._normalizePhone(phone);
-    console.log(`[WA] Sending to ${clean}…`);
 
-    await this._openChat(clean);
+    // Все операции с this.page строго последовательны — см. _enqueue.
+    return this._enqueue(async () => {
+      if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
+      console.log(`[WA] Sending to ${clean}…`);
 
-    // Type and send
-    const input = await this.page.$('[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]');
-    await input.click();
+      await this._openChat(clean);
 
-    // Split message by newlines for proper Enter handling
-    for (const line of message.split('\n')) {
-      await this.page.keyboard.type(line);
-      await this.page.keyboard.down('Shift');
+      // Type and send
+      const input = await this.page.$('[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]');
+      await input.click();
+
+      // Split message by newlines for proper Enter handling
+      for (const line of message.split('\n')) {
+        await this.page.keyboard.type(line);
+        await this.page.keyboard.down('Shift');
+        await this.page.keyboard.press('Enter');
+        await this.page.keyboard.up('Shift');
+      }
+
+      // Remove last extra newline by pressing Backspace, then send
+      await this.page.keyboard.press('Backspace');
       await this.page.keyboard.press('Enter');
-      await this.page.keyboard.up('Shift');
-    }
+      await new Promise(r => setTimeout(r, 1500));
 
-    // Remove last extra newline by pressing Backspace, then send
-    await this.page.keyboard.press('Backspace');
-    await this.page.keyboard.press('Enter');
-    await new Promise(r => setTimeout(r, 1500));
+      // Подтверждение отправки: поле ввода должно очиститься. Если текст остался —
+      // сообщение не ушло (сетевой лаг/зависание), не рапортуем ложный success.
+      const stillHasText = await this.page.evaluate(() => {
+        const el = document.querySelector('[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]');
+        return !!(el && el.textContent && el.textContent.trim().length > 0);
+      }).catch(() => false);
+      if (stillHasText) {
+        throw new Error('message not sent (compose box not cleared)');
+      }
 
-    console.log(`[WA] Sent to ${clean}`);
-    return { success: true, phone: clean };
+      console.log(`[WA] Sent to ${clean}`);
+      return { success: true, phone: clean };
+    });
   }
 
   async restart() {
@@ -224,6 +292,7 @@ class WhatsAppManager {
     this.statusMsg = 'restarting';
     this.qrDataUrl = null;
     this._initPromise = null;
+    if (this._healthIv) { clearInterval(this._healthIv); this._healthIv = null; }
     try {
       if (this.browser) await this.browser.close();
     } catch { /* ok */ }
