@@ -4,7 +4,7 @@ import { isoDate } from '../validators';
 import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
-import { toCompanyTime } from '../services';
+import { toCompanyTime, getCompanyTimezone } from '../services';
 import { generateSlots } from '../slots.service';
 
 const router = Router();
@@ -56,8 +56,9 @@ router.get('/', async (req, res, next) => {
     }
     const sched = schedRes.rows[0] as { start_time: string; end_time: string };
 
-    const dayStart = toCompanyTime(q.date, sched.start_time);
-    const dayEnd = toCompanyTime(q.date, sched.end_time);
+    const tz = await getCompanyTimezone(pool, companyId);
+    const dayStart = toCompanyTime(q.date, sched.start_time, tz);
+    const dayEnd = toCompanyTime(q.date, sched.end_time, tz);
 
     // 3. Активные брони этого мастера, пересекающие день
     const bookRes = await pool.query(
@@ -78,6 +79,9 @@ router.get('/', async (req, res, next) => {
         total_duration_minutes: totalMinutes,
         step_minutes: config.SLOT_STEP_MINUTES,
         schedule: { start_time: sched.start_time, end_time: sched.end_time },
+        // Таймзона салона — чтобы виджет показывал время слотов в TZ салона,
+        // а не в TZ браузера клиента (клиент может быть в другом поясе).
+        timezone: tz,
         booked_count: bookRes.rows.length,
       },
     });

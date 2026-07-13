@@ -35,6 +35,7 @@ function makeScheme(overrides: Partial<SalaryScheme>): SalaryScheme {
     rate_amount: 0,
     rate_period: 'month',
     percent_services: 0,
+    percent_goods: 0,
     guaranteed: 0,
     ...overrides,
   };
@@ -45,8 +46,31 @@ describe('computeMasterSalary', () => {
     expect(computeMasterSalary(null, 10000, 30)).toEqual({
       rate: 0,
       pct_services: 0,
+      pct_goods: 0,
       guaranteed: 0,
       total: 0,
+    });
+  });
+
+  describe('monthly rate divisor (M4)', () => {
+    it('uses real days-in-month divisor when provided (31 days)', () => {
+      const scheme = makeScheme({ scheme_type: 'rate', rate_amount: 31000, rate_period: 'month' });
+      // perDay = 31000/31 = 1000, × 31 = 31000 (не переплачивает как при /30)
+      const { rate } = computeMasterSalary(scheme, 0, 31, 31);
+      expect(rate).toBe(31000);
+    });
+    it('February: 28-day divisor', () => {
+      const scheme = makeScheme({ scheme_type: 'rate', rate_amount: 28000, rate_period: 'month' });
+      const { rate } = computeMasterSalary(scheme, 0, 28, 28);
+      expect(rate).toBe(28000);
+    });
+  });
+
+  describe('percent_goods (M1 plumbing)', () => {
+    it('pays percent of goods revenue when fed', () => {
+      const scheme = makeScheme({ scheme_type: 'percent_only', percent_services: 0, percent_goods: 10 });
+      const { pct_goods } = computeMasterSalary(scheme, 0, 30, 30, 5000);
+      expect(pct_goods).toBe(500);
     });
   });
 

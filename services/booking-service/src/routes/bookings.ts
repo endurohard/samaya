@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
-import { loadServiceSnapshots, assertMaster } from '../services';
+import { loadServiceSnapshots, assertMaster, assertMasterActor } from '../services';
 import { config } from '../config';
 import { sendMail, buildReviewEmail } from '../mailer';
 import { notifyMasterNewBooking } from '../notify';
-import { findOrCreateClientId } from '../client-link';
+import { findOrCreateClientId, normalizePhone } from '../client-link';
 
 const router = Router();
 router.use(authenticate);
@@ -35,7 +35,8 @@ router.get('/', async (req, res, next) => {
       where += ` AND b.master_id = $${params.length}`;
     }
     if (q.client_phone) {
-      params.push(q.client_phone);
+      // Нормализуем фильтр — телефоны в записях хранятся нормализованными.
+      params.push(normalizePhone(q.client_phone));
       where += ` AND b.client_phone = $${params.length}`;
     }
     if (q.client_id) {
@@ -523,6 +524,8 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     await client.query('BEGIN');
 
     await assertMaster(client, companyId, input.master_id);
+    // Мастер может создавать записи только в свой календарь.
+    await assertMasterActor(client, companyId, req.auth!.role, req.auth!.sub, input.master_id);
     const services = await loadServiceSnapshots(client, companyId, input.service_ids);
     const totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
     const totalPrice = services.reduce((acc, s) => acc + Number(s.price), 0);
@@ -531,6 +534,8 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     // лицевой счёт/предоплата, история и аналитика по клиенту.
     const clientId = input.client_id
       ?? await findOrCreateClientId(client, companyId, input.client_phone, input.client_name, 'admin');
+    // Нормализуем телефон в записи (см. public.ts) — единый формат с карточкой.
+    const normPhone = input.client_phone ? normalizePhone(input.client_phone) : null;
 
     const startsAt = new Date(input.starts_at);
     const endsAt = new Date(startsAt.getTime() + totalDuration * 60_000);
@@ -544,7 +549,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
       [
         companyId, input.master_id,
         clientId,
-        input.client_phone ?? null,
+        normPhone,
         input.client_name ?? null,
         startsAt.toISOString(), endsAt.toISOString(),
         totalPrice,
@@ -658,6 +663,15 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
     const input = cancelSchema.parse(req.body ?? {});
     const newStatus = input.no_show ? 'no_show' : 'canceled';
     await client.query('BEGIN');
+    // Мастер может отменять только свои записи.
+    if (req.auth!.role === 'master') {
+      const b = await client.query(
+        `SELECT master_id FROM bookings.bookings WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+        [req.auth!.company_id, req.params.id],
+      );
+      if (!b.rows[0]) { await client.query('ROLLBACK'); return next(new HttpError(404, 'booking not found')); }
+      await assertMasterActor(client, req.auth!.company_id, req.auth!.role, req.auth!.sub, b.rows[0].master_id);
+    }
     const upd = await client.query(
       `UPDATE bookings.bookings
        SET status = $4, canceled_at = NOW(), cancel_reason = $3
@@ -709,7 +723,7 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
 
     // Блокируем запись и берём текущие значения до апдейта.
     const cur = await client.query(
-      `SELECT id, client_id, status, total_price::float8 AS total_price
+      `SELECT id, client_id, master_id, status, total_price::float8 AS total_price
        FROM bookings.bookings
        WHERE company_id = $1 AND id = $2 FOR UPDATE`,
       [req.auth!.company_id, req.params.id],
@@ -719,6 +733,8 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       return next(new HttpError(404, 'booking not found or not completable'));
     }
     const bk0 = cur.rows[0];
+    // Мастер может завершать/списывать только по своим записям.
+    await assertMasterActor(client, req.auth!.company_id, req.auth!.role, req.auth!.sub, bk0.master_id);
 
     let promoId: string | null = null;
     let discountPct = input.discount_pct;

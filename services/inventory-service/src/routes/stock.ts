@@ -129,7 +129,7 @@ router.post('/consumption', requireRole(['owner', 'admin', 'master']), async (re
     await client.query('BEGIN');
     // Берём дефолтный склад
     const wh = await client.query(
-      `SELECT id FROM inventory.warehouses WHERE company_id = $1 ORDER BY created_at LIMIT 1`,
+      `SELECT id FROM inventory.warehouses WHERE company_id = $1 ORDER BY is_default DESC, created_at ASC LIMIT 1`,
       [req.auth!.company_id],
     );
     const warehouseId = wh.rows[0]?.id || config.DEFAULT_WAREHOUSE_ID;
@@ -193,7 +193,7 @@ router.post('/inventory-check', requireRole(['owner', 'admin']), async (req, res
     const input = inventoryCheckSchema.parse(req.body);
     await client.query('BEGIN');
     const wh = await client.query(
-      `SELECT id FROM inventory.warehouses WHERE company_id = $1 ORDER BY created_at LIMIT 1`,
+      `SELECT id FROM inventory.warehouses WHERE company_id = $1 ORDER BY is_default DESC, created_at ASC LIMIT 1`,
       [req.auth!.company_id],
     );
     const warehouseId = wh.rows[0]?.id || config.DEFAULT_WAREHOUSE_ID;

@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { pool } from './db';
 import { config } from './config';
 import { HttpError } from './middleware';
+import { zonedWallTimeToUtc, zonedLocalDate } from './tz';
 
 export interface ServiceSnapshot {
   id: string;
@@ -36,6 +37,29 @@ export async function loadServiceSnapshots(
 }
 
 /**
+ * Мастер (role='master') может действовать только со своими записями. Роль master
+ * привязана к users.users.id (req.auth.sub) через salons.masters.user_id.
+ * Бросает 403, если актор — мастер и masterId не его. Owner/admin проходят.
+ */
+export async function assertMasterActor(
+  client: PoolClient,
+  companyId: string,
+  role: string,
+  userId: string,
+  masterId: string,
+): Promise<void> {
+  if (role !== 'master') return;
+  const { rows } = await client.query(
+    `SELECT 1 FROM salons.masters
+     WHERE company_id = $1 AND id = $2 AND user_id = $3`,
+    [companyId, masterId, userId],
+  );
+  if (!rows[0]) {
+    throw new HttpError(403, 'мастер может работать только со своими записями', 'NOT_OWN_MASTER');
+  }
+}
+
+/**
  * Проверяет, что мастер принадлежит компании и активен.
  */
 export async function assertMaster(
@@ -55,8 +79,12 @@ export async function assertMaster(
  * Объединяет дату YYYY-MM-DD и время HH:MM[:SS] в Date с учётом часового пояса
  * компании (config.COMPANY_TZ_OFFSET, '+03:00' по умолчанию).
  */
-export function toCompanyTime(date: string, time: string): Date {
+// Настенное время компании (дата + время из графика) → UTC-момент.
+// При наличии IANA-таймзоны компании используем её (учёт DST), иначе — фиксированный
+// офсет из конфига (обратная совместимость / single-salon).
+export function toCompanyTime(date: string, time: string, tz?: string | null): Date {
   const t = time.length === 5 ? `${time}:00` : time;
+  if (tz) return zonedWallTimeToUtc(date, t, tz);
   return new Date(`${date}T${t}${config.COMPANY_TZ_OFFSET}`);
 }
 
@@ -69,9 +97,22 @@ function companyOffsetMinutes(): number {
 }
 
 // Локальная (в TZ компании) дата YYYY-MM-DD для момента времени.
-export function companyLocalDate(instant: Date): string {
+export function companyLocalDate(instant: Date, tz?: string | null): string {
+  if (tz) return zonedLocalDate(instant, tz);
   const shifted = new Date(instant.getTime() + companyOffsetMinutes() * 60_000);
   return shifted.toISOString().slice(0, 10);
+}
+
+// IANA-таймзона компании из профиля (напр. 'Europe/Moscow'); null → фиксированный офсет.
+export async function getCompanyTimezone(
+  client: Pick<PoolClient, 'query'>,
+  companyId: string,
+): Promise<string | null> {
+  const { rows } = await client.query<{ timezone: string | null }>(
+    `SELECT timezone FROM salons.company_profile WHERE company_id = $1`,
+    [companyId],
+  );
+  return rows[0]?.timezone ?? null;
 }
 
 /**
@@ -89,7 +130,8 @@ export async function assertBookingWithinSchedule(
   if (startsAt.getTime() <= Date.now()) {
     throw new HttpError(400, 'время записи в прошлом', 'PAST_TIME');
   }
-  const workDate = companyLocalDate(startsAt);
+  const tz = await getCompanyTimezone(client, companyId);
+  const workDate = companyLocalDate(startsAt, tz);
   const schedRes = await client.query(
     `SELECT start_time::text AS start_time, end_time::text AS end_time, is_day_off
      FROM salons.master_schedules
@@ -100,8 +142,8 @@ export async function assertBookingWithinSchedule(
   if (!sched || sched.is_day_off) {
     throw new HttpError(400, 'мастер не работает в это время', 'OUTSIDE_SCHEDULE');
   }
-  const dayStart = toCompanyTime(workDate, sched.start_time);
-  const dayEnd = toCompanyTime(workDate, sched.end_time);
+  const dayStart = toCompanyTime(workDate, sched.start_time, tz);
+  const dayEnd = toCompanyTime(workDate, sched.end_time, tz);
   if (startsAt < dayStart || endsAt > dayEnd) {
     throw new HttpError(400, 'время записи вне рабочего графика мастера', 'OUTSIDE_SCHEDULE');
   }

@@ -13,6 +13,30 @@ const EXT_BY_MIME: Record<string, string> = {
   'video/quicktime': 'mov',
 };
 
+// Лимит одновременных перекодировок и таймаут одной задачи. Контейнер ограничен
+// (mem_limit 1g / cpus 1) — несколько параллельных ffmpeg над 4K-роликами уронят
+// его OOM-ом, а зависший вход без таймаута держит ресурсы бесконечно.
+const MAX_CONCURRENT = Math.max(1, Number(process.env.TRANSCODE_CONCURRENCY || 1));
+const TRANSCODE_TIMEOUT_MS = Math.max(60_000, Number(process.env.TRANSCODE_TIMEOUT_MS || 600_000));
+
+let activeCount = 0;
+let jobSeq = 0;
+const queue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (activeCount < MAX_CONCURRENT) {
+    activeCount++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => queue.push(resolve));
+}
+
+function releaseSlot(): void {
+  const next = queue.shift();
+  if (next) next(); // слот передаётся следующей задаче, activeCount не меняется
+  else activeCount--;
+}
+
 // Конвертация в веб-совместимый MP4: H.264 + AAC, faststart (прогрессивная загрузка),
 // ширина ≤ 1280 (перекодируем чётную высоту). preset veryfast — щадим CPU.
 function runFfmpeg(input: string, output: string): Promise<void> {
@@ -31,9 +55,20 @@ function runFfmpeg(input: string, output: string): Promise<void> {
       '-y', output,
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      ff.kill('SIGKILL');
+      reject(new Error(`ffmpeg timeout ${TRANSCODE_TIMEOUT_MS}ms`));
+    }, TRANSCODE_TIMEOUT_MS);
     ff.stderr.on('data', (d) => { stderr = (stderr + d.toString()).slice(-8000); });
-    ff.on('error', reject);
-    ff.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-400)}`))));
+    ff.on('error', (err) => { if (settled) return; settled = true; clearTimeout(timer); reject(err); });
+    ff.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}: ${stderr.slice(-400)}`));
+    });
   });
 }
 
@@ -58,9 +93,15 @@ export async function transcodeServiceVideo(
   const origAbs = path.join(config.MEDIA_DIR, origRel);
   const outRel = `services/${serviceId}.mp4`;
   const outName = `${serviceId}.mp4`;
-  const tmpAbs = path.join(config.MEDIA_DIR, `services/${serviceId}.tmp.mp4`);
+  // Уникальный tmp на задачу — две параллельные загрузки одной услуги не пишут в
+  // один и тот же временный файл. Не начинается с `${serviceId}.`, поэтому
+  // cleanupServiceMedia (по префиксу) чужой tmp не удалит.
+  const jobId = ++jobSeq;
+  const tmpAbs = path.join(config.MEDIA_DIR, `services/.tmp-${serviceId}-${jobId}.mp4`);
   const outAbs = path.join(config.MEDIA_DIR, outRel);
 
+  // Ограничиваем параллелизм — ждём свободный слот.
+  await acquireSlot();
   try {
     await runFfmpeg(origAbs, tmpAbs);
     // Атомарная подмена, чтобы nginx не отдал полуготовый файл.
@@ -100,5 +141,7 @@ export async function transcodeServiceVideo(
       log.error({ serviceId, err: (e2 as Error).message }, '[transcode] fallback failed');
     }
     log.warn({ serviceId, err: (e as Error).message }, '[transcode] failed, kept original');
+  } finally {
+    releaseSlot();
   }
 }

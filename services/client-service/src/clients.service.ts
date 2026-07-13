@@ -77,15 +77,17 @@ const STATS_CTE = `
       COALESCE(s.visits_in_regular_window, 0) AS visits_in_regular_window
     FROM clients.clients c
     LEFT JOIN LATERAL (
+      -- Единое определение (M6): визит = завершённая запись, выручка = нетто
+      -- (за вычетом скидки). Совпадает с экспортом и клиентским порталом.
       SELECT
         COUNT(*)::int AS total_visits,
-        MAX(b.starts_at) AS last_visit_at,
-        SUM(b.total_price)::numeric AS total_paid,
-        COUNT(*) FILTER (WHERE b.starts_at >= NOW() - CAST($1 AS interval))::int
+        MAX(b.completed_at) AS last_visit_at,
+        SUM(b.total_price - COALESCE(b.discount_amount, 0))::numeric AS total_paid,
+        COUNT(*) FILTER (WHERE b.completed_at >= NOW() - CAST($1 AS interval))::int
           AS visits_in_regular_window
       FROM bookings.bookings b
       WHERE b.company_id = c.company_id
-        AND b.status IN ('confirmed', 'completed')
+        AND b.status = 'completed'
         AND (
           b.client_id = c.id
           OR (b.client_id IS NULL AND b.client_phone = c.phone::text)

@@ -46,7 +46,7 @@ export function requirePermission(...keys: string[]) {
     if (!req.auth) return res.status(401).json({ error: 'unauthenticated' });
     if (req.auth.role === 'owner') return next();
     const perms = req.auth.permissions;
-    if (!perms) return next();
+    if (!perms) return res.status(403).json({ error: 'forbidden', code: 'PERMISSION_DENIED', required: keys });
     if (keys.some((k) => perms[k] === true)) return next();
     return res.status(403).json({ error: 'forbidden', code: 'PERMISSION_DENIED', required: keys });
   };

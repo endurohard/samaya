@@ -4,7 +4,7 @@ import { isoDate } from '../validators';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, HttpError } from '../middleware';
-import { daysBetween, computeMasterSalary } from '../calculate.service';
+import { daysBetween, daysInMonthOf, computeMasterSalary } from '../calculate.service';
 
 const router = Router();
 router.use(authenticate);
@@ -81,16 +81,13 @@ router.get('/', async (req, res, next) => {
 
     // Завершённые записи с услугами
     const token = (req.headers.authorization || '').slice(7);
-    let bookings: BookingRow[] = [];
-    let bookingTotals = new Map<string, number>();
-    try {
-      bookings = await fetchCompletedBookings(token, q.from, q.to);
-      for (const b of bookings) {
-        const cur = bookingTotals.get(b.master_id) || 0;
-        bookingTotals.set(b.master_id, cur + Number(b.total_price));
-      }
-    } catch {
-      bookings = [];
+    // Не глушим сбой booking-service: иначе зарплаты молча посчитаются с нулевой
+    // выручкой и 200 OK. Ошибка апстрима → 502, пусть вызывающий повторит.
+    const bookings = await fetchCompletedBookings(token, q.from, q.to);
+    const bookingTotals = new Map<string, number>();
+    for (const b of bookings) {
+      const cur = bookingTotals.get(b.master_id) || 0;
+      bookingTotals.set(b.master_id, cur + Number(b.total_price));
     }
 
     // Правила комиссий (активные на конец периода)
@@ -168,6 +165,22 @@ router.get('/', async (req, res, next) => {
     const poolMembers = masters.rows.filter((m) => m.in_commission_pool);
     const managerCount = poolMembers.length;
 
+    // Делим пул поровну методом наибольшего остатка: Σ долей == пул (без утечки копеек).
+    const poolShares = new Map<string, number>();
+    if (managerCount > 0 && totalPercentPool > 0) {
+      const base = Math.floor(totalPercentPool / managerCount);
+      let remainder = totalPercentPool - base * managerCount;
+      const ordered = [...poolMembers].sort((a, b) => (a.id < b.id ? -1 : 1));
+      for (const m of ordered) {
+        let share = base;
+        if (remainder > 0) { share += 1; remainder -= 1; }
+        poolShares.set(m.id, share);
+      }
+    }
+
+    // Делитель для месячной ставки — реальное число дней месяца периода (не фикс. 30).
+    const monthDivisor = daysInMonthOf(q.from);
+
     const schemeMap = new Map<string, typeof schemeRows.rows[0]>();
     for (const s of schemeRows.rows) schemeMap.set(s.master_id, s);
 
@@ -183,14 +196,14 @@ router.get('/', async (req, res, next) => {
       const workedDays = workedDaysMap.get(m.id) ?? 0;
       const effectiveDays = isCleaner ? workedDays : calendarDays;
       const sales = m.provides_services ? (bookingTotals.get(m.id) || 0) : 0;
+      // Выручка по товарам мастера — источника продаж товаров пока нет (0).
+      const goodsTotal = 0;
 
-      const { rate, pct_services, guaranteed, total: baseTotal } =
-        computeMasterSalary(scheme, sales, effectiveDays);
+      const { rate, pct_services, pct_goods, guaranteed, total: baseTotal } =
+        computeMasterSalary(scheme, sales, effectiveDays, monthDivisor, goodsTotal);
 
-      // % пул делится поровну между участниками пула (in_commission_pool=true)
-      const percentShare = isPoolMember && managerCount > 0
-        ? Math.round(totalPercentPool / managerCount)
-        : 0;
+      // % пул делится методом наибольшего остатка (Σ == пулу)
+      const percentShare = isPoolMember ? (poolShares.get(m.id) ?? 0) : 0;
       // Фиксированная — только тому, кто оформил (любой не-мастер)
       const fixedShare = isManager ? Math.round(fixedByManager.get(m.id) || 0) : 0;
       const commissionTotal = percentShare + fixedShare;
@@ -211,7 +224,7 @@ router.get('/', async (req, res, next) => {
         commission_percent_share: percentShare,
         commission_fixed_share: fixedShare,
         commission_total: commissionTotal,
-        rate, pct_services, pct_salon: 0, guaranteed, total,
+        rate, pct_services, pct_goods, pct_salon: 0, guaranteed, total,
       };
     });
 

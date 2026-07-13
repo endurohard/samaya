@@ -35,6 +35,8 @@
     selectedDate: '',
     selectedSlot: null,      // { starts_at, ends_at }
     slots: [],
+    timezone: null,          // IANA-таймзона салона (из meta слотов)
+    slotsReq: 0,             // токен запроса слотов (защита от stale-ответа)
   };
 
   function escapeHtml(s) {
@@ -57,6 +59,14 @@
 
   function formatTime(iso) {
     const d = new Date(iso);
+    // Показываем время в таймзоне салона (state.timezone), а не браузера клиента.
+    if (state.timezone) {
+      try {
+        return new Intl.DateTimeFormat('ru-RU', {
+          hour: '2-digit', minute: '2-digit', hour12: false, timeZone: state.timezone,
+        }).format(d);
+      } catch { /* невалидная tz → локальное время */ }
+    }
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
@@ -194,11 +204,17 @@
     els.slotsList.innerHTML = '<div class="w-loading">Загрузка слотов…</div>';
     els.slotsHint.textContent = '';
     const ids = Array.from(state.selectedServices).join(',');
+    // Токен запроса: при быстром переключении даты/мастера поздний ответ на
+    // устаревший запрос не должен перезаписать актуальные слоты.
+    const reqId = ++state.slotsReq;
     try {
       const data = await api(`/api/bookings/slots?master_id=${state.selectedMaster}&date=${state.selectedDate}&service_ids=${encodeURIComponent(ids)}`);
+      if (reqId !== state.slotsReq) return; // пришёл устаревший ответ — игнорируем
       state.slots = data.items || [];
+      if (data.meta?.timezone) state.timezone = data.meta.timezone;
       renderSlots(data.meta);
     } catch (e) {
+      if (reqId !== state.slotsReq) return;
       els.slotsList.innerHTML = '<div class="w-loading">Не удалось загрузить слоты.</div>';
     }
   }

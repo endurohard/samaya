@@ -6,7 +6,7 @@ import { HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster, assertBookingWithinSchedule } from '../services';
 import { buildConfirmationEmail, buildMasterNotifyEmail } from '../mailer';
 import { enqueueNotification } from '../notification-outbox';
-import { findOrCreateClientId } from '../client-link';
+import { findOrCreateClientId, normalizePhone } from '../client-link';
 
 const router = Router();
 
@@ -45,6 +45,9 @@ router.post('/create', async (req, res, next) => {
     const clientId = await findOrCreateClientId(
       client, companyId, input.client_phone, input.client_name, 'public_widget',
     );
+    // Храним нормализованный телефон и в записи — чтобы фильтры/джойны по номеру
+    // сходились с нормализованным телефоном карточки клиента.
+    const normPhone = normalizePhone(input.client_phone);
 
     const ins = await client.query(
       `INSERT INTO bookings.bookings
@@ -54,7 +57,7 @@ router.post('/create', async (req, res, next) => {
        RETURNING id, starts_at, ends_at, status, total_price::float8 AS total_price`,
       [
         companyId, input.master_id, clientId,
-        input.client_phone, input.client_name,
+        normPhone, input.client_name,
         startsAt.toISOString(), endsAt.toISOString(),
         totalPrice, input.notes ?? null,
       ],
