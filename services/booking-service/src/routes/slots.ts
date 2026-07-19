@@ -69,9 +69,19 @@ router.get('/', async (req, res, next) => {
       [companyId, q.master_id, dayEnd.toISOString(), dayStart.toISOString()],
     );
 
+    // 3b. «Занятое время» мастера — для генератора слотов это такая же занятость,
+    // как бронь, поэтому просто подмешиваем к списку интервалов.
+    const blockRes = await pool.query(
+      `SELECT starts_at, ends_at FROM bookings.time_blocks
+       WHERE company_id = $1 AND master_id = $2
+         AND starts_at < $3 AND ends_at > $4`,
+      [companyId, q.master_id, dayEnd.toISOString(), dayStart.toISOString()],
+    );
+
     const stepMs = config.SLOT_STEP_MINUTES * 60_000;
     const durMs = totalMinutes * 60_000;
-    const slots = generateSlots(dayStart, dayEnd, durMs, stepMs, bookRes.rows);
+    const busy = [...bookRes.rows, ...blockRes.rows];
+    const slots = generateSlots(dayStart, dayEnd, durMs, stepMs, busy);
 
     return res.json({
       items: slots,
@@ -83,6 +93,7 @@ router.get('/', async (req, res, next) => {
         // а не в TZ браузера клиента (клиент может быть в другом поясе).
         timezone: tz,
         booked_count: bookRes.rows.length,
+        blocked_count: blockRes.rows.length,
       },
     });
   } catch (e) { return next(e); }

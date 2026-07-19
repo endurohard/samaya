@@ -2496,6 +2496,28 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* «Занятое время» мастера в календаре: штриховка, чтобы не путать с записью. */
+.cal-block {
+  position: absolute;
+  left: 2px; right: 2px;
+  border-radius: 6px;
+  padding: 3px 6px;
+  overflow: hidden;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(120, 120, 130, 0.10) 0, rgba(120, 120, 130, 0.10) 6px,
+      rgba(120, 120, 130, 0.03) 6px, rgba(120, 120, 130, 0.03) 12px
+    );
+}
+.cal-block:hover { border-color: var(--text-dim); }
+.cal-block-time { font-weight: 600; }
+.cal-block-reason { opacity: 0.85; }
+
 /* Карточка клиента, открытая ПОВЕРХ модалки новой записи, — иначе она
    оказывается под ней: у обеих z-index 81, и решает порядок в DOM. */
 .modal-backdrop--stacked { z-index: 88; }

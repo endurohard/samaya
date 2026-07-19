@@ -9,6 +9,7 @@ import bookingsRoutes from './routes/bookings';
 import promosRoutes from './routes/promos';
 import slotsRoutes from './routes/slots';
 import publicRoutes from './routes/public';
+import timeBlocksRoutes from './routes/time-blocks';
 import { startReminderScheduler } from './reminders';
 import { startNotificationWorker } from './notification-outbox';
 
@@ -46,6 +47,10 @@ app.use('/api/bookings', authenticate, (req, res, next) => {
   if (req.method === 'GET') return requirePermission('bookings.view')(req, res, next);
   return requirePermission('bookings.add', 'bookings.edit', 'bookings.cancel', 'bookings.delete')(req, res, next);
 });
+
+// Раньше bookingsRoutes — иначе GET /:id перехватил бы /blocks как id записи.
+// authenticate и RBAC уже отработали в гейте выше — здесь только маршруты.
+app.use('/api/bookings/blocks', timeBlocksRoutes);
 
 app.use('/api/bookings', bookingsRoutes);
 

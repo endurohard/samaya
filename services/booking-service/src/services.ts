@@ -148,3 +148,29 @@ export async function assertBookingWithinSchedule(
     throw new HttpError(400, 'время записи вне рабочего графика мастера', 'OUTSIDE_SCHEDULE');
   }
 }
+
+/**
+ * Проверяет, что интервал не попадает на «занятое время» мастера (перерыв,
+ * обучение и т.п.). Блокировки лежат в отдельной таблице, поэтому EXCLUDE на
+ * bookings их не ловит — проверяем явно на всех путях создания записи.
+ */
+export async function assertNoTimeBlock(
+  client: PoolClient,
+  companyId: string,
+  masterId: string,
+  startsAt: Date,
+  endsAt: Date,
+): Promise<void> {
+  const { rows } = await client.query(
+    `SELECT starts_at, ends_at, reason
+     FROM bookings.time_blocks
+     WHERE company_id = $1 AND master_id = $2
+       AND tstzrange(starts_at, ends_at) && tstzrange($3::timestamptz, $4::timestamptz)
+     LIMIT 1`,
+    [companyId, masterId, startsAt.toISOString(), endsAt.toISOString()],
+  );
+  if (rows[0]) {
+    const reason = rows[0].reason ? `: ${rows[0].reason}` : '';
+    throw new HttpError(409, `время занято мастером${reason}`, 'TIME_BLOCKED');
+  }
+}

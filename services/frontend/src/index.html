@@ -806,6 +806,10 @@
               <h3 id="addBookingTitle">Новая запись</h3>
               <button type="button" class="modal-close" id="addBookingClose" aria-label="Закрыть">×</button>
             </div>
+            <div class="tab-bar" id="addBookingTabs">
+              <button type="button" class="tab-btn tab-btn--active" data-mode="booking">Запись клиента</button>
+              <button type="button" class="tab-btn" data-mode="block">Занять время</button>
+            </div>
             <form id="addBookingForm" class="form modal-body">
               <div class="form-grid">
                 <div>
@@ -816,7 +820,15 @@
                   <label for="bStarts">Время начала</label>
                   <input id="bStarts" name="starts_at" type="datetime-local" required />
                 </div>
-                <div class="form-grid-full client-picker">
+                <div class="block-only" hidden>
+                  <label for="bBlockEnd">Время окончания</label>
+                  <input id="bBlockEnd" type="datetime-local" />
+                </div>
+                <div class="block-only" hidden>
+                  <label for="bBlockReason">Причина</label>
+                  <input id="bBlockReason" type="text" maxlength="500" placeholder="Перерыв, обучение, личные дела" />
+                </div>
+                <div class="form-grid-full client-picker booking-only">
                   <label for="bClientSearch">Клиент</label>
                   <div class="client-picker-row">
                     <input id="bClientSearch" type="text" autocomplete="off" spellcheck="false"
@@ -829,29 +841,29 @@
                   </div>
                   <div class="client-suggest" id="bClientSuggest" role="listbox" hidden></div>
                 </div>
-                <div>
+                <div class="booking-only">
                   <label for="bPhone">Телефон клиента</label>
                   <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
                 </div>
-                <div>
+                <div class="booking-only">
                   <label for="bName">Имя клиента</label>
                   <input id="bName" name="client_name" type="text" placeholder="Виктория" />
                 </div>
-                <div>
+                <div class="booking-only">
                   <label for="bManager">Менеджер (оформил)</label>
                   <select id="bManager" name="manager_id">
                     <option value="">— без менеджера —</option>
                   </select>
                 </div>
               </div>
-              <label for="bServiceSearch">Услуги</label>
-              <input id="bServiceSearch" class="service-search" type="text" autocomplete="off" spellcheck="false"
+              <label class="booking-only" for="bServiceSearch">Услуги</label>
+              <input id="bServiceSearch" class="service-search booking-only" type="text" autocomplete="off" spellcheck="false"
                      placeholder="Поиск по названию услуги" aria-controls="bServices" />
-              <div class="service-picker" id="bServices"></div>
-              <label for="bNotes">Примечание</label>
-              <input id="bNotes" name="notes" type="text" placeholder="опц." />
+              <div class="service-picker booking-only" id="bServices"></div>
+              <label class="booking-only" for="bNotes">Примечание</label>
+              <input id="bNotes" class="booking-only" name="notes" type="text" placeholder="опц." />
               <div class="form-actions">
-                <button type="submit" class="btn-primary">Создать</button>
+                <button type="submit" class="btn-primary" id="addBookingSubmit">Создать</button>
                 <button type="button" class="btn-ghost" id="addBookingCancel">Отмена</button>
               </div>
             </form>

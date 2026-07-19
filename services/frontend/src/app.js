@@ -373,6 +373,7 @@ import { trapFocus } from './modules/focus-trap.js';
   let cachedMasters = [];
   let mastersLoadedAt = 0;
   let cachedBookings = [];
+  let cachedTimeBlocks = [];
   let cachedProducts = [];
   let cachedSuppliers = [];
   let cachedTechCards = [];
@@ -1290,7 +1291,14 @@ import { trapFocus } from './modules/focus-trap.js';
       return;
     }
     cachedBookings = data?.items || [];
+    await loadTimeBlocks(from, to);
     renderJournal();
+  }
+
+  // «Занятое время» мастеров за тот же период, что и записи.
+  async function loadTimeBlocks(from, to) {
+    const r = await apiCall('GET', `/api/bookings/blocks?from=${from}&to=${to}`, null);
+    cachedTimeBlocks = r.ok ? (r.data?.items || []) : [];
   }
 
   function applyJournalMode() {
@@ -1476,6 +1484,7 @@ import { trapFocus } from './modules/focus-trap.js';
       // Клик по пустому месту колонки → новая запись на этого мастера и время
       col.addEventListener('click', (e) => {
         if (e.target.closest('.cal-booking')) return; // по существующей записи — не создаём
+        if (e.target.closest('.cal-block')) return;   // по занятому времени — тоже
         const rect = col.getBoundingClientRect();
         const y = e.clientY - rect.top;
         let minutes = Math.round((y / CAL_PX_PER_MIN) / 15) * 15; // снап к 15 мин
@@ -1488,6 +1497,32 @@ import { trapFocus } from './modules/focus-trap.js';
         const dateStr = (els.journalDate && els.journalDate.value) || todayLocalISO();
         openNewBookingAt(m.id, dateStr, timeStr);
       });
+
+      // Занятое время мастера — серой штриховкой под записями.
+      const dayISO = (els.journalDate && els.journalDate.value) || todayLocalISO();
+      cachedTimeBlocks
+        .filter((tb) => tb.master_id === m.id && dateToISO(new Date(tb.starts_at)) === dayISO)
+        .forEach((tb) => {
+          const s = new Date(tb.starts_at);
+          const e = new Date(tb.ends_at);
+          const sMin = (s.getHours() - CAL_START_HOUR) * 60 + s.getMinutes();
+          const eMin = (e.getHours() - CAL_START_HOUR) * 60 + e.getMinutes();
+          const el = document.createElement('div');
+          el.className = 'cal-block';
+          el.style.top = (sMin * CAL_PX_PER_MIN) + 'px';
+          el.style.height = Math.max(20, (eMin - sMin) * CAL_PX_PER_MIN) + 'px';
+          el.dataset.blockId = tb.id;
+          el.title = `Занято${tb.reason ? ': ' + tb.reason : ''} — нажмите, чтобы освободить`;
+          el.innerHTML = `
+            <div class="cal-block-time">${formatTimeRange(tb.starts_at, tb.ends_at)}</div>
+            <div class="cal-block-reason">${escapeHtml(tb.reason || 'Занято')}</div>
+          `;
+          el.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            void releaseTimeBlock(tb);
+          });
+          col.appendChild(el);
+        });
 
       const list = byMaster.get(m.id) || [];
       list.forEach((b) => {
@@ -2101,6 +2136,55 @@ import { trapFocus } from './modules/focus-trap.js';
 
   const isAddBookingOpen = () => els.addBookingBlock && !els.addBookingBlock.hidden;
 
+  // ===== Режим модалки: запись клиента или «занять время» =====
+  let addBookingMode = 'booking';
+
+  function setAddBookingMode(mode) {
+    addBookingMode = mode === 'block' ? 'block' : 'booking';
+    const isBlock = addBookingMode === 'block';
+    els.addBookingBlock?.querySelectorAll('.booking-only')
+      .forEach((el) => { el.hidden = isBlock; });
+    els.addBookingBlock?.querySelectorAll('.block-only')
+      .forEach((el) => { el.hidden = !isBlock; });
+    // required на скрытом поле блокирует submit с непонятной ошибкой браузера.
+    const phone = document.getElementById('bPhone');
+    if (phone) phone.required = !isBlock;
+
+    const title = document.getElementById('addBookingTitle');
+    if (title) title.textContent = isBlock ? 'Занять время' : 'Новая запись';
+    const submit = document.getElementById('addBookingSubmit');
+    if (submit) submit.textContent = isBlock ? 'Занять' : 'Создать';
+    document.querySelectorAll('#addBookingTabs .tab-btn').forEach((b) => {
+      b.classList.toggle('tab-btn--active', b.dataset.mode === addBookingMode);
+    });
+    if (isBlock) closeClientSuggest();
+  }
+
+  document.getElementById('addBookingTabs')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    setAddBookingMode(btn.dataset.mode);
+    // Конец по умолчанию — через час после начала, чтобы не заполнять вручную.
+    if (addBookingMode === 'block') {
+      const startEl = document.getElementById('bStarts');
+      const endEl = document.getElementById('bBlockEnd');
+      if (endEl && !endEl.value && startEl?.value) {
+        const d = new Date(startEl.value);
+        d.setHours(d.getHours() + 1);
+        endEl.value = `${dateToISO(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      }
+    }
+  });
+
+  async function releaseTimeBlock(tb) {
+    const label = `${formatTimeRange(tb.starts_at, tb.ends_at)}${tb.reason ? ' · ' + tb.reason : ''}`;
+    if (!confirm(`Освободить время ${label}?`)) return;
+    const { ok, data, status } = await apiCall('DELETE', `/api/bookings/blocks/${tb.id}`, null);
+    if (!ok) { toast(`Не удалось освободить: ${data?.error || status}`); return; }
+    toast('Время освобождено');
+    await loadBookings();
+  }
+
   // Открыть форму новой записи с подставленными мастером, датой и временем
   // (клик по пустой ячейке в журнале).
   function openNewBookingAt(masterId, dateStr, timeStr) {
@@ -2547,8 +2631,41 @@ import { trapFocus } from './modules/focus-trap.js';
     closeAddBookingModal();
   });
 
+  async function submitTimeBlock() {
+    const master_id = document.getElementById('bMaster')?.value || '';
+    const startLocal = document.getElementById('bStarts')?.value || '';
+    const endLocal = document.getElementById('bBlockEnd')?.value || '';
+    const reason = document.getElementById('bBlockReason')?.value.trim() || '';
+    if (!master_id || !startLocal || !endLocal) {
+      toast('Заполни сотрудника, начало и окончание');
+      return;
+    }
+    if (endLocal <= startLocal) {
+      toast('Окончание должно быть позже начала');
+      return;
+    }
+    const tz = '+03:00'; // как в создании записи — COMPANY_TZ_OFFSET booking-service
+    const body = {
+      master_id,
+      starts_at: `${startLocal}:00${tz}`,
+      ends_at: `${endLocal}:00${tz}`,
+    };
+    if (reason) body.reason = reason;
+    const { ok, data, status } = await apiCall('POST', '/api/bookings/blocks', body);
+    if (!ok) {
+      toast(`Ошибка: ${data?.error || status}`);
+      return;
+    }
+    toast('Время занято — записаться на него нельзя');
+    resetBookingForm();
+    closeAddBookingModal();
+    if (!els.journalDate.value) els.journalDate.value = todayLocalISO();
+    await loadBookings();
+  }
+
   function resetBookingForm() {
     els.addBookingForm.reset();
+    setAddBookingMode('booking');
     if (els.bClientSearch) els.bClientSearch.value = '';
     if (els.bServiceSearch) els.bServiceSearch.value = '';
     _clientSelectedLabel = '';
@@ -2557,6 +2674,7 @@ import { trapFocus } from './modules/focus-trap.js';
   }
   els.addBookingForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (addBookingMode === 'block') { await submitTimeBlock(); return; }
     const fd = new FormData(els.addBookingForm);
     const master_id = String(fd.get('master_id') || '');
     const startsLocal = String(fd.get('starts_at') || '');  // "2026-04-25T11:00"

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
-import { loadServiceSnapshots, assertMaster, assertMasterActor } from '../services';
+import { loadServiceSnapshots, assertMaster, assertMasterActor, assertNoTimeBlock } from '../services';
 import { config } from '../config';
 import { sendMail, buildReviewEmail } from '../mailer';
 import { notifyMasterNewBooking } from '../notify';
@@ -539,6 +539,10 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
 
     const startsAt = new Date(input.starts_at);
     const endsAt = new Date(startsAt.getTime() + totalDuration * 60_000);
+
+    // Время, занятое мастером под перерыв/обучение, недоступно и админу —
+    // иначе смысл блокировки теряется: её же обойдут из журнала.
+    await assertNoTimeBlock(client, companyId, input.master_id, startsAt, endsAt);
 
     const ins = await client.query(
       `INSERT INTO bookings.bookings

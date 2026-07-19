@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
-import { loadServiceSnapshots, assertMaster, assertBookingWithinSchedule } from '../services';
+import { loadServiceSnapshots, assertMaster, assertBookingWithinSchedule, assertNoTimeBlock } from '../services';
 import { buildConfirmationEmail, buildMasterNotifyEmail } from '../mailer';
 import { enqueueNotification } from '../notification-outbox';
 import { findOrCreateClientId, normalizePhone } from '../client-link';
@@ -40,6 +40,8 @@ router.post('/create', async (req, res, next) => {
     // Серверная проверка времени: не в прошлом и в пределах графика мастера.
     // EXCLUDE-констрейнт в БД ловит только пересечения, но не «вне расписания».
     await assertBookingWithinSchedule(client, companyId, input.master_id, startsAt, endsAt);
+    // Мастер мог занять это время под перерыв/обучение — клиент туда не попадает.
+    await assertNoTimeBlock(client, companyId, input.master_id, startsAt, endsAt);
 
     // Привязываем онлайн-запись к карточке клиента (по телефону) — как и админскую.
     const clientId = await findOrCreateClientId(
