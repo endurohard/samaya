@@ -3,13 +3,15 @@ import { z } from 'zod';
 import { pool } from '../db';
 import { HttpError, requireRole } from '../middleware';
 import { assertMaster, assertMasterActor } from '../services';
+import { isoDate } from '../validators';
 
 const router = Router();
 
 // ===== Список блокировок за период =====
+// from/to — календарные даты YYYY-MM-DD, как во всех списках журнала.
 const listSchema = z.object({
-  from: z.string().datetime({ offset: true }).optional(),
-  to: z.string().datetime({ offset: true }).optional(),
+  from: isoDate().optional(),
+  to: isoDate().optional(),
   master_id: z.string().uuid().optional(),
 });
 
@@ -18,8 +20,8 @@ router.get('/', async (req, res, next) => {
     const q = listSchema.parse(req.query);
     const params: unknown[] = [req.auth!.company_id];
     const where = ['company_id = $1'];
-    if (q.from) { params.push(q.from); where.push(`ends_at > $${params.length}`); }
-    if (q.to) { params.push(q.to); where.push(`starts_at < $${params.length}`); }
+    if (q.from) { params.push(q.from); where.push(`ends_at > $${params.length}::date`); }
+    if (q.to) { params.push(q.to); where.push(`starts_at < ($${params.length}::date + INTERVAL '1 day')`); }
     if (q.master_id) { params.push(q.master_id); where.push(`master_id = $${params.length}`); }
 
     const { rows } = await pool.query(
@@ -86,7 +88,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     await client.query('ROLLBACK').catch(() => { /* соединение уже мертво */ });
     // 23P01 — EXCLUDE-констрейнт: блокировка пересекается с уже существующей.
     if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '23P01') {
-      return next(new HttpError(409, 'это время уже занято', 'ALREADY_BLOCKED'));
+      return next(new HttpError(409, 'это время уже занято другой блокировкой', 'ALREADY_BLOCKED'));
     }
     return next(e);
   } finally {
