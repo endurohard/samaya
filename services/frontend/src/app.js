@@ -2106,7 +2106,8 @@ import { trapFocus } from './modules/focus-trap.js';
       if (bPhoneEl) bPhoneEl.value = b.client_phone || '';
       const bNameEl = document.getElementById('bName');
       if (bNameEl) bNameEl.value = b.client_name || '';
-      if (els.bClientSearch) els.bClientSearch.value = `${b.client_name || ''} · ${b.client_phone || ''}`.trim();
+      _clientSelectedLabel = clientLabel(b);
+      if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
       const bNotesEl = document.getElementById('bNotes');
       if (bNotesEl) bNotesEl.value = b.notes || '';
       const serviceIds = new Set((b.services || []).map((s) => s.service_id));
@@ -2185,6 +2186,9 @@ import { trapFocus } from './modules/focus-trap.js';
   let _clientSuggestItems = [];
   let _clientSuggestIdx = -1;
   let _clientSuggestTimer = null;
+  let _clientSelectedLabel = '';
+
+  const clientLabel = (c) => `${c.full_name || c.client_name || ''} · ${c.phone || c.client_phone || ''}`.trim();
 
   function closeClientSuggest() {
     if (!els.bClientSuggest) return;
@@ -2221,26 +2225,48 @@ import { trapFocus } from './modules/focus-trap.js';
     const nameEl = document.getElementById('bName');
     if (phoneEl) phoneEl.value = c.phone || '';
     if (nameEl) nameEl.value = c.full_name || '';
-    if (els.bClientSearch) els.bClientSearch.value = `${c.full_name || ''} · ${c.phone || ''}`.trim();
+    _clientSelectedLabel = clientLabel(c);
+    if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
     closeClientSuggest();
   }
 
+  // Телефон в базе хранится как +7XXXXXXXXXX. Пользователь может ввести
+  // «8 900…», «+7 900…» или просто «900…» — ищем по последним 10 цифрам,
+  // иначе ILIKE по «8900…» не найдёт запись с «+7900…».
+  function normalizeClientQuery(q) {
+    const digits = q.replace(/\D/g, '');
+    const looksLikePhone = digits.length >= 3 && /^[\d\s()+-]+$/.test(q);
+    if (!looksLikePhone) return q;
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+
   async function searchClientsForBooking(q) {
-    const params = new URLSearchParams({ segment: 'all', limit: '8', offset: '0', search: q });
+    const params = new URLSearchParams({ segment: 'all', limit: '10', offset: '0' });
+    if (q) params.set('search', normalizeClientQuery(q));
     const r = await apiCall('GET', `/api/clients?${params.toString()}`);
     if (!r.ok || !r.data) return [];
     return (r.data.items || []).filter((c) => !c.is_deleted);
   }
 
+  async function showClientSuggest(q) {
+    _clientSuggestItems = await searchClientsForBooking(q);
+    _clientSuggestIdx = -1;
+    renderClientSuggest();
+  }
+
   els.bClientSearch?.addEventListener('input', () => {
     const q = els.bClientSearch.value.trim();
     clearTimeout(_clientSuggestTimer);
-    if (q.length < 2) { closeClientSuggest(); return; }
-    _clientSuggestTimer = setTimeout(async () => {
-      _clientSuggestItems = await searchClientsForBooking(q);
-      _clientSuggestIdx = -1;
-      renderClientSuggest();
-    }, 250);
+    _clientSuggestTimer = setTimeout(() => { void showClientSuggest(q); }, 250);
+  });
+
+  // По клику/фокусу сразу показываем список клиентов — без него поле выглядит
+  // как обычный текстовый инпут и неочевидно, что это выбор из справочника.
+  els.bClientSearch?.addEventListener('focus', () => {
+    const v = els.bClientSearch.value.trim();
+    // Если в поле стоит метка уже выбранного клиента («Имя · телефон»), искать
+    // по ней бессмысленно — показываем список целиком.
+    void showClientSuggest(v && v === _clientSelectedLabel ? '' : v);
   });
 
   els.bClientSearch?.addEventListener('keydown', (e) => {
@@ -2291,7 +2317,8 @@ import { trapFocus } from './modules/focus-trap.js';
     const nameEl = document.getElementById('bName');
     if (phoneEl) phoneEl.value = client.phone || '';
     if (nameEl) nameEl.value = client.full_name || '';
-    if (els.bClientSearch) els.bClientSearch.value = `${client.full_name || ''} · ${client.phone || ''}`.trim();
+    _clientSelectedLabel = clientLabel(client);
+    if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
   }
 
   els.journalDate?.addEventListener('change', () => {
@@ -2469,6 +2496,7 @@ import { trapFocus } from './modules/focus-trap.js';
     els.addBookingForm.reset();
     if (els.bClientSearch) els.bClientSearch.value = '';
     if (els.bServiceSearch) els.bServiceSearch.value = '';
+    _clientSelectedLabel = '';
     closeClientSuggest();
     applyServiceFilter();
   }
