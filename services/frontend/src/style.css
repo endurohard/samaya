@@ -627,6 +627,39 @@ body.guest .auth-card { margin: 32px auto 0; }
 }
 .service-pick:hover { background: var(--card-hover); }
 .service-pick input { margin: 0; }
+.service-pick[hidden] { display: none; }
+.service-search { margin-bottom: 6px; }
+.service-pick-empty { padding: 6px; font-size: var(--fs-sm); }
+
+/* ===== Client picker (форма записи) ===== */
+.client-picker { position: relative; }
+.client-picker-row { display: flex; gap: 8px; align-items: center; }
+.client-picker-row > input { flex: 1 1 auto; min-width: 0; }
+.client-picker-row > button { flex: 0 0 auto; white-space: nowrap; }
+.client-suggest {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  z-index: 40;
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+.client-suggest[hidden] { display: none; }
+.client-suggest-item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  font-size: var(--fs-base); color: inherit;
+}
+.client-suggest-item:hover,
+.client-suggest-item.active { background: var(--card-hover); }
+.client-suggest-item .cs-phone { font-size: var(--fs-sm); opacity: .7; white-space: nowrap; }
+.client-suggest-empty { padding: 8px 10px; font-size: var(--fs-sm); }
 
 /* ============================================================ *
  * JOURNAL — DIKIDI-style                                       *

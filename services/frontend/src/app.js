@@ -114,6 +114,10 @@ import { trapFocus } from './modules/focus-trap.js';
     bMaster: document.getElementById('bMaster'),
     bManager: document.getElementById('bManager'),
     bServices: document.getElementById('bServices'),
+    bServiceSearch: document.getElementById('bServiceSearch'),
+    bClientSearch: document.getElementById('bClientSearch'),
+    bClientSuggest: document.getElementById('bClientSuggest'),
+    bClientNew: document.getElementById('bClientNew'),
 
     // schedule
     schMaster: document.getElementById('schMaster'),
@@ -2102,6 +2106,7 @@ import { trapFocus } from './modules/focus-trap.js';
       if (bPhoneEl) bPhoneEl.value = b.client_phone || '';
       const bNameEl = document.getElementById('bName');
       if (bNameEl) bNameEl.value = b.client_name || '';
+      if (els.bClientSearch) els.bClientSearch.value = `${b.client_name || ''} · ${b.client_phone || ''}`.trim();
       const bNotesEl = document.getElementById('bNotes');
       if (bNotesEl) bNotesEl.value = b.notes || '';
       const serviceIds = new Set((b.services || []).map((s) => s.service_id));
@@ -2139,6 +2144,154 @@ import { trapFocus } from './modules/focus-trap.js';
           <span>${escapeHtml(s.name)} · ${s.duration_minutes} мин · ${formatPrice(s.price)}</span>
         </label>
       `).join('');
+    applyServiceFilter();
+  }
+
+  // ===== Поиск по списку услуг в форме записи =====
+  // Прячем несовпадающие, но всегда оставляем уже отмеченные — иначе выбор
+  // «пропадает» при вводе запроса и его легко потерять из виду.
+  function applyServiceFilter() {
+    if (!els.bServices) return;
+    const q = (els.bServiceSearch?.value || '').trim().toLowerCase();
+    let visible = 0;
+    els.bServices.querySelectorAll('.service-pick').forEach((row) => {
+      const checked = row.querySelector('input')?.checked;
+      const match = !q || row.textContent.toLowerCase().includes(q);
+      const show = match || checked;
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+    let empty = els.bServices.querySelector('.service-pick-empty');
+    if (!visible) {
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.className = 'service-pick-empty muted';
+        els.bServices.appendChild(empty);
+      }
+      empty.textContent = 'Услуги не найдены';
+      empty.hidden = false;
+    } else if (empty) {
+      empty.hidden = true;
+    }
+  }
+
+  els.bServiceSearch?.addEventListener('input', applyServiceFilter);
+  els.bServices?.addEventListener('change', () => {
+    // Снятая галочка со скрытой строки должна снова подчиниться фильтру.
+    if (els.bServiceSearch?.value.trim()) applyServiceFilter();
+  });
+
+  // ===== Автодополнение клиентов в форме записи =====
+  let _clientSuggestItems = [];
+  let _clientSuggestIdx = -1;
+  let _clientSuggestTimer = null;
+
+  function closeClientSuggest() {
+    if (!els.bClientSuggest) return;
+    els.bClientSuggest.hidden = true;
+    els.bClientSuggest.innerHTML = '';
+    els.bClientSearch?.setAttribute('aria-expanded', 'false');
+    _clientSuggestItems = [];
+    _clientSuggestIdx = -1;
+  }
+
+  function renderClientSuggest() {
+    if (!els.bClientSuggest) return;
+    if (!_clientSuggestItems.length) {
+      els.bClientSuggest.innerHTML = '<div class="client-suggest-empty muted">Ничего не найдено — заполните телефон и имя вручную или создайте клиента</div>';
+      els.bClientSuggest.hidden = false;
+      els.bClientSearch?.setAttribute('aria-expanded', 'true');
+      return;
+    }
+    els.bClientSuggest.innerHTML = _clientSuggestItems.map((c, i) => `
+      <button type="button" class="client-suggest-item${i === _clientSuggestIdx ? ' active' : ''}"
+              role="option" aria-selected="${i === _clientSuggestIdx}" data-idx="${i}">
+        <span class="cs-name">${escapeHtml(c.full_name || 'Без имени')}</span>
+        <span class="cs-phone">${escapeHtml(c.phone || '')}</span>
+      </button>
+    `).join('');
+    els.bClientSuggest.hidden = false;
+    els.bClientSearch?.setAttribute('aria-expanded', 'true');
+  }
+
+  function pickClientSuggest(idx) {
+    const c = _clientSuggestItems[idx];
+    if (!c) return;
+    const phoneEl = document.getElementById('bPhone');
+    const nameEl = document.getElementById('bName');
+    if (phoneEl) phoneEl.value = c.phone || '';
+    if (nameEl) nameEl.value = c.full_name || '';
+    if (els.bClientSearch) els.bClientSearch.value = `${c.full_name || ''} · ${c.phone || ''}`.trim();
+    closeClientSuggest();
+  }
+
+  async function searchClientsForBooking(q) {
+    const params = new URLSearchParams({ segment: 'all', limit: '8', offset: '0', search: q });
+    const r = await apiCall('GET', `/api/clients?${params.toString()}`);
+    if (!r.ok || !r.data) return [];
+    return (r.data.items || []).filter((c) => !c.is_deleted);
+  }
+
+  els.bClientSearch?.addEventListener('input', () => {
+    const q = els.bClientSearch.value.trim();
+    clearTimeout(_clientSuggestTimer);
+    if (q.length < 2) { closeClientSuggest(); return; }
+    _clientSuggestTimer = setTimeout(async () => {
+      _clientSuggestItems = await searchClientsForBooking(q);
+      _clientSuggestIdx = -1;
+      renderClientSuggest();
+    }, 250);
+  });
+
+  els.bClientSearch?.addEventListener('keydown', (e) => {
+    if (els.bClientSuggest?.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!_clientSuggestItems.length) return;
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      _clientSuggestIdx = (_clientSuggestIdx + delta + _clientSuggestItems.length) % _clientSuggestItems.length;
+      renderClientSuggest();
+    } else if (e.key === 'Enter') {
+      if (_clientSuggestIdx >= 0) { e.preventDefault(); pickClientSuggest(_clientSuggestIdx); }
+    } else if (e.key === 'Escape') {
+      closeClientSuggest();
+    }
+  });
+
+  els.bClientSuggest?.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.client-suggest-item');
+    if (!btn) return;
+    e.preventDefault();
+    pickClientSuggest(Number(btn.dataset.idx));
+  });
+
+  els.bClientSearch?.addEventListener('blur', () => setTimeout(closeClientSuggest, 120));
+
+  // «Новый клиент» прямо из журнала: открываем стандартную карточку клиента,
+  // а после сохранения подставляем его в форму записи.
+  let _clientModalFromBooking = false;
+  els.bClientNew?.addEventListener('click', () => {
+    closeClientSuggest();
+    _clientModalFromBooking = true;
+    openClientModal(null);
+    const typed = els.bClientSearch?.value.trim() || '';
+    setTimeout(() => {
+      if (!typed) return;
+      // Цифры → телефон, иначе имя.
+      const isPhone = /^[\d+][\d\s()+-]*$/.test(typed);
+      if (isPhone && els.clPhone) els.clPhone.value = typed;
+      else if (els.clFullName) els.clFullName.value = typed;
+    }, 60);
+  });
+
+  function fillBookingClientAfterCreate(client) {
+    if (!_clientModalFromBooking) return;
+    _clientModalFromBooking = false;
+    const phoneEl = document.getElementById('bPhone');
+    const nameEl = document.getElementById('bName');
+    if (phoneEl) phoneEl.value = client.phone || '';
+    if (nameEl) nameEl.value = client.full_name || '';
+    if (els.bClientSearch) els.bClientSearch.value = `${client.full_name || ''} · ${client.phone || ''}`.trim();
   }
 
   els.journalDate?.addEventListener('change', () => {
@@ -2309,8 +2462,16 @@ import { trapFocus } from './modules/focus-trap.js';
   });
   els.addBookingCancel?.addEventListener('click', () => {
     els.addBookingBlock.open = false;
-    els.addBookingForm.reset();
+    resetBookingForm();
   });
+
+  function resetBookingForm() {
+    els.addBookingForm.reset();
+    if (els.bClientSearch) els.bClientSearch.value = '';
+    if (els.bServiceSearch) els.bServiceSearch.value = '';
+    closeClientSuggest();
+    applyServiceFilter();
+  }
   els.addBookingForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(els.addBookingForm);
@@ -2336,7 +2497,7 @@ import { trapFocus } from './modules/focus-trap.js';
       toast(`Ошибка: ${data?.error || status}${data?.code ? ' · ' + data.code : ''}`);
       return;
     }
-    els.addBookingForm.reset();
+    resetBookingForm();
     els.addBookingBlock.open = false;
     if (!els.journalDate.value) els.journalDate.value = todayLocalISO();
     await loadBookings();
@@ -3736,6 +3897,7 @@ import { trapFocus } from './modules/focus-trap.js';
 
   let _clientModalRelease = null;
   function closeClientModal() {
+    _clientModalFromBooking = false;
     els.clientModalBackdrop.hidden = true;
     els.clientModal.hidden = true;
     if (_clientModalRelease) { _clientModalRelease(); _clientModalRelease = null; }
@@ -3771,6 +3933,7 @@ import { trapFocus } from './modules/focus-trap.js';
       return;
     }
     clientsState.page = 0;
+    if (!id) fillBookingClientAfterCreate(body);
     closeClientModal();
     await loadClientsAll();
   }

@@ -812,6 +812,19 @@
                   <label for="bStarts">Время начала</label>
                   <input id="bStarts" name="starts_at" type="datetime-local" required />
                 </div>
+                <div class="form-grid-full client-picker">
+                  <label for="bClientSearch">Клиент</label>
+                  <div class="client-picker-row">
+                    <input id="bClientSearch" type="text" autocomplete="off" spellcheck="false"
+                           role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="bClientSuggest"
+                           placeholder="Начните вводить имя или телефон" />
+                    <button type="button" class="btn-outline btn-sm" id="bClientNew" title="Создать нового клиента">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                      Новый клиент
+                    </button>
+                  </div>
+                  <div class="client-suggest" id="bClientSuggest" role="listbox" hidden></div>
+                </div>
                 <div>
                   <label for="bPhone">Телефон клиента</label>
                   <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
@@ -827,7 +840,9 @@
                   </select>
                 </div>
               </div>
-              <label>Услуги</label>
+              <label for="bServiceSearch">Услуги</label>
+              <input id="bServiceSearch" class="service-search" type="text" autocomplete="off" spellcheck="false"
+                     placeholder="Поиск по названию услуги" aria-controls="bServices" />
               <div class="service-picker" id="bServices"></div>
               <label for="bNotes">Примечание</label>
               <input id="bNotes" name="notes" type="text" placeholder="опц." />
