@@ -633,6 +633,8 @@ body.guest .auth-card { margin: 32px auto 0; }
 
 /* ===== Client picker (форма записи) ===== */
 .client-picker { position: relative; }
+/* Родитель поля, под которым сейчас висит выпадашка (переносится по фокусу). */
+.client-suggest-host { position: relative; }
 .client-picker-row { display: flex; gap: 8px; align-items: center; }
 .client-picker-row > input { flex: 1 1 auto; min-width: 0; }
 .client-picker-row > button { flex: 0 0 auto; white-space: nowrap; }

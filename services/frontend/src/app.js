@@ -2254,35 +2254,55 @@ import { trapFocus } from './modules/focus-trap.js';
     renderClientSuggest();
   }
 
-  els.bClientSearch?.addEventListener('input', () => {
-    const q = els.bClientSearch.value.trim();
-    clearTimeout(_clientSuggestTimer);
-    _clientSuggestTimer = setTimeout(() => { void showClientSuggest(q); }, 250);
-  });
+  // Автодополнение висит сразу на трёх полях: «Клиент», «Имя клиента» и
+  // «Телефон клиента». Иначе легко начать печатать в имя или телефон и не
+  // понять, почему подсказок нет — поля выглядят одинаково.
+  function attachClientAutocomplete(input) {
+    if (!input || !els.bClientSuggest) return;
+    const host = input.closest('.client-picker') || input.parentElement;
+    if (!host) return;
+    host.classList.add('client-suggest-host');
 
-  // По клику/фокусу сразу показываем список клиентов — без него поле выглядит
-  // как обычный текстовый инпут и неочевидно, что это выбор из справочника.
-  els.bClientSearch?.addEventListener('focus', () => {
-    const v = els.bClientSearch.value.trim();
-    // Если в поле стоит метка уже выбранного клиента («Имя · телефон»), искать
-    // по ней бессмысленно — показываем список целиком.
-    void showClientSuggest(v && v === _clientSelectedLabel ? '' : v);
-  });
+    // Выпадашка одна на форму — переносим её под то поле, где сейчас курсор.
+    const moveSuggestHere = () => {
+      if (els.bClientSuggest.parentElement !== host) host.appendChild(els.bClientSuggest);
+    };
 
-  els.bClientSearch?.addEventListener('keydown', (e) => {
-    if (els.bClientSuggest?.hidden) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (!_clientSuggestItems.length) return;
-      const delta = e.key === 'ArrowDown' ? 1 : -1;
-      _clientSuggestIdx = (_clientSuggestIdx + delta + _clientSuggestItems.length) % _clientSuggestItems.length;
-      renderClientSuggest();
-    } else if (e.key === 'Enter') {
-      if (_clientSuggestIdx >= 0) { e.preventDefault(); pickClientSuggest(_clientSuggestIdx); }
-    } else if (e.key === 'Escape') {
-      closeClientSuggest();
-    }
-  });
+    input.addEventListener('focus', () => {
+      moveSuggestHere();
+      const v = input.value.trim();
+      // Если в поле стоит метка уже выбранного клиента («Имя · телефон»),
+      // искать по ней бессмысленно — показываем список целиком.
+      void showClientSuggest(v && v === _clientSelectedLabel ? '' : v);
+    });
+
+    input.addEventListener('input', () => {
+      moveSuggestHere();
+      const q = input.value.trim();
+      clearTimeout(_clientSuggestTimer);
+      _clientSuggestTimer = setTimeout(() => { void showClientSuggest(q); }, 250);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (els.bClientSuggest.hidden) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!_clientSuggestItems.length) return;
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        _clientSuggestIdx = (_clientSuggestIdx + delta + _clientSuggestItems.length) % _clientSuggestItems.length;
+        renderClientSuggest();
+      } else if (e.key === 'Enter') {
+        if (_clientSuggestIdx >= 0) { e.preventDefault(); pickClientSuggest(_clientSuggestIdx); }
+      } else if (e.key === 'Escape') {
+        closeClientSuggest();
+      }
+    });
+
+    input.addEventListener('blur', () => setTimeout(closeClientSuggest, 150));
+  }
+
+  [els.bClientSearch, document.getElementById('bName'), document.getElementById('bPhone')]
+    .forEach(attachClientAutocomplete);
 
   els.bClientSuggest?.addEventListener('mousedown', (e) => {
     const btn = e.target.closest('.client-suggest-item');
@@ -2290,8 +2310,6 @@ import { trapFocus } from './modules/focus-trap.js';
     e.preventDefault();
     pickClientSuggest(Number(btn.dataset.idx));
   });
-
-  els.bClientSearch?.addEventListener('blur', () => setTimeout(closeClientSuggest, 120));
 
   // «Новый клиент» прямо из журнала: открываем стандартную карточку клиента,
   // а после сохранения подставляем его в форму записи.
