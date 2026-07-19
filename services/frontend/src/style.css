@@ -2496,6 +2496,11 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* Карточка клиента, открытая ПОВЕРХ модалки новой записи, — иначе она
+   оказывается под ней: у обеих z-index 81, и решает порядок в DOM. */
+.modal-backdrop--stacked { z-index: 88; }
+.modal-backdrop ~ .modal.modal--stacked { z-index: 89; }
+
 .salary-modal { width: min(560px, 100%); }
 .salary-modal-wide { width: min(720px, 100%); }
 /* legacy alias — старое имя анимации могло встречаться в коде */

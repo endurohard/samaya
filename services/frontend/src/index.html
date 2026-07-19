@@ -800,9 +800,13 @@
             </button>
             <button class="btn-success btn-sm" id="addSaleBtn" type="button" title="скоро">Оформить продажу</button>
           </div>
-          <details class="add-block" id="addBookingBlock">
-            <summary class="visually-hidden">Форма создания записи</summary>
-            <form id="addBookingForm" class="form add-form">
+          <div class="modal-backdrop" id="addBookingBackdrop" hidden></div>
+          <div class="modal modal--wide" id="addBookingBlock" hidden role="dialog" aria-modal="true" aria-labelledby="addBookingTitle">
+            <div class="modal-head">
+              <h3 id="addBookingTitle">Новая запись</h3>
+              <button type="button" class="modal-close" id="addBookingClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="addBookingForm" class="form modal-body">
               <div class="form-grid">
                 <div>
                   <label for="bMaster">Сотрудник</label>
@@ -851,7 +855,7 @@
                 <button type="button" class="btn-ghost" id="addBookingCancel">Отмена</button>
               </div>
             </form>
-          </details>
+          </div>
 
           <div class="journal-layout">
             <div class="journal-main">

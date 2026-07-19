@@ -109,6 +109,8 @@ import { trapFocus } from './modules/focus-trap.js';
     calToggleBtns: document.querySelectorAll('.cal-toggle-btn'),
     addBookingForm: document.getElementById('addBookingForm'),
     addBookingBlock: document.getElementById('addBookingBlock'),
+    addBookingBackdrop: document.getElementById('addBookingBackdrop'),
+    addBookingClose: document.getElementById('addBookingClose'),
     addBookingToggle: document.getElementById('addBookingToggle'),
     addBookingCancel: document.getElementById('addBookingCancel'),
     bMaster: document.getElementById('bMaster'),
@@ -2078,24 +2080,42 @@ import { trapFocus } from './modules/focus-trap.js';
     if (_bkModalRelease) { _bkModalRelease(); _bkModalRelease = null; }
   }
 
+  // ===== Модальное окно «Новая запись» =====
+  let _addBookingRelease = null;
+
+  function openAddBookingModal() {
+    populateBookingForm();
+    if (els.addBookingBackdrop) els.addBookingBackdrop.hidden = false;
+    if (els.addBookingBlock) {
+      els.addBookingBlock.hidden = false;
+      _addBookingRelease = trapFocus(els.addBookingBlock);
+    }
+  }
+
+  function closeAddBookingModal() {
+    if (els.addBookingBackdrop) els.addBookingBackdrop.hidden = true;
+    if (els.addBookingBlock) els.addBookingBlock.hidden = true;
+    if (_addBookingRelease) { _addBookingRelease(); _addBookingRelease = null; }
+    closeClientSuggest();
+  }
+
+  const isAddBookingOpen = () => els.addBookingBlock && !els.addBookingBlock.hidden;
+
   // Открыть форму новой записи с подставленными мастером, датой и временем
   // (клик по пустой ячейке в журнале).
   function openNewBookingAt(masterId, dateStr, timeStr) {
-    populateBookingForm();
-    if (els.addBookingBlock) els.addBookingBlock.open = true;
+    openAddBookingModal();
     setTimeout(() => {
       if (els.bMaster) els.bMaster.value = masterId;
       const bStartsEl = document.getElementById('bStarts');
       if (bStartsEl) bStartsEl.value = `${dateStr}T${timeStr}`;
-      if (els.addBookingBlock) els.addBookingBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      document.getElementById('bName')?.focus();
+      els.bClientSearch?.focus();
     }, 0);
   }
 
   function repeatBooking(b) {
     closeBookingModal();
-    populateBookingForm();
-    els.addBookingBlock.open = true;
+    openAddBookingModal();
     setTimeout(() => {
       if (els.bMaster) els.bMaster.value = b.master_id;
       const origStart = new Date(b.starts_at);
@@ -2502,12 +2522,29 @@ import { trapFocus } from './modules/focus-trap.js';
   });
 
   els.addBookingToggle?.addEventListener('click', () => {
-    els.addBookingBlock.open = !els.addBookingBlock.open;
-    if (els.addBookingBlock.open) populateBookingForm();
+    if (isAddBookingOpen()) { closeAddBookingModal(); return; }
+    resetBookingForm();
+    openAddBookingModal();
+    setTimeout(() => els.bClientSearch?.focus(), 50);
   });
   els.addBookingCancel?.addEventListener('click', () => {
-    els.addBookingBlock.open = false;
+    closeAddBookingModal();
     resetBookingForm();
+  });
+  els.addBookingClose?.addEventListener('click', () => {
+    closeAddBookingModal();
+    resetBookingForm();
+  });
+  els.addBookingBackdrop?.addEventListener('click', () => {
+    closeAddBookingModal();
+    resetBookingForm();
+  });
+  document.addEventListener('keydown', (e) => {
+    // Escape закрывает модалку, но только если подсказки клиентов уже скрыты —
+    // иначе первый Escape должен закрывать именно выпадающий список.
+    if (e.key !== 'Escape' || !isAddBookingOpen()) return;
+    if (els.bClientSuggest && !els.bClientSuggest.hidden) return;
+    closeAddBookingModal();
   });
 
   function resetBookingForm() {
@@ -2544,7 +2581,7 @@ import { trapFocus } from './modules/focus-trap.js';
       return;
     }
     resetBookingForm();
-    els.addBookingBlock.open = false;
+    closeAddBookingModal();
     if (!els.journalDate.value) els.journalDate.value = todayLocalISO();
     await loadBookings();
   });
@@ -3935,6 +3972,9 @@ import { trapFocus } from './modules/focus-trap.js';
       const waSendBtnNew = document.getElementById('clWaSendBtn');
       if (waSendBtnNew) waSendBtnNew.hidden = true;
     }
+    // Открыта из формы записи — поднимаем над её модалкой.
+    els.clientModalBackdrop.classList.toggle('modal-backdrop--stacked', isAddBookingOpen());
+    els.clientModal.classList.toggle('modal--stacked', isAddBookingOpen());
     els.clientModalBackdrop.hidden = false;
     els.clientModal.hidden = false;
     _clientModalRelease = trapFocus(els.clientModal);
