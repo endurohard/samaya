@@ -2496,6 +2496,55 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* ===== Поповер свободного слота ===== */
+.slot-popover {
+  position: fixed;
+  z-index: 70;
+  width: 232px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px -8px rgba(17, 24, 39, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.slot-popover[hidden] { display: none; }
+.slot-popover-title { font-size: var(--fs-sm); color: var(--text-dim); font-weight: 600; }
+.slot-popover-times { display: flex; gap: 6px; }
+.slot-time {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+.slot-time:hover { background: var(--card-hover); }
+.slot-time.active { background: var(--primary, #7c3aed); border-color: var(--primary, #7c3aed); color: #fff; }
+.slot-popover-add { width: 100%; }
+.slot-popover-link {
+  background: none; border: 0; padding: 0;
+  color: var(--primary, #7c3aed);
+  font-size: var(--fs-base);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ===== Палитра меток занятого времени ===== */
+.color-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.color-dot {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.color-dot.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--card) inset; }
+
 /* «Занятое время» мастера в календаре: штриховка, чтобы не путать с записью. */
 .cal-block {
   position: absolute;

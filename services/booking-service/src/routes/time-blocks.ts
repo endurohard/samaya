@@ -23,7 +23,7 @@ router.get('/', async (req, res, next) => {
     if (q.master_id) { params.push(q.master_id); where.push(`master_id = $${params.length}`); }
 
     const { rows } = await pool.query(
-      `SELECT id, master_id, starts_at, ends_at, reason, created_at
+      `SELECT id, master_id, starts_at, ends_at, reason, color, created_at
        FROM bookings.time_blocks
        WHERE ${where.join(' AND ')}
        ORDER BY starts_at ASC`,
@@ -39,6 +39,7 @@ const createSchema = z.object({
   starts_at: z.string().datetime({ offset: true }),
   ends_at: z.string().datetime({ offset: true }),
   reason: z.string().max(500).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 
 router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
@@ -70,13 +71,13 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
 
     const ins = await client.query(
       `INSERT INTO bookings.time_blocks
-         (company_id, master_id, starts_at, ends_at, reason, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       RETURNING id, master_id, starts_at, ends_at, reason, created_at`,
+         (company_id, master_id, starts_at, ends_at, reason, created_by, color)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, master_id, starts_at, ends_at, reason, color, created_at`,
       [
         companyId, input.master_id,
         startsAt.toISOString(), endsAt.toISOString(),
-        input.reason ?? null, req.auth!.sub,
+        input.reason ?? null, req.auth!.sub, input.color ?? null,
       ],
     );
     await client.query('COMMIT');

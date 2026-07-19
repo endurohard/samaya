@@ -1481,21 +1481,18 @@ import { trapFocus } from './modules/focus-trap.js';
       col.style.cursor = 'pointer';
       col.title = 'Кликните по свободному времени, чтобы создать запись';
 
-      // Клик по пустому месту колонки → новая запись на этого мастера и время
+      // Клик по пустому месту колонки → поповер с выбором времени начала
       col.addEventListener('click', (e) => {
         if (e.target.closest('.cal-booking')) return; // по существующей записи — не создаём
         if (e.target.closest('.cal-block')) return;   // по занятому времени — тоже
         const rect = col.getBoundingClientRect();
         const y = e.clientY - rect.top;
-        let minutes = Math.round((y / CAL_PX_PER_MIN) / 15) * 15; // снап к 15 мин
+        let minutes = Math.floor((y / CAL_PX_PER_MIN) / 5) * 5; // снап к 5 мин вниз
         minutes = Math.max(0, minutes);
         const abs = CAL_START_HOUR * 60 + minutes;
-        const hh = Math.floor(abs / 60);
-        const mm = abs % 60;
-        if (hh > CAL_END_HOUR) return;
-        const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        if (Math.floor(abs / 60) > CAL_END_HOUR) return;
         const dateStr = (els.journalDate && els.journalDate.value) || todayLocalISO();
-        openNewBookingAt(m.id, dateStr, timeStr);
+        openSlotPopover(m.id, dateStr, abs, e.clientX, e.clientY);
       });
 
       // Занятое время мастера — серой штриховкой под записями.
@@ -1513,9 +1510,17 @@ import { trapFocus } from './modules/focus-trap.js';
           el.style.height = Math.max(20, (eMin - sMin) * CAL_PX_PER_MIN) + 'px';
           el.dataset.blockId = tb.id;
           el.title = `Занято${tb.reason ? ': ' + tb.reason : ''} — нажмите, чтобы освободить`;
+          if (tb.color) {
+            el.style.borderColor = tb.color;
+            el.style.background = `${tb.color}22`; // тот же цвет, но полупрозрачный
+          }
+          const durMin = Math.round((e - s) / 60000);
+          const durLabel = durMin >= 60
+            ? `${Math.floor(durMin / 60)} ч${durMin % 60 ? ' ' + (durMin % 60) + ' мин' : ''}`
+            : `${durMin} мин`;
           el.innerHTML = `
-            <div class="cal-block-time">${formatTimeRange(tb.starts_at, tb.ends_at)}</div>
-            <div class="cal-block-reason">${escapeHtml(tb.reason || 'Занято')}</div>
+            <div class="cal-block-time">${formatTimeRange(tb.starts_at, tb.ends_at)} · ${durLabel}</div>
+            ${tb.reason ? `<div class="cal-block-reason">${escapeHtml(tb.reason)}</div>` : ''}
           `;
           el.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -2136,8 +2141,95 @@ import { trapFocus } from './modules/focus-trap.js';
 
   const isAddBookingOpen = () => els.addBookingBlock && !els.addBookingBlock.hidden;
 
+  // ===== Поповер свободного слота (как в DIKIDI) =====
+  // Клик по пустому месту в календаре не должен сразу открывать большую форму:
+  // сначала уточняем минуты и выбираем, что делать — записать клиента или занять время.
+  let _slotCtx = null; // { masterId, dateStr, minutes }
+
+  const minutesToHHMM = (abs) =>
+    `${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+
+  function openSlotPopover(masterId, dateStr, absMinutes, clientX, clientY) {
+    const pop = document.getElementById('slotPopover');
+    const times = document.getElementById('slotPopoverTimes');
+    if (!pop || !times) return;
+    _slotCtx = { masterId, dateStr, minutes: absMinutes };
+
+    // Три варианта с шагом 5 минут — попасть точно в 14:05 мышью нереально.
+    const options = [absMinutes, absMinutes + 5, absMinutes + 10]
+      .filter((m) => Math.floor(m / 60) <= CAL_END_HOUR);
+    times.innerHTML = options.map((m, i) => `
+      <button type="button" class="slot-time${i === 0 ? ' active' : ''}" data-min="${m}">${minutesToHHMM(m)}</button>
+    `).join('');
+
+    pop.hidden = false;
+    // Позиционируем у курсора, но не даём вылезти за экран.
+    const rect = pop.getBoundingClientRect();
+    const left = Math.min(clientX + 8, window.innerWidth - rect.width - 12);
+    const top = Math.min(clientY + 8, window.innerHeight - rect.height - 12);
+    pop.style.left = Math.max(12, left) + 'px';
+    pop.style.top = Math.max(12, top) + 'px';
+  }
+
+  function closeSlotPopover() {
+    const pop = document.getElementById('slotPopover');
+    if (pop) pop.hidden = true;
+    _slotCtx = null;
+  }
+
+  document.getElementById('slotPopoverTimes')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.slot-time');
+    if (!btn || !_slotCtx) return;
+    _slotCtx.minutes = Number(btn.dataset.min);
+    document.querySelectorAll('#slotPopoverTimes .slot-time')
+      .forEach((b) => b.classList.toggle('active', b === btn));
+  });
+
+  document.getElementById('slotPopoverAdd')?.addEventListener('click', () => {
+    if (!_slotCtx) return;
+    const { masterId, dateStr, minutes } = _slotCtx;
+    closeSlotPopover();
+    openNewBookingAt(masterId, dateStr, minutesToHHMM(minutes));
+  });
+
+  document.getElementById('slotPopoverBlock')?.addEventListener('click', () => {
+    if (!_slotCtx) return;
+    const { masterId, dateStr, minutes } = _slotCtx;
+    closeSlotPopover();
+    openNewBookingAt(masterId, dateStr, minutesToHHMM(minutes));
+    setTimeout(() => setAddBookingMode('block'), 10);
+  });
+
+  document.addEventListener('click', (e) => {
+    const pop = document.getElementById('slotPopover');
+    if (!pop || pop.hidden) return;
+    if (pop.contains(e.target) || e.target.closest('.cal-master-col')) return;
+    closeSlotPopover();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSlotPopover(); });
+
   // ===== Режим модалки: запись клиента или «занять время» =====
   let addBookingMode = 'booking';
+
+  // Палитра меток занятого времени — как в DIKIDI: цветом кодируют причину.
+  const BLOCK_COLORS = ['#9aa0a6', '#4c8bf5', '#34a853', '#fbbc04', '#ea4335', '#a142f4', '#00acc1', '#f57c00'];
+  let selectedBlockColor = BLOCK_COLORS[0];
+
+  function renderBlockColors() {
+    const host = document.getElementById('bBlockColors');
+    if (!host) return;
+    host.innerHTML = BLOCK_COLORS.map((c) => `
+      <button type="button" class="color-dot${c === selectedBlockColor ? ' active' : ''}"
+              data-color="${c}" style="background:${c}" aria-label="Цвет ${c}"></button>
+    `).join('');
+  }
+
+  document.getElementById('bBlockColors')?.addEventListener('click', (e) => {
+    const dot = e.target.closest('.color-dot');
+    if (!dot) return;
+    selectedBlockColor = dot.dataset.color;
+    renderBlockColors();
+  });
 
   function setAddBookingMode(mode) {
     addBookingMode = mode === 'block' ? 'block' : 'booking';
@@ -2157,23 +2249,13 @@ import { trapFocus } from './modules/focus-trap.js';
     document.querySelectorAll('#addBookingTabs .tab-btn').forEach((b) => {
       b.classList.toggle('tab-btn--active', b.dataset.mode === addBookingMode);
     });
-    if (isBlock) closeClientSuggest();
+    if (isBlock) { closeClientSuggest(); renderBlockColors(); }
   }
 
   document.getElementById('addBookingTabs')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.tab-btn');
     if (!btn) return;
     setAddBookingMode(btn.dataset.mode);
-    // Конец по умолчанию — через час после начала, чтобы не заполнять вручную.
-    if (addBookingMode === 'block') {
-      const startEl = document.getElementById('bStarts');
-      const endEl = document.getElementById('bBlockEnd');
-      if (endEl && !endEl.value && startEl?.value) {
-        const d = new Date(startEl.value);
-        d.setHours(d.getHours() + 1);
-        endEl.value = `${dateToISO(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      }
-    }
   });
 
   async function releaseTimeBlock(tb) {
@@ -2634,21 +2716,23 @@ import { trapFocus } from './modules/focus-trap.js';
   async function submitTimeBlock() {
     const master_id = document.getElementById('bMaster')?.value || '';
     const startLocal = document.getElementById('bStarts')?.value || '';
-    const endLocal = document.getElementById('bBlockEnd')?.value || '';
+    const minutes = Number(document.getElementById('bBlockDuration')?.value || 60);
     const reason = document.getElementById('bBlockReason')?.value.trim() || '';
-    if (!master_id || !startLocal || !endLocal) {
-      toast('Заполни сотрудника, начало и окончание');
+    if (!master_id || !startLocal) {
+      toast('Заполни сотрудника и время начала');
       return;
     }
-    if (endLocal <= startLocal) {
-      toast('Окончание должно быть позже начала');
-      return;
-    }
+    const startDate = new Date(startLocal);
+    const endDate = new Date(startDate.getTime() + minutes * 60_000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const endLocal = `${dateToISO(endDate)}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
+
     const tz = '+03:00'; // как в создании записи — COMPANY_TZ_OFFSET booking-service
     const body = {
       master_id,
       starts_at: `${startLocal}:00${tz}`,
       ends_at: `${endLocal}:00${tz}`,
+      color: selectedBlockColor,
     };
     if (reason) body.reason = reason;
     const { ok, data, status } = await apiCall('POST', '/api/bookings/blocks', body);

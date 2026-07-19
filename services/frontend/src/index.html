@@ -800,6 +800,14 @@
             </button>
             <button class="btn-success btn-sm" id="addSaleBtn" type="button" title="скоро">Оформить продажу</button>
           </div>
+          <!-- Поповер по клику на свободное время в календаре -->
+          <div class="slot-popover" id="slotPopover" hidden role="dialog" aria-label="Свободное время">
+            <div class="slot-popover-title">Время начала</div>
+            <div class="slot-popover-times" id="slotPopoverTimes"></div>
+            <button type="button" class="btn-primary slot-popover-add" id="slotPopoverAdd">Добавить запись</button>
+            <button type="button" class="slot-popover-link" id="slotPopoverBlock">Занять время</button>
+          </div>
+
           <div class="modal-backdrop" id="addBookingBackdrop" hidden></div>
           <div class="modal modal--wide" id="addBookingBlock" hidden role="dialog" aria-modal="true" aria-labelledby="addBookingTitle">
             <div class="modal-head">
@@ -821,12 +829,26 @@
                   <input id="bStarts" name="starts_at" type="datetime-local" required />
                 </div>
                 <div class="block-only" hidden>
-                  <label for="bBlockEnd">Время окончания</label>
-                  <input id="bBlockEnd" type="datetime-local" />
+                  <label for="bBlockDuration">Длительность</label>
+                  <select id="bBlockDuration">
+                    <option value="15">15 минут</option>
+                    <option value="30">30 минут</option>
+                    <option value="45">45 минут</option>
+                    <option value="60" selected>1 час</option>
+                    <option value="90">1,5 часа</option>
+                    <option value="120">2 часа</option>
+                    <option value="180">3 часа</option>
+                    <option value="240">4 часа</option>
+                    <option value="480">8 часов</option>
+                  </select>
                 </div>
-                <div class="block-only" hidden>
-                  <label for="bBlockReason">Причина</label>
+                <div class="form-grid-full block-only" hidden>
+                  <label for="bBlockReason">Комментарий</label>
                   <input id="bBlockReason" type="text" maxlength="500" placeholder="Перерыв, обучение, личные дела" />
+                </div>
+                <div class="form-grid-full block-only" hidden>
+                  <label>Цвет метки</label>
+                  <div class="color-picker" id="bBlockColors"></div>
                 </div>
                 <div class="form-grid-full client-picker booking-only">
                   <label for="bClientSearch">Клиент</label>
