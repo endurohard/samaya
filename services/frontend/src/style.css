@@ -22,10 +22,28 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   font-size: var(--fs-md);
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Пропорциональные цифры красивее в тексте, но в таблицах сумм из-за них
+     разряды не выстраиваются в столбик. Табличные включаем точечно ниже. */
+  text-rendering: optimizeLegibility;
+}
+
+/* Деньги, время и любые числовые колонки — моноширинными цифрами, чтобы
+   разряды стояли ровно друг под другом и суммы было легко сравнивать. */
+.pricing-price, .bk-svc-cell input, .bk-svc-total-cell, .bk-svc-sum,
+.bk-pay-bar, .bkv-svc-row, .bkv-total, .data-table td, .sal-row,
+.cal-booking-time, .cal-block-time, .bk-combo-meta, .money, .kpi-val {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Заголовки: чуть плотнее межбуквенное — крупный текст иначе выглядит рыхлым. */
+h1, h2, h3, .modal-title, .card-title, .analytics-card-title {
+  letter-spacing: -0.011em;
 }
 
 /* Доступность: единое кольцо фокуса при навигации с клавиатуры.
