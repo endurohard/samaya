@@ -1587,7 +1587,13 @@ import { trapFocus } from './modules/focus-trap.js';
 
         block.addEventListener('mouseenter', (e) => showBookingTooltip(b, e.currentTarget));
         block.addEventListener('mouseleave', hideBookingTooltip);
-        block.addEventListener('click', () => openBookingModal(b));
+        block.addEventListener('click', () => {
+          // Активную запись сразу открываем на редактирование — это основной
+          // сценарий. Завершённую и отменённую править нельзя (суммы уже в
+          // выручке и зарплате), поэтому для них остаётся карточка просмотра.
+          const editable = b.status === 'pending' || b.status === 'confirmed';
+          if (editable) openEditBooking(b); else openBookingModal(b);
+        });
 
         col.appendChild(block);
       });
@@ -2228,6 +2234,18 @@ import { trapFocus } from './modules/focus-trap.js';
       renderSelectedClient(b);
       document.querySelectorAll('#addBookingBlock .edit-only').forEach((el) => { el.hidden = false; });
 
+      // Набор действий зависит от состояния записи: подтверждать уже
+      // подтверждённую или пополнять счёт клиенту, которого нет, — некуда.
+      const role = (decodeJwt(store.access) || {}).role;
+      const canMoney = role === 'owner' || role === 'admin';
+      const showIf = (id, cond) => {
+        const el = document.getElementById(id);
+        if (el) el.hidden = !cond;
+      };
+      showIf('bFootConfirm', b.status === 'pending');
+      showIf('bFootComplete', canMoney);
+      showIf('bFootTopup', !!b.client_id && canMoney);
+
       const title = document.getElementById('addBookingTitle');
       if (title) title.textContent = 'Изменение записи';
       const submit = document.getElementById('addBookingSubmit');
@@ -2447,6 +2465,49 @@ import { trapFocus } from './modules/focus-trap.js';
     const b = cachedBookings.find((x) => x.id === id);
     closeAddBookingModal();
     if (b) { openBookingModal(b); document.getElementById('bkModalHistory')?.click(); }
+  });
+
+  document.getElementById('bFootConfirm')?.addEventListener('click', async () => {
+    const id = editingBookingId;
+    if (!id) return;
+    const { ok, data, status } = await apiCall('PATCH', `/api/bookings/${id}`, { status: 'confirmed' });
+    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
+    toast('Запись подтверждена');
+    resetBookingForm();
+    closeAddBookingModal();
+    await loadBookings();
+  });
+
+  document.getElementById('bFootNoShow')?.addEventListener('click', async () => {
+    const id = editingBookingId;
+    if (!id) return;
+    if (!confirm('Отметить, что клиент не пришёл?')) return;
+    const { ok, data, status } = await apiCall('POST', `/api/bookings/${id}/cancel`, { no_show: true });
+    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
+    toast('Отмечено: клиент не пришёл');
+    resetBookingForm();
+    closeAddBookingModal();
+    await loadBookings();
+  });
+
+  document.getElementById('bFootComplete')?.addEventListener('click', () => {
+    const b = cachedBookings.find((x) => x.id === editingBookingId);
+    if (!b) return;
+    // Оформление продажи — отдельная форма с оплатой и бонусами: открываем её
+    // через карточку записи, чтобы не дублировать денежную логику.
+    resetBookingForm();
+    closeAddBookingModal();
+    openBookingModal(b);
+    setTimeout(() => document.getElementById('bkModalComplete')?.click(), 60);
+  });
+
+  document.getElementById('bFootTopup')?.addEventListener('click', () => {
+    const b = cachedBookings.find((x) => x.id === editingBookingId);
+    if (!b) return;
+    resetBookingForm();
+    closeAddBookingModal();
+    openBookingModal(b);
+    setTimeout(() => document.getElementById('bkModalTopup')?.click(), 60);
   });
 
   document.getElementById('bFootRepeat')?.addEventListener('click', () => {
