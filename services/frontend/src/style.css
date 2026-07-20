@@ -622,6 +622,11 @@ body.guest .auth-card { margin: 32px auto 0; }
   max-height: min(300px, 40vh);
   overflow-y: auto;
   margin-bottom: 8px;
+  /* Внутри .modal-body (колоночный flex) элемент с overflow:auto имеет
+     min-height:0 и схлопывается в пустую полоску, когда места не хватает, —
+     список услуг исчезал целиком. Фиксируем минимум и запрещаем сжатие. */
+  flex: 0 0 auto;
+  min-height: 132px;
 }
 .service-pick {
   display: flex; align-items: center; gap: 8px;

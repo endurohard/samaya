@@ -2147,8 +2147,11 @@ import { trapFocus } from './modules/focus-trap.js';
 
   function openEditBooking(b) {
     closeBookingModal();
-    editingBookingId = b.id;
+    // Порядок важен: resetBookingForm() обнуляет editingBookingId, поэтому
+    // сначала чистим форму и только потом помечаем режим правки. Иначе
+    // сохранение уходило в POST и создавало дубль на занятое время.
     resetBookingForm();
+    editingBookingId = b.id;
     openAddBookingModal();
     setAddBookingMode('booking');
     // Форма заполняется после populateBookingForm — она перерисовывает
