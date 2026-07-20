@@ -2478,10 +2478,14 @@ import { trapFocus } from './modules/focus-trap.js';
       const cells = document.createElement('template');
       cells.innerHTML = `
         <div class="bk-svc-cell bk-combo" data-idx="${idx}">
-          <input class="bk-combo-input" data-idx="${idx}" type="text" autocomplete="off" spellcheck="false"
-                 role="combobox" aria-expanded="false" aria-label="Услуга"
-                 value="${escapeHtml(svc ? svc.name : '')}" placeholder="Начните вводить название" />
-          <div class="bk-combo-list" hidden></div>
+          <button type="button" class="bk-combo-trigger" data-idx="${idx}">
+            <span class="bk-combo-value${svc ? '' : ' is-empty'}">${escapeHtml(svc ? svc.name : 'Выберите услугу')}</span>
+            <svg class="bk-combo-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="bk-combo-panel" hidden>
+            <input type="text" class="bk-combo-search" placeholder="Поиск услуги" autocomplete="off" spellcheck="false" />
+            <div class="bk-combo-list"></div>
+          </div>
         </div>
         <div class="bk-svc-cell"><input class="bk-svc-duration" data-idx="${idx}" type="number" min="5" step="5" value="${row.duration}" aria-label="Длительность, мин" /></div>
         <div class="bk-svc-cell bk-price-wrap">
@@ -2491,10 +2495,37 @@ import { trapFocus } from './modules/focus-trap.js';
         <div class="bk-svc-cell"><input class="bk-svc-disc-pct" data-idx="${idx}" type="number" min="0" max="100" step="0.1" value="${row.discountPct}" aria-label="Скидка %" /></div>
         <div class="bk-svc-cell"><input class="bk-svc-disc-sum" data-idx="${idx}" type="number" min="0" step="1" value="${Math.round((Number(row.price) || 0) - rowTotal(row))}" aria-label="Скидка сумма" /></div>
         <div class="bk-svc-cell"><output class="bk-svc-total-cell">${formatPrice(rowTotal(row))}</output></div>
-        <div class="bk-svc-cell"><button type="button" class="bk-svc-del" data-idx="${idx}" aria-label="Убрать услугу">×</button></div>
+        <div class="bk-svc-cell">
+          <button type="button" class="bk-svc-del" data-idx="${idx}" aria-label="Убрать услугу">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+        </div>
       `;
       grid.appendChild(cells.content);
     });
+
+    // Итоговая строка по колонкам — как в чеке: суммарная длительность,
+    // сумма цен, общий процент скидки, сумма скидок и итог.
+    if (svcRows.length) {
+      const sumPrice = svcRows.reduce((a, r) => a + (Number(r.price) || 0), 0);
+      const sumTotal = bookingSubtotal();
+      const sumDisc = Math.round(sumPrice - sumTotal);
+      const sumMin = svcRows.reduce((a, r) => a + (Number(r.duration) || 0), 0);
+      const pct = sumPrice ? Math.round((sumDisc / sumPrice) * 1000) / 10 : 0;
+      const hours = Math.floor(sumMin / 60);
+      const durLabel = hours ? `${hours} ч${sumMin % 60 ? ' ' + (sumMin % 60) + ' м' : ''}` : `${sumMin} м`;
+      const foot = document.createElement('template');
+      foot.innerHTML = `
+        <span class="bk-svc-cell bk-svc-sum"></span>
+        <span class="bk-svc-cell bk-svc-sum num">${durLabel}</span>
+        <span class="bk-svc-cell bk-svc-sum num">${formatPrice(sumPrice)}</span>
+        <span class="bk-svc-cell bk-svc-sum num">${pct} %</span>
+        <span class="bk-svc-cell bk-svc-sum num">${formatPrice(sumDisc)}</span>
+        <span class="bk-svc-cell bk-svc-sum num"><b>${formatPrice(sumTotal)}</b></span>
+        <span class="bk-svc-cell"></span>
+      `;
+      grid.appendChild(foot.content);
+    }
 
     const totalEl = document.getElementById('bTotal');
     if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
@@ -2547,44 +2578,50 @@ import { trapFocus } from './modules/focus-trap.js';
   els.bMaster?.addEventListener('change', checkBookingOverlap);
 
   document.getElementById('bSvcAdd')?.addEventListener('click', () => addServiceRow());
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.bk-combo')) closeServiceCombos();
+  });
 
   // ===== Выбор услуги с поиском =====
   // Нативный <select> искать не умеет, а услуг больше полусотни: без поиска
   // нужную позицию приходится прокручивать глазами.
-  function openServiceCombo(input) {
-    const wrap = input.closest('.bk-combo');
+  function renderComboList(wrap, query) {
     const list = wrap?.querySelector('.bk-combo-list');
     if (!list) return;
-    const q = input.value.trim().toLowerCase();
+    const q = (query || '').trim().toLowerCase();
     const matches = activeServices().filter((s) => !q || s.name.toLowerCase().includes(q));
     list.innerHTML = matches.length
       ? matches.map((s) => `
-          <button type="button" class="bk-combo-item" data-service-id="${s.id}">
+          <button type="button" class="bk-combo-opt" data-service-id="${s.id}">
             <span class="bk-combo-name">${escapeHtml(s.name)}</span>
             <span class="bk-combo-meta">${s.duration_minutes} мин · ${formatPrice(s.price)}</span>
           </button>`).join('')
-      : '<div class="bk-combo-empty muted">Услуги не найдены</div>';
-    list.hidden = false;
-    input.setAttribute('aria-expanded', 'true');
+      : '<div class="bk-combo-empty">Услуги не найдены</div>';
   }
 
   function closeServiceCombos() {
-    document.querySelectorAll('#bSvcGrid .bk-combo-list').forEach((l) => { l.hidden = true; });
-    document.querySelectorAll('#bSvcGrid .bk-combo-input').forEach((i) => i.setAttribute('aria-expanded', 'false'));
+    document.querySelectorAll('#bSvcGrid .bk-combo-panel').forEach((p) => { p.hidden = true; });
+    document.querySelectorAll('#bSvcGrid .bk-combo-trigger').forEach((t) => t.setAttribute('aria-expanded', 'false'));
   }
 
-  document.getElementById('bSvcGrid')?.addEventListener('focusin', (e) => {
-    const input = e.target.closest('.bk-combo-input');
-    if (!input) { closeServiceCombos(); return; }
-    // Открываем со списком целиком: поле уже содержит название выбранной
-    // услуги, и фильтровать по нему бессмысленно.
-    input.dataset.prev = input.value;
-    input.value = '';
-    openServiceCombo(input);
+  document.getElementById('bSvcGrid')?.addEventListener('click', (e) => {
+    const trigger = e.target.closest('.bk-combo-trigger');
+    if (!trigger) return;
+    const wrap = trigger.closest('.bk-combo');
+    const panel = wrap.querySelector('.bk-combo-panel');
+    const wasOpen = !panel.hidden;
+    closeServiceCombos();
+    if (wasOpen) return;
+    const search = panel.querySelector('.bk-combo-search');
+    if (search) search.value = '';
+    renderComboList(wrap, '');
+    panel.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    search?.focus();
   });
 
   document.getElementById('bSvcGrid')?.addEventListener('mousedown', (e) => {
-    const item = e.target.closest('.bk-combo-item');
+    const item = e.target.closest('.bk-combo-opt');
     if (!item) return;
     e.preventDefault();
     const wrap = item.closest('.bk-combo');
@@ -2600,20 +2637,10 @@ import { trapFocus } from './modules/focus-trap.js';
     renderServiceRows();
   });
 
-  document.getElementById('bSvcGrid')?.addEventListener('focusout', (e) => {
-    const input = e.target.closest('.bk-combo-input');
-    if (!input) return;
-    // Ушли, ничего не выбрав, — возвращаем прежнее название, иначе поле
-    // осталось бы пустым при выбранной услуге.
-    setTimeout(() => {
-      if (input.value.trim() === '') input.value = input.dataset.prev || '';
-      closeServiceCombos();
-    }, 120);
-  });
 
   document.getElementById('bSvcGrid')?.addEventListener('input', (e) => {
     const t = e.target;
-    if (t.classList.contains('bk-combo-input')) { openServiceCombo(t); return; }
+    if (t.classList.contains('bk-combo-search')) { renderComboList(t.closest('.bk-combo'), t.value); return; }
     const idx = Number(t.dataset.idx);
     const row = svcRows[idx];
     if (!row) return;

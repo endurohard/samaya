@@ -4712,38 +4712,62 @@ html, body { overflow-x: hidden; }
   .bk-svc-cell:first-child { grid-column: 1 / -1; }
 }
 
-/* Выбор услуги с поиском (строка услуги) */
-.bk-combo { position: relative; }
-.bk-combo-input { width: 100%; }
-.bk-combo-list {
-  position: absolute;
-  top: calc(100% + 4px); left: 0;
-  min-width: 100%;
-  width: max(100%, 320px);
-  max-height: 260px;
-  overflow-y: auto;
+/* Выбор услуги: кнопка-триггер + панель с поиском (макет add-booking2) */
+.bk-combo { position: relative; width: 100%; min-width: 0; }
+.bk-combo-trigger {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 9px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--fs-base);
+  cursor: pointer; text-align: left;
+}
+.bk-combo-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-combo-value.is-empty { color: var(--text-muted, var(--text-dim)); }
+.bk-combo-caret { flex: 0 0 auto; width: 14px; height: 14px; color: var(--text-dim); }
+.bk-combo-panel {
+  position: absolute; top: calc(100% + 4px); left: 0;
+  min-width: 100%; width: max(100%, 340px);
   z-index: 60;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: 0 12px 32px -8px rgba(17, 24, 39, 0.24);
+  overflow: hidden;
 }
-.bk-combo-list[hidden] { display: none; }
-.bk-combo-item {
+.bk-combo-panel[hidden] { display: none; }
+.bk-combo-search {
+  width: 100%; padding: 10px 12px;
+  border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: var(--card); color: var(--text);
+  font-size: var(--fs-base);
+}
+.bk-combo-search:focus { outline: none; }
+.bk-combo-list { max-height: 240px; overflow-y: auto; }
+.bk-combo-opt {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  width: 100%; padding: 8px 10px;
+  width: 100%; padding: 9px 12px;
   border: 0; background: none; cursor: pointer; text-align: left;
   font-size: var(--fs-base); color: inherit;
 }
-.bk-combo-item:hover { background: var(--card-hover); }
+.bk-combo-opt:hover { background: var(--card-hover); }
+.bk-combo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bk-combo-meta { font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; }
-.bk-combo-empty { padding: 8px 10px; font-size: var(--fs-sm); }
+.bk-combo-empty { padding: 10px 12px; font-size: var(--fs-sm); color: var(--text-dim); }
 
-/* Предупреждение о длительности и наложении записи */
-.bk-time-warn {
-  margin-top: 10px;
-  font-size: var(--fs-base);
-  color: var(--text-dim);
+/* Строка итогов под услугами */
+.bk-svc-sum { color: var(--text-dim); font-size: var(--fs-base); padding: 6px 0 0; }
+.bk-svc-sum.num { text-align: right; }
+.bk-svc-sum b { color: var(--text); font-size: var(--fs-md); }
+
+/* Кнопка удаления строки — круглая красная, как в макете */
+.bk-svc-del {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: none; background: #e05656; color: #fff;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.bk-time-warn[hidden] { display: none; }
-.bk-time-warn.is-conflict { color: #dc2626; font-weight: 600; }
+.bk-svc-del svg { width: 15px; height: 15px; }
+.bk-svc-del:hover { background: #c94848; }
