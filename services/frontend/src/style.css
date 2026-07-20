@@ -4880,3 +4880,7 @@ html, body { overflow-x: hidden; }
 .bk-svc-sum + .bk-svc-cell .bk-svc-add { margin: 4px 0 0; }
 .bk-svc-foot[hidden] { display: none; }
 .bk-svc-foot .bk-svc-total { color: var(--text-dim); font-size: var(--fs-base); }
+
+/* Баланс клиента в карточке формы записи */
+.bk-cs-balance { color: var(--text-dim); font-size: var(--fs-base); }
+.bk-cs-balance.is-positive { color: #1e7d34; font-weight: 600; }

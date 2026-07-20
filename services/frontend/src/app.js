@@ -2231,7 +2231,7 @@ import { trapFocus } from './modules/focus-trap.js';
       renderBookingColors();
 
       renderPayBar(b);
-      renderSelectedClient(b);
+      void renderSelectedClient(b);
       document.querySelectorAll('#addBookingBlock .edit-only').forEach((el) => { el.hidden = false; });
 
       // Набор действий зависит от состояния записи: подтверждать уже
@@ -2437,16 +2437,27 @@ import { trapFocus } from './modules/focus-trap.js';
 
   // Выбранный клиент показывается карточкой: имя, телефон и переход в его
   // историю — искать клиента в общем списке ради этого неудобно.
-  function renderSelectedClient(b) {
+  async function renderSelectedClient(b) {
     const host = document.getElementById('bClientSelected');
     if (!host) return;
     if (!b.client_name && !b.client_phone) { host.hidden = true; return; }
     host.innerHTML = `
       <span class="bk-cs-name">${escapeHtml(b.client_name || 'Без имени')}</span>
       <span class="bk-client-phone">${escapeHtml(b.client_phone || '')}</span>
+      <span class="bk-cs-balance" id="bClientBalance"></span>
       ${b.client_id ? `<button type="button" class="bk-link" data-client-id="${b.client_id}">История записей</button>` : ''}
     `;
     host.hidden = false;
+
+    // Баланс лицевого счёта прямо здесь: без него легко пополнить счёт
+    // однофамильцу и не заметить — в клинике фамилии часто похожи.
+    if (!b.client_id) return;
+    const r = await apiCall('GET', `/api/clients/${b.client_id}`, null);
+    const balEl = document.getElementById('bClientBalance');
+    if (!balEl || !r.ok || !r.data) return;
+    const bal = Number(r.data.balance || 0);
+    balEl.textContent = `На счету: ${formatPrice(bal)}`;
+    balEl.classList.toggle('is-positive', bal > 0);
   }
 
   document.getElementById('bClientSelected')?.addEventListener('click', (e) => {
@@ -2498,12 +2509,9 @@ import { trapFocus } from './modules/focus-trap.js';
   document.getElementById('bFootComplete')?.addEventListener('click', () => {
     const b = cachedBookings.find((x) => x.id === editingBookingId);
     if (!b) return;
-    // Оформление продажи — отдельная форма с оплатой и бонусами: открываем её
-    // через карточку записи, чтобы не дублировать денежную логику.
     resetBookingForm();
     closeAddBookingModal();
-    openBookingModal(b);
-    setTimeout(() => document.getElementById('bkModalComplete')?.click(), 60);
+    openSaleFor(b);
   });
 
   document.getElementById('bFootTopup')?.addEventListener('click', () => {
@@ -2511,8 +2519,7 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!b) return;
     resetBookingForm();
     closeAddBookingModal();
-    openBookingModal(b);
-    setTimeout(() => document.getElementById('bkModalTopup')?.click(), 60);
+    void openTopupFor(b);
   });
 
   document.getElementById('bFootRepeat')?.addEventListener('click', () => {
@@ -3164,8 +3171,12 @@ import { trapFocus } from './modules/focus-trap.js';
     if (md) md.hidden = true;
     _bkTopupClientId = null;
   }
-  document.getElementById('bkModalTopup')?.addEventListener('click', async () => {
-    const b = _bkModalCurrent;
+  document.getElementById('bkModalTopup')?.addEventListener('click', () => void openTopupFor(_bkModalCurrent));
+
+  // Форма пополнения открывается напрямую из любой точки: раньше из правки
+  // записи мы сначала показывали карточку просмотра, и пользователь видел
+  // «старое окно» вместо ожидаемой формы пополнения.
+  async function openTopupFor(b) {
     if (!b || !b.client_id) { toast('Запись не привязана к клиенту'); return; }
     _bkTopupClientId = b.client_id;
     const nameEl = document.getElementById('bkTopupClient');
@@ -3190,7 +3201,8 @@ import { trapFocus } from './modules/focus-trap.js';
     if (bd) bd.hidden = false;
     if (md) md.hidden = false;
     document.getElementById('bkTopupAmount')?.focus();
-  });
+  }
+
   document.getElementById('bkTopupClose')?.addEventListener('click', closeBkTopup);
   document.getElementById('bkTopupCancel')?.addEventListener('click', closeBkTopup);
   document.getElementById('bkTopupBackdrop')?.addEventListener('click', closeBkTopup);
@@ -9220,14 +9232,15 @@ import { trapFocus } from './modules/focus-trap.js';
   document.getElementById('saleModalBackdrop')?.addEventListener('click', closeSaleModal);
 
   // Wire "Оформить продажу" button inside bk-modal
-  document.getElementById('bkModalComplete')?.addEventListener('click', () => {
-    if (!_bkModalCurrent) return;
-    const b = _bkModalCurrent;
+  document.getElementById('bkModalComplete')?.addEventListener('click', () => openSaleFor(_bkModalCurrent));
+
+  function openSaleFor(b) {
+    if (!b) return;
     const servicesHtml = (b.services || [])
       .map((s) => `<div>${escapeHtml(s.service_name)} — <strong>${formatPrice(s.price)}</strong></div>`)
       .join('') || '<div>Услуги не указаны</div>';
     void openSaleModal(b.id, b.total_price || 0, servicesHtml, b.client_id, b.client_phone);
-  });
+  }
 
   // Sales period pills
   document.getElementById('salesPeriodPills')?.addEventListener('click', (e) => {
