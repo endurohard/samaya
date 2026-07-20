@@ -67,3 +67,53 @@ export function computeMasterSalary(
 
   return { rate, pct_services, pct_goods, guaranteed: scheme.guaranteed, total };
 }
+
+// ===== Функции, вынесенные из роута расчёта, чтобы их можно было проверить =====
+
+/**
+ * Делит сумму между участниками поровну методом наибольшего остатка.
+ * Σ долей всегда равна исходной сумме — копейки не теряются и не задваиваются.
+ * Порядок получателей «лишних» рублей стабилен (сортировка по id), иначе при
+ * повторном расчёте одного периода суммы у людей прыгали бы.
+ */
+export function splitEqually(pool: number, memberIds: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const n = memberIds.length;
+  if (n === 0 || pool <= 0) return out;
+  const amount = Math.round(pool);
+  const base = Math.floor(amount / n);
+  let remainder = amount - base * n;
+  for (const id of [...memberIds].sort()) {
+    let share = base;
+    if (remainder > 0) { share += 1; remainder -= 1; }
+    out.set(id, share);
+  }
+  return out;
+}
+
+/**
+ * Доля скидки в стоимости записи. Скидка задаётся на запись целиком, а
+ * комиссии считаются по услугам — поэтому её разносят пропорционально цене.
+ */
+export function discountRatio(servicesSum: number, discountAmount: number): number {
+  if (!(servicesSum > 0)) return 0;
+  return Math.min(1, Math.max(0, discountAmount) / servicesSum);
+}
+
+/** Выручка записи: то, что реально получила касса. Отрицательной не бывает. */
+export function bookingRevenue(totalPrice: number, discountAmount = 0): number {
+  return Math.max(0, Number(totalPrice) - Number(discountAmount || 0));
+}
+
+/**
+ * Сколько дней оплачивать по ставке.
+ * Пустой график означает «не заполняли» → платим за календарь, иначе
+ * сотрудник без графика получил бы ноль. Заполненный график без рабочих
+ * дней — честный ноль (отпуск, больничный).
+ */
+export function payableDays(
+  scheduledDays: number | undefined,
+  calendarDays: number,
+): number {
+  return scheduledDays === undefined ? calendarDays : scheduledDays;
+}

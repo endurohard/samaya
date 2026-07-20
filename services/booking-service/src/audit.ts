@@ -59,9 +59,16 @@ export function diffFields(
     if (!(f in after) || after[f] === undefined) continue;
     const a = before[f];
     const b = after[f];
-    // Даты сравниваем по значению момента, а не по строковому виду.
-    const norm = (v: unknown) =>
-      v instanceof Date ? v.getTime() : typeof v === 'number' ? Number(v) : v ?? null;
+    // Даты сравниваем по моменту времени, а числа — по значению: Postgres
+    // отдаёт numeric строкой («10000.00»), а расчёт — числом, и без приведения
+    // история заполнялась бы правками цены, которых не было.
+    const norm = (v: unknown) => {
+      if (v instanceof Date) return v.getTime();
+      if (v === null || v === undefined) return null;
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+      return v;
+    };
     if (norm(a) !== norm(b)) changes[f] = { from: a ?? null, to: b ?? null };
   }
   return changes;

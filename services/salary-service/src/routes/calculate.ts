@@ -4,7 +4,10 @@ import { isoDate } from '../validators';
 import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, HttpError } from '../middleware';
-import { daysBetween, daysInMonthOf, computeMasterSalary } from '../calculate.service';
+import {
+  daysBetween, daysInMonthOf, computeMasterSalary,
+  splitEqually, discountRatio, bookingRevenue, payableDays,
+} from '../calculate.service';
 
 const router = Router();
 router.use(authenticate);
@@ -92,9 +95,8 @@ router.get('/', async (req, res, next) => {
     // с прайсовой цены: при скидке 39% переплата составляла треть комиссии.
     const bookingTotals = new Map<string, number>();
     for (const b of bookings) {
-      const revenue = Number(b.total_price) - Number(b.discount_amount || 0);
       const cur = bookingTotals.get(b.master_id) || 0;
-      bookingTotals.set(b.master_id, cur + Math.max(0, revenue));
+      bookingTotals.set(b.master_id, cur + bookingRevenue(b.total_price, b.discount_amount));
     }
 
     // Правила комиссий (активные на конец периода)
@@ -176,11 +178,9 @@ router.get('/', async (req, res, next) => {
       // Скидка задаётся на запись целиком — раскидываем её по услугам
       // пропорционально цене, иначе комиссия считалась бы с прайса.
       const bookingSum = (booking.services || []).reduce((a, s) => a + Number(s.price), 0);
-      const discountRatio = bookingSum > 0
-        ? Math.min(1, Number(booking.discount_amount || 0) / bookingSum)
-        : 0;
+      const ratio = discountRatio(bookingSum, Number(booking.discount_amount || 0));
       for (const svc of (booking.services || [])) {
-        const svcPrice = Number(svc.price) * (1 - discountRatio);
+        const svcPrice = Number(svc.price) * (1 - ratio);
 
         // % комиссия → в пул: общий или групповой
         const rule = findPercentRule(svc.service_id);
@@ -235,23 +235,14 @@ router.get('/', async (req, res, next) => {
 
     // Делим пул поровну методом наибольшего остатка: Σ долей == пул (без утечки копеек).
     const poolShares = new Map<string, number>();
-    const splitEqually = (pool: number, memberIds: string[], into: Map<string, number>) => {
-      const n = memberIds.length;
-      if (n === 0 || pool <= 0) return;
-      const amount = Math.round(pool);
-      const base = Math.floor(amount / n);
-      let remainder = amount - base * n;
-      // Сортировка по id — чтобы «лишние» копейки доставались стабильно одним
-      // и тем же людям, а не прыгали между пересчётами одного периода.
-      for (const id of [...memberIds].sort()) {
-        let share = base;
-        if (remainder > 0) { share += 1; remainder -= 1; }
-        into.set(id, (into.get(id) || 0) + share);
+    const addShares = (pool: number, memberIds: string[]) => {
+      for (const [id, share] of splitEqually(pool, memberIds)) {
+        poolShares.set(id, (poolShares.get(id) || 0) + share);
       }
     };
 
     if (managerCount > 0 && totalPercentPool > 0) {
-      splitEqually(totalPercentPool, poolMembers.map((m) => m.id), poolShares);
+      addShares(totalPercentPool, poolMembers.map((m) => m.id));
     }
 
     // Групповые пулы: каждый делится только между участниками своей группы.
@@ -260,7 +251,7 @@ router.get('/', async (req, res, next) => {
       // Уволенных/удалённых из списка мастеров в делёж не берём — иначе часть
       // суммы уйдёт в никуда и Σ долей не сойдётся с пулом.
       const members = (groupMembers.get(groupId) || []).filter((id) => knownMasterIds.has(id));
-      splitEqually(pool, members, poolShares);
+      addShares(pool, members);
     }
 
     // Делитель для месячной ставки — реальное число дней месяца периода (не фикс. 30).
@@ -282,7 +273,7 @@ router.get('/', async (req, res, next) => {
       // дни: иначе сотрудник с незаполненным графиком получит ноль ставки.
       const workedDays = workedDaysMap.get(m.id) ?? 0;
       const hasSchedule = workedDaysMap.has(m.id);
-      const effectiveDays = hasSchedule ? workedDays : calendarDays;
+      const effectiveDays = payableDays(hasSchedule ? workedDays : undefined, calendarDays);
       const sales = m.provides_services ? (bookingTotals.get(m.id) || 0) : 0;
       // Выручка по товарам мастера — источника продаж товаров пока нет (0).
       const goodsTotal = 0;
