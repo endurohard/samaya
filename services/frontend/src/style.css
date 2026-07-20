@@ -607,14 +607,19 @@ body.guest .auth-card { margin: 32px auto 0; }
 .supplier-add-inline > .btn-xs { flex: 0 0 auto; }
 
 /* ===== Service picker ===== */
+/* Услуги в несколько колонок: список из 50+ позиций в одну колонку
+   превращает форму в бесконечную прокрутку. Колонки набираются сами по
+   ширине — на узком экране остаётся одна. */
 .service-picker {
-  display: flex; flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 2px 14px;
+  align-content: start;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px;
-  max-height: 200px;
+  max-height: min(300px, 40vh);
   overflow-y: auto;
   margin-bottom: 8px;
 }
@@ -626,10 +631,12 @@ body.guest .auth-card { margin: 32px auto 0; }
   font-size: var(--fs-base);
 }
 .service-pick:hover { background: var(--card-hover); }
-.service-pick input { margin: 0; }
+.service-pick input { margin: 0; flex: 0 0 auto; }
+.service-pick span { min-width: 0; overflow-wrap: anywhere; }
 .service-pick[hidden] { display: none; }
 .service-search { margin-bottom: 6px; }
-.service-pick-empty { padding: 6px; font-size: var(--fs-sm); }
+/* «Ничего не найдено» — на всю ширину сетки, а не в одну колонку. */
+.service-pick-empty { padding: 6px; font-size: var(--fs-sm); grid-column: 1 / -1; }
 
 /* ===== Client picker (форма записи) ===== */
 .client-picker { position: relative; }
@@ -2554,6 +2561,28 @@ body.guest .auth-card { margin: 32px auto 0; }
   padding: 8px 0;
 }
 
+/* Узкие экраны: строки цен и итогов перестают помещаться в ряд. */
+@media (max-width: 640px) {
+  .pricing-row {
+    grid-template-columns: 1fr auto;
+    row-gap: 4px;
+  }
+  .pricing-row .pricing-price { grid-column: 2; width: 110px; }
+  .pricing-totals { flex-wrap: wrap; }
+  .pricing-field { flex: 1 1 45%; }
+  .pricing-total { flex: 1 1 100%; text-align: left; }
+  .client-picker-row { flex-wrap: wrap; }
+  .client-picker-row > button { width: 100%; }
+  .retention-controls { width: 100%; flex-wrap: wrap; }
+  .retention-controls select { flex: 1 1 100%; }
+}
+
+/* Низкие экраны (ноутбуки 13"): списку услуг нельзя занимать пол-экрана,
+   иначе кнопка «Создать» уезжает за пределы окна. */
+@media (max-height: 800px) {
+  .service-picker { max-height: min(220px, 32vh); }
+}
+
 /* ===== Поповер свободного слота ===== */
 .slot-popover {
   position: fixed;
@@ -3499,6 +3528,9 @@ body.guest .auth-card { margin: 32px auto 0; }
 
 /* Modal wider variant */
 .modal--wide { width: min(700px, 96vw); }
+/* Форма записи шире прочих модалок: услуги идут в 2–3 колонки, а строки цен
+   требуют места под название, прайс и поле ввода. */
+#addBookingBlock { width: min(880px, 96vw); }
 
 /* Tab bar inside modal */
 .tab-bar {
