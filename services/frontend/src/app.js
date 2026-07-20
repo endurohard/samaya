@@ -2676,7 +2676,31 @@ import { trapFocus } from './modules/focus-trap.js';
     }
     const totalEl = document.getElementById('bTotal');
     if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
+    // Итоговая строка и предупреждение о наложении зависят от длительности и
+    // цен — без пересчёта они показывали прежние значения.
+    updateSvcSummary();
+    checkBookingOverlap();
   });
+
+  // Обновляет итоговую строку под таблицей, не трогая поля ввода (иначе
+  // теряется фокус и каретка при наборе).
+  function updateSvcSummary() {
+    const grid = document.getElementById('bSvcGrid');
+    if (!grid) return;
+    const cells = grid.querySelectorAll('.bk-svc-sum');
+    if (cells.length < 6) return;
+    const sumPrice = svcRows.reduce((a, r) => a + (Number(r.price) || 0), 0);
+    const sumTotal = bookingSubtotal();
+    const sumDisc = Math.round(sumPrice - sumTotal);
+    const sumMin = svcRows.reduce((a, r) => a + (Number(r.duration) || 0), 0);
+    const pct = sumPrice ? Math.round((sumDisc / sumPrice) * 1000) / 10 : 0;
+    const hours = Math.floor(sumMin / 60);
+    cells[1].textContent = hours ? `${hours} ч${sumMin % 60 ? ' ' + (sumMin % 60) + ' м' : ''}` : `${sumMin} м`;
+    cells[2].textContent = formatPrice(sumPrice);
+    cells[3].textContent = `${pct} %`;
+    cells[4].textContent = formatPrice(sumDisc);
+    cells[5].innerHTML = `<b>${formatPrice(sumTotal)}</b>`;
+  }
 
   document.getElementById('bSvcGrid')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.bk-svc-del');
@@ -3177,6 +3201,16 @@ import { trapFocus } from './modules/focus-trap.js';
       if (svc && Number(r.price) !== Number(svc.price)) overrides[r.service_id] = Number(r.price);
     });
     if (Object.keys(overrides).length) body.price_overrides = overrides;
+    // Длительность тоже уходит на сервер: без неё запись занимала прайсовое
+    // время, и «10 минут» превращались в час — с ложным конфликтом слота.
+    const durations = {};
+    svcRows.forEach((r) => {
+      const svc = cachedServices.find((s) => s.id === r.service_id);
+      if (svc && Number(r.duration) !== Number(svc.duration_minutes)) {
+        durations[r.service_id] = Number(r.duration);
+      }
+    });
+    if (Object.keys(durations).length) body.duration_overrides = durations;
     // Скидки заданы построчно — на запись уходит их сумма: в bookings скидка
     // хранится одним полем, и именно её вычитают выручка и зарплата.
     const discountAmount = Math.round(bookingDiscountSum());

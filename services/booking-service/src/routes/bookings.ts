@@ -617,6 +617,9 @@ const createSchema = z.object({
   // Переопределение цены по услугам: администратор договорился с клиентом на
   // другую сумму. Ключ — service_id, значение — цена за позицию.
   price_overrides: z.record(z.string().uuid(), z.number().min(0).max(10_000_000)).optional(),
+  // Длительность позиции: администратор укорачивает или удлиняет процедуру
+  // под конкретного клиента. Без этого запись занимала бы прайсовое время.
+  duration_overrides: z.record(z.string().uuid(), z.number().int().min(5).max(1440)).optional(),
   // Скидка на всю запись. Пишем в те же поля, что использует «оформить продажу»,
   // — выручка и зарплата уже считают revenue как total_price - discount_amount.
   discount_pct: z.number().min(0).max(100).optional(),
@@ -639,8 +642,13 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     const baseServices = await loadServiceSnapshots(client, companyId, input.service_ids);
     // Цена позиции: переопределённая администратором либо прайсовая.
     const services = baseServices.map((s) => {
-      const override = input.price_overrides?.[s.id];
-      return override === undefined ? s : { ...s, price: override };
+      const price = input.price_overrides?.[s.id];
+      const duration = input.duration_overrides?.[s.id];
+      return {
+        ...s,
+        price: price === undefined ? s.price : price,
+        duration_minutes: duration === undefined ? s.duration_minutes : duration,
+      };
     });
     const totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
     const totalPrice = round2(services.reduce((acc, s) => acc + Number(s.price), 0));
@@ -759,6 +767,9 @@ const patchSchema = z.object({
   manager_id: z.string().uuid().nullable().optional(),
   service_ids: z.array(z.string().uuid()).min(1).optional(),
   price_overrides: z.record(z.string().uuid(), z.number().min(0).max(10_000_000)).optional(),
+  // Длительность позиции: администратор укорачивает или удлиняет процедуру
+  // под конкретного клиента. Без этого запись занимала бы прайсовое время.
+  duration_overrides: z.record(z.string().uuid(), z.number().int().min(5).max(1440)).optional(),
   discount_pct: z.number().min(0).max(100).optional(),
   discount_amount: z.number().min(0).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
@@ -800,8 +811,13 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
     if (input.service_ids) {
       const base = await loadServiceSnapshots(client, companyId, input.service_ids);
       services = base.map((s) => {
-        const override = input.price_overrides?.[s.id];
-        return override === undefined ? s : { ...s, price: override };
+        const price = input.price_overrides?.[s.id];
+        const duration = input.duration_overrides?.[s.id];
+        return {
+          ...s,
+          price: price === undefined ? s.price : price,
+          duration_minutes: duration === undefined ? s.duration_minutes : duration,
+        };
       });
       totalPrice = round2(services.reduce((acc, s) => acc + Number(s.price), 0));
       totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
