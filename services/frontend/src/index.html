@@ -882,6 +882,23 @@
               <input id="bServiceSearch" class="service-search booking-only" type="text" autocomplete="off" spellcheck="false"
                      placeholder="Поиск по названию услуги" aria-controls="bServices" />
               <div class="service-picker booking-only" id="bServices"></div>
+              <div class="booking-only" id="bPricing" hidden>
+                <div class="pricing-rows" id="bPricingRows"></div>
+                <div class="pricing-totals">
+                  <div class="pricing-field">
+                    <label for="bDiscountPct">Скидка&nbsp;%</label>
+                    <input id="bDiscountPct" type="number" min="0" max="100" step="0.1" value="0" />
+                  </div>
+                  <div class="pricing-field">
+                    <label for="bDiscountAmount">Скидка&nbsp;₽</label>
+                    <input id="bDiscountAmount" type="number" min="0" step="1" value="0" />
+                  </div>
+                  <div class="pricing-field pricing-total">
+                    <label>Итого</label>
+                    <output id="bTotal">0 ₽</output>
+                  </div>
+                </div>
+              </div>
               <label class="booking-only" for="bNotes">Примечание</label>
               <input id="bNotes" class="booking-only" name="notes" type="text" placeholder="опц." />
               <div class="form-actions">

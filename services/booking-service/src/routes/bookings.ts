@@ -512,6 +512,13 @@ const createSchema = z.object({
   client_id: z.string().uuid().optional(),
   notes: z.string().max(2000).optional(),
   manager_id: z.string().uuid().nullable().optional(),
+  // Переопределение цены по услугам: администратор договорился с клиентом на
+  // другую сумму. Ключ — service_id, значение — цена за позицию.
+  price_overrides: z.record(z.string().uuid(), z.number().min(0).max(10_000_000)).optional(),
+  // Скидка на всю запись. Пишем в те же поля, что использует «оформить продажу»,
+  // — выручка и зарплата уже считают revenue как total_price - discount_amount.
+  discount_pct: z.number().min(0).max(100).optional(),
+  discount_amount: z.number().min(0).optional(),
 }).refine((d) => d.client_phone || d.client_id, {
   message: 'client_phone or client_id required',
 });
@@ -526,9 +533,21 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     await assertMaster(client, companyId, input.master_id);
     // Мастер может создавать записи только в свой календарь.
     await assertMasterActor(client, companyId, req.auth!.role, req.auth!.sub, input.master_id);
-    const services = await loadServiceSnapshots(client, companyId, input.service_ids);
+    const baseServices = await loadServiceSnapshots(client, companyId, input.service_ids);
+    // Цена позиции: переопределённая администратором либо прайсовая.
+    const services = baseServices.map((s) => {
+      const override = input.price_overrides?.[s.id];
+      return override === undefined ? s : { ...s, price: override };
+    });
     const totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
-    const totalPrice = services.reduce((acc, s) => acc + Number(s.price), 0);
+    const totalPrice = round2(services.reduce((acc, s) => acc + Number(s.price), 0));
+
+    // Скидка: процент имеет приоритет (его вводят чаще), иначе — сумма.
+    // Сумму ограничиваем стоимостью — иначе запись уходит в минус и портит выручку.
+    const discountPct = input.discount_pct ?? 0;
+    const discountAmount = input.discount_pct !== undefined
+      ? round2(totalPrice * discountPct / 100)
+      : Math.min(round2(input.discount_amount ?? 0), totalPrice);
 
     // Привязываем запись к карточке клиента (по телефону), чтобы работали
     // лицевой счёт/предоплата, история и аналитика по клиенту.
@@ -547,8 +566,9 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     const ins = await client.query(
       `INSERT INTO bookings.bookings
          (company_id, master_id, client_id, client_phone, client_name,
-          starts_at, ends_at, status, total_price, source, notes, manager_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,'admin',$9,$10)
+          starts_at, ends_at, status, total_price, source, notes, manager_id,
+          discount_pct, discount_amount)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,'admin',$9,$10,$11,$12)
        RETURNING *, total_price::float8 AS total_price`,
       [
         companyId, input.master_id,
@@ -559,6 +579,8 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
         totalPrice,
         input.notes ?? null,
         input.manager_id ?? null,
+        discountPct,
+        discountAmount,
       ],
     );
     const booking = ins.rows[0];
@@ -710,7 +732,9 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
 // ===== Complete (оформить продажу) =====
 const completeSchema = z.object({
   payment_method: z.enum(['cash', 'card', 'online', 'balance']).default('cash'),
-  discount_pct: z.number().min(0).max(100).default(0),
+  // Не .default(0): скидку могли задать ещё при создании записи, и молчаливый
+  // ноль от клиента её бы обнулил. Пустое значение → берём сохранённую в записи.
+  discount_pct: z.number().min(0).max(100).optional(),
   promo_code: z.string().optional(),
   bonus_spend: z.number().min(0).default(0),
   // bonus_accrual больше не принимается от клиента — начисление считает сервер
@@ -727,7 +751,8 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
 
     // Блокируем запись и берём текущие значения до апдейта.
     const cur = await client.query(
-      `SELECT id, client_id, master_id, status, total_price::float8 AS total_price
+      `SELECT id, client_id, master_id, status, total_price::float8 AS total_price,
+              discount_pct::float8 AS discount_pct
        FROM bookings.bookings
        WHERE company_id = $1 AND id = $2 FOR UPDATE`,
       [req.auth!.company_id, req.params.id],
@@ -741,7 +766,7 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
     await assertMasterActor(client, req.auth!.company_id, req.auth!.role, req.auth!.sub, bk0.master_id);
 
     let promoId: string | null = null;
-    let discountPct = input.discount_pct;
+    let discountPct = input.discount_pct ?? bk0.discount_pct ?? 0;
     if (input.promo_code) {
       const today = new Date().toISOString().slice(0, 10);
       const pr = await client.query(

@@ -2496,6 +2496,36 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* ===== Цены и скидка в форме записи ===== */
+#bPricing[hidden] { display: none; }
+.pricing-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.pricing-row {
+  display: grid;
+  grid-template-columns: 1fr auto 120px;
+  align-items: center;
+  gap: 10px;
+}
+.pricing-name { font-size: var(--fs-base); }
+/* Прайсовая цена показывается зачёркнутой только если её изменили. */
+.pricing-base { font-size: var(--fs-sm); color: var(--text-dim); text-decoration: line-through; }
+.pricing-base.is-hidden { visibility: hidden; }
+.pricing-price { text-align: right; }
+.pricing-totals {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.pricing-field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.pricing-field label { font-size: var(--fs-sm); color: var(--text-dim); font-weight: 600; }
+.pricing-total { text-align: right; }
+.pricing-total output {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  padding: 8px 0;
+}
+
 /* ===== Поповер свободного слота ===== */
 .slot-popover {
   position: fixed;

@@ -2300,6 +2300,8 @@ import { trapFocus } from './modules/focus-trap.js';
       els.bServices.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
         cb.checked = serviceIds.has(cb.value);
       });
+      // Галочки проставлены кодом — событие change не всплывёт, зовём вручную.
+      renderPricing();
     }, 30);
   }
 
@@ -2366,7 +2368,86 @@ import { trapFocus } from './modules/focus-trap.js';
   els.bServices?.addEventListener('change', () => {
     // Снятая галочка со скрытой строки должна снова подчиниться фильтру.
     if (els.bServiceSearch?.value.trim()) applyServiceFilter();
+    renderPricing();
   });
+
+  // ===== Цены и скидка по выбранным услугам =====
+  // Цену позиции администратор может изменить (договорились на другую сумму),
+  // поэтому храним переопределения отдельно от прайса.
+  let priceOverrides = {};
+
+  const selectedServiceIds = () =>
+    Array.from(els.bServices?.querySelectorAll('input:checked') || []).map((x) => x.value);
+
+  function servicePrice(id) {
+    if (priceOverrides[id] !== undefined) return priceOverrides[id];
+    const svc = cachedServices.find((s) => s.id === id);
+    return svc ? Number(svc.price) : 0;
+  }
+
+  function pricingSubtotal() {
+    return selectedServiceIds().reduce((acc, id) => acc + servicePrice(id), 0);
+  }
+
+  function renderPricing() {
+    const host = document.getElementById('bPricing');
+    const rows = document.getElementById('bPricingRows');
+    if (!host || !rows) return;
+    const ids = selectedServiceIds();
+    host.hidden = ids.length === 0;
+    if (!ids.length) { updateTotals(); return; }
+
+    rows.innerHTML = ids.map((id) => {
+      const svc = cachedServices.find((s) => s.id === id);
+      const name = svc ? svc.name : 'Услуга';
+      const base = svc ? Number(svc.price) : 0;
+      const price = servicePrice(id);
+      const changed = price !== base;
+      return `
+        <div class="pricing-row">
+          <span class="pricing-name">${escapeHtml(name)}</span>
+          <span class="pricing-base${changed ? '' : ' is-hidden'}">${formatPrice(base)}</span>
+          <input class="pricing-price" type="number" min="0" step="1"
+                 data-service-id="${id}" value="${price}" aria-label="Цена: ${escapeHtml(name)}" />
+        </div>
+      `;
+    }).join('');
+    updateTotals();
+  }
+
+  function updateTotals() {
+    const subtotal = pricingSubtotal();
+    const pctEl = document.getElementById('bDiscountPct');
+    const amtEl = document.getElementById('bDiscountAmount');
+    const totalEl = document.getElementById('bTotal');
+    if (!totalEl) return;
+    const discount = Math.min(Number(amtEl?.value || 0), subtotal);
+    totalEl.textContent = formatPrice(Math.max(0, subtotal - discount));
+    if (pctEl && document.activeElement !== pctEl) {
+      pctEl.value = subtotal ? Math.round((discount / subtotal) * 1000) / 10 : 0;
+    }
+  }
+
+  document.getElementById('bPricingRows')?.addEventListener('input', (e) => {
+    const inp = e.target.closest('.pricing-price');
+    if (!inp) return;
+    const val = Number(inp.value);
+    priceOverrides[inp.dataset.serviceId] = Number.isFinite(val) && val >= 0 ? val : 0;
+    syncDiscountFromPct();
+  });
+
+  // Процент и сумма — две проекции одной скидки: правка одной пересчитывает вторую.
+  function syncDiscountFromPct() {
+    const pctEl = document.getElementById('bDiscountPct');
+    const amtEl = document.getElementById('bDiscountAmount');
+    if (!pctEl || !amtEl) return;
+    const pct = Math.min(100, Math.max(0, Number(pctEl.value || 0)));
+    amtEl.value = Math.round(pricingSubtotal() * pct) / 100;
+    updateTotals();
+  }
+
+  document.getElementById('bDiscountPct')?.addEventListener('input', syncDiscountFromPct);
+  document.getElementById('bDiscountAmount')?.addEventListener('input', updateTotals);
 
   // ===== Автодополнение клиентов в форме записи =====
   let _clientSuggestItems = [];
@@ -2755,6 +2836,12 @@ import { trapFocus } from './modules/focus-trap.js';
     _clientSelectedLabel = '';
     closeClientSuggest();
     applyServiceFilter();
+    priceOverrides = {};
+    const pct = document.getElementById('bDiscountPct');
+    const amt = document.getElementById('bDiscountAmount');
+    if (pct) pct.value = 0;
+    if (amt) amt.value = 0;
+    renderPricing();
   }
   els.addBookingForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2774,6 +2861,18 @@ import { trapFocus } from './modules/focus-trap.js';
     const tz = '+03:00'; // соответствует COMPANY_TZ_OFFSET в booking-service
     const starts_at = `${startsLocal}:00${tz}`;
     const body = { master_id, service_ids, starts_at, client_phone };
+    // Отправляем только реально изменённые цены — иначе зафиксируем прайс
+    // навсегда и запись перестанет реагировать на его обновление.
+    const overrides = {};
+    service_ids.forEach((id) => {
+      const svc = cachedServices.find((s) => s.id === id);
+      if (priceOverrides[id] !== undefined && svc && priceOverrides[id] !== Number(svc.price)) {
+        overrides[id] = priceOverrides[id];
+      }
+    });
+    if (Object.keys(overrides).length) body.price_overrides = overrides;
+    const discountAmount = Number(document.getElementById('bDiscountAmount')?.value || 0);
+    if (discountAmount > 0) body.discount_amount = discountAmount;
     if (client_name) body.client_name = client_name;
     if (notes) body.notes = notes;
     if (manager_id) body.manager_id = manager_id;
