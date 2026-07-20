@@ -18,6 +18,7 @@ interface BookingRow {
   master_id: string;
   manager_id?: string | null;
   total_price: number;
+  discount_amount?: number;
   status: string;
   services?: BookingService[];
 }
@@ -27,7 +28,9 @@ async function fetchCompletedBookings(
   from: string,
   to: string,
 ): Promise<BookingRow[]> {
-  const url = `${config.BOOKING_SERVICE_URL}/api/bookings?from=${from}&to=${to}&status=completed`;
+  // by=completed: период считаем по дате закрытия записи — так же, как
+  // выручка в «Продажах». Иначе зарплата и выручка за месяц не сойдутся.
+  const url = `${config.BOOKING_SERVICE_URL}/api/bookings?from=${from}&to=${to}&status=completed&by=completed`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) throw new HttpError(502, `booking-service ${r.status}`, 'UPSTREAM');
   const j: unknown = await r.json();
@@ -84,10 +87,14 @@ router.get('/', async (req, res, next) => {
     // Не глушим сбой booking-service: иначе зарплаты молча посчитаются с нулевой
     // выручкой и 200 OK. Ошибка апстрима → 502, пусть вызывающий повторит.
     const bookings = await fetchCompletedBookings(token, q.from, q.to);
+    // База для процента мастера — сумма, которую реально получила касса:
+    // скидку даёт салон, и мастер делит её вместе с ним. Раньше процент шёл
+    // с прайсовой цены: при скидке 39% переплата составляла треть комиссии.
     const bookingTotals = new Map<string, number>();
     for (const b of bookings) {
+      const revenue = Number(b.total_price) - Number(b.discount_amount || 0);
       const cur = bookingTotals.get(b.master_id) || 0;
-      bookingTotals.set(b.master_id, cur + Number(b.total_price));
+      bookingTotals.set(b.master_id, cur + Math.max(0, revenue));
     }
 
     // Правила комиссий (активные на конец периода)
@@ -166,8 +173,14 @@ router.get('/', async (req, res, next) => {
     const fixedByManager = new Map<string, number>();
 
     for (const booking of bookings) {
+      // Скидка задаётся на запись целиком — раскидываем её по услугам
+      // пропорционально цене, иначе комиссия считалась бы с прайса.
+      const bookingSum = (booking.services || []).reduce((a, s) => a + Number(s.price), 0);
+      const discountRatio = bookingSum > 0
+        ? Math.min(1, Number(booking.discount_amount || 0) / bookingSum)
+        : 0;
       for (const svc of (booking.services || [])) {
-        const svcPrice = Number(svc.price);
+        const svcPrice = Number(svc.price) * (1 - discountRatio);
 
         // % комиссия → в пул: общий или групповой
         const rule = findPercentRule(svc.service_id);
@@ -195,21 +208,23 @@ router.get('/', async (req, res, next) => {
     }
     totalPercentPool = Math.round(totalPercentPool);
 
-    // Отработанные дни для техничек
-    const cleanerMasterIds = masters.rows
-      .filter((m) => !m.provides_services)
-      .map((m) => m.id);
+    // Отработанные дни нужны всем: ставка платится за смены, а не за
+    // календарь, иначе отпуск и больничный оплачиваются как рабочие дни.
+    const allMasterIds = masters.rows.map((m) => m.id);
     const workedDaysMap = new Map<string, number>();
-    if (cleanerMasterIds.length > 0) {
+    if (allMasterIds.length > 0) {
+      // Считаем и рабочие дни, и общее число заполненных дней. Второе нужно,
+      // чтобы отличить «график на период не заполняли» от «все дни выходные»:
+      // в первом случае откатываемся на календарь, во втором ставка = 0.
       const wdRes = await pool.query(
-        `SELECT master_id, COUNT(*)::int AS worked_days
+        `SELECT master_id,
+                COUNT(*) FILTER (WHERE is_day_off = FALSE)::int AS worked_days
          FROM salons.master_schedules
          WHERE master_id = ANY($1::uuid[])
            AND work_date >= $2::date
            AND work_date <= $3::date
-           AND is_day_off = FALSE
          GROUP BY master_id`,
-        [cleanerMasterIds, q.from, q.to],
+        [allMasterIds, q.from, q.to],
       );
       for (const row of wdRes.rows) workedDaysMap.set(row.master_id, row.worked_days);
     }
@@ -263,8 +278,11 @@ router.get('/', async (req, res, next) => {
       const isManager = !m.provides_services && !isCleaner;
       const isPoolMember = !!m.in_commission_pool;
 
+      // Если график на период не заполнен вовсе, откатываемся на календарные
+      // дни: иначе сотрудник с незаполненным графиком получит ноль ставки.
       const workedDays = workedDaysMap.get(m.id) ?? 0;
-      const effectiveDays = isCleaner ? workedDays : calendarDays;
+      const hasSchedule = workedDaysMap.has(m.id);
+      const effectiveDays = hasSchedule ? workedDays : calendarDays;
       const sales = m.provides_services ? (bookingTotals.get(m.id) || 0) : 0;
       // Выручка по товарам мастера — источника продаж товаров пока нет (0).
       const goodsTotal = 0;
@@ -278,8 +296,9 @@ router.get('/', async (req, res, next) => {
       // адресованных правилом. Флаг отсёк бы групповые доли у тех, кто в общем
       // пуле не состоит, — а именно так и настраивают отдельные группы.
       const percentShare = poolShares.get(m.id) ?? 0;
-      // Фиксированная — только тому, кто оформил (любой не-мастер)
-      const fixedShare = isManager ? Math.round(fixedByManager.get(m.id) || 0) : 0;
+      // Фиксированная — тому, кто оформил запись, кем бы он ни был.
+      // Условие «только не-мастер» теряло комиссию, если запись оформил врач.
+      const fixedShare = Math.round(fixedByManager.get(m.id) || 0);
       const commissionTotal = percentShare + fixedShare;
       const total = baseTotal + commissionTotal;
 
@@ -294,7 +313,7 @@ router.get('/', async (req, res, next) => {
         scheme_id: scheme?.id ?? null,
         scheme_type: scheme?.scheme_type ?? null,
         sales_total: sales,
-        worked_days: isCleaner ? workedDays : null,
+        worked_days: hasSchedule ? workedDays : null,
         commission_percent_share: percentShare,
         commission_fixed_share: fixedShare,
         commission_total: commissionTotal,

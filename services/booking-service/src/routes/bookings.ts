@@ -22,15 +22,20 @@ const listSchema = z.object({
   client_id: z.string().uuid().optional(),
   status: z.enum(['pending', 'confirmed', 'completed', 'canceled', 'no_show']).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
+  // По какому полю фильтровать период. Журналу нужен план дня (starts_at),
+  // зарплате — факт закрытия (completed_at), иначе запись, начатая 31-го и
+  // закрытая 1-го, попадёт в зарплату одного месяца, а в выручку — другого.
+  by: z.enum(['starts', 'completed']).default('starts'),
 });
 
 router.get('/', async (req, res, next) => {
   try {
     const q = listSchema.parse(req.query);
     const params: unknown[] = [req.auth!.company_id, q.from, q.to];
+    const dateField = q.by === 'completed' ? 'b.completed_at' : 'b.starts_at';
     let where = `b.company_id = $1
-      AND b.starts_at >= $2::date
-      AND b.starts_at < ($3::date + INTERVAL '1 day')`;
+      AND ${dateField} >= $2::date
+      AND ${dateField} < ($3::date + INTERVAL '1 day')`;
     if (q.master_id) {
       params.push(q.master_id);
       where += ` AND b.master_id = $${params.length}`;
