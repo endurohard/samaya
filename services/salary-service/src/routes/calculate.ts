@@ -92,7 +92,8 @@ router.get('/', async (req, res, next) => {
 
     // Правила комиссий (активные на конец периода)
     const commRules = await pool.query(
-      `SELECT service_id, commission_type, amount::float8 AS amount
+      `SELECT service_id, category_id, staff_group_id,
+              commission_type, amount::float8 AS amount
        FROM salary.service_commissions
        WHERE company_id = $1
          AND effective_from <= $2::date
@@ -100,23 +101,67 @@ router.get('/', async (req, res, next) => {
       [companyId, q.to],
     );
 
-    // Индексируем правила: percent (всем) и fixed (оформившему)
-    const percentRules = new Map<string | null, number>(); // service_id → %
-    const fixedRules = new Map<string | null, number>();   // service_id → сумма
-    let percentCatchall = 0;
+    // Категория каждой услуги — правила можно задавать на всю группу услуг
+    // («Лазеры»), а не только на конкретную позицию прайса.
+    const svcCategory = new Map<string, string | null>();
+    const catRes = await pool.query(
+      `SELECT id, category_id FROM salons.services WHERE company_id = $1`,
+      [companyId],
+    );
+    for (const s of catRes.rows) svcCategory.set(s.id, s.category_id);
+
+    // Состав групп сотрудников.
+    const groupMembers = new Map<string, string[]>();
+    const gmRes = await pool.query(
+      `SELECT g.id AS group_id, m.master_id
+       FROM salary.staff_groups g
+       JOIN salary.staff_group_members m ON m.group_id = g.id
+       WHERE g.company_id = $1`,
+      [companyId],
+    );
+    for (const row of gmRes.rows) {
+      const list = groupMembers.get(row.group_id) || [];
+      list.push(row.master_id);
+      groupMembers.set(row.group_id, list);
+    }
+
+    // Индексируем правила: percent (в пул) и fixed (оформившему).
+    // Приоритет при поиске: конкретная услуга → её категория → правило «на всё».
+    interface PctRule { amount: number; groupId: string | null }
+    const percentByService = new Map<string, PctRule>();
+    const percentByCategory = new Map<string, PctRule>();
+    let percentCatchall: PctRule = { amount: 0, groupId: null };
+    const fixedRules = new Map<string | null, number>();
     let fixedCatchall = 0;
     for (const rule of commRules.rows) {
       if (rule.commission_type === 'percent') {
-        if (rule.service_id) percentRules.set(rule.service_id, rule.amount);
-        else percentCatchall = rule.amount;
+        const r: PctRule = { amount: rule.amount, groupId: rule.staff_group_id ?? null };
+        if (rule.service_id) percentByService.set(rule.service_id, r);
+        else if (rule.category_id) percentByCategory.set(rule.category_id, r);
+        else percentCatchall = r;
       } else {
         if (rule.service_id) fixedRules.set(rule.service_id, rule.amount);
         else fixedCatchall = rule.amount;
       }
     }
 
-    // Пул процентных комиссий (идёт всем менеджерам поровну)
+    const findPercentRule = (serviceId: string): PctRule => {
+      const byService = percentByService.get(serviceId);
+      if (byService) return byService;
+      const cat = svcCategory.get(serviceId);
+      if (cat) {
+        const byCat = percentByCategory.get(cat);
+        if (byCat) return byCat;
+      }
+      return percentCatchall;
+    };
+
+    // Пул процентных комиссий (идёт всем участникам пула поровну)
     let totalPercentPool = 0;
+    // Пулы, адресованные конкретной группе сотрудников: group_id → сумма.
+    // Процент считается на группу целиком и делится между её участниками —
+    // это не «по 2% каждому», иначе расход вырос бы кратно размеру группы.
+    const groupPools = new Map<string, number>();
     // Фиксированные комиссии по менеджеру записи
     const fixedByManager = new Map<string, number>();
 
@@ -124,9 +169,17 @@ router.get('/', async (req, res, next) => {
       for (const svc of (booking.services || [])) {
         const svcPrice = Number(svc.price);
 
-        // % комиссия → в общий пул
-        const pct = percentRules.get(svc.service_id) ?? percentCatchall;
-        if (pct > 0) totalPercentPool += svcPrice * (pct / 100);
+        // % комиссия → в пул: общий или групповой
+        const rule = findPercentRule(svc.service_id);
+        const pct = rule.amount;
+        if (pct > 0) {
+          const sum = svcPrice * (pct / 100);
+          if (rule.groupId) {
+            groupPools.set(rule.groupId, (groupPools.get(rule.groupId) || 0) + sum);
+          } else {
+            totalPercentPool += sum;
+          }
+        }
 
         // Фиксированная → тому менеджеру, кто оформил запись
         if (booking.manager_id) {
@@ -167,15 +220,32 @@ router.get('/', async (req, res, next) => {
 
     // Делим пул поровну методом наибольшего остатка: Σ долей == пул (без утечки копеек).
     const poolShares = new Map<string, number>();
-    if (managerCount > 0 && totalPercentPool > 0) {
-      const base = Math.floor(totalPercentPool / managerCount);
-      let remainder = totalPercentPool - base * managerCount;
-      const ordered = [...poolMembers].sort((a, b) => (a.id < b.id ? -1 : 1));
-      for (const m of ordered) {
+    const splitEqually = (pool: number, memberIds: string[], into: Map<string, number>) => {
+      const n = memberIds.length;
+      if (n === 0 || pool <= 0) return;
+      const amount = Math.round(pool);
+      const base = Math.floor(amount / n);
+      let remainder = amount - base * n;
+      // Сортировка по id — чтобы «лишние» копейки доставались стабильно одним
+      // и тем же людям, а не прыгали между пересчётами одного периода.
+      for (const id of [...memberIds].sort()) {
         let share = base;
         if (remainder > 0) { share += 1; remainder -= 1; }
-        poolShares.set(m.id, share);
+        into.set(id, (into.get(id) || 0) + share);
       }
+    };
+
+    if (managerCount > 0 && totalPercentPool > 0) {
+      splitEqually(totalPercentPool, poolMembers.map((m) => m.id), poolShares);
+    }
+
+    // Групповые пулы: каждый делится только между участниками своей группы.
+    const knownMasterIds = new Set(masters.rows.map((m) => m.id));
+    for (const [groupId, pool] of groupPools) {
+      // Уволенных/удалённых из списка мастеров в делёж не берём — иначе часть
+      // суммы уйдёт в никуда и Σ долей не сойдётся с пулом.
+      const members = (groupMembers.get(groupId) || []).filter((id) => knownMasterIds.has(id));
+      splitEqually(pool, members, poolShares);
     }
 
     // Делитель для месячной ставки — реальное число дней месяца периода (не фикс. 30).
@@ -202,8 +272,12 @@ router.get('/', async (req, res, next) => {
       const { rate, pct_services, pct_goods, guaranteed, total: baseTotal } =
         computeMasterSalary(scheme, sales, effectiveDays, monthDivisor, goodsTotal);
 
-      // % пул делится методом наибольшего остатка (Σ == пулу)
-      const percentShare = isPoolMember ? (poolShares.get(m.id) ?? 0) : 0;
+      // % пул делится методом наибольшего остатка (Σ == пулу).
+      // Условие на in_commission_pool здесь не нужно: в poolShares попадают
+      // только те, кому доля положена, — участники общего пула и члены групп,
+      // адресованных правилом. Флаг отсёк бы групповые доли у тех, кто в общем
+      // пуле не состоит, — а именно так и настраивают отдельные группы.
+      const percentShare = poolShares.get(m.id) ?? 0;
       // Фиксированная — только тому, кто оформил (любой не-мастер)
       const fixedShare = isManager ? Math.round(fixedByManager.get(m.id) || 0) : 0;
       const commissionTotal = percentShare + fixedShare;

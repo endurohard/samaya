@@ -11,6 +11,7 @@ import accrualsRoutes from './routes/accruals';
 import settlementsRoutes from './routes/settlements';
 import payoutsRoutes from './routes/payouts';
 import commissionsRoutes from './routes/commissions';
+import staffGroupsRoutes from './routes/staff-groups';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -41,6 +42,7 @@ app.use('/api/salary/accruals', accrualsRoutes);
 app.use('/api/salary/settlements', settlementsRoutes);
 app.use('/api/salary/payouts', payoutsRoutes);
 app.use('/api/salary/commissions', commissionsRoutes);
+app.use('/api/salary/staff-groups', staffGroupsRoutes);
 
 app.use(errorHandler);
 
