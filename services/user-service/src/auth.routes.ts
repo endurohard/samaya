@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import * as authService from './auth.service';
 import { AuthError } from './auth.service';
 import { config } from './config';
@@ -101,6 +102,61 @@ router.patch('/users/:id', async (req, res, next) => {
       role: rows[0].role,
       permissions: effectivePermissions(rows[0].role, rows[0].permissions),
     });
+  } catch (e) { return next(e); }
+});
+
+// ===== Смена пароля =====
+// Раньше пароль нельзя было сменить вообще: PATCH /users/:id менял только роль,
+// права и активность. Забытый пароль сотрудника чинился правкой хеша в БД.
+const setPasswordSchema = z.object({
+  password: z.string().min(8, 'пароль от 8 символов'),
+  // Свой пароль меняем только с подтверждением текущего — угнанная вкладка
+  // не должна давать возможность сменить пароль и закрепиться в аккаунте.
+  current_password: z.string().optional(),
+});
+
+router.patch('/users/:id/password', async (req, res, next) => {
+  try {
+    const me = await getAuth(req);
+    const input = setPasswordSchema.parse(req.body);
+    const isSelf = me.sub === req.params.id;
+
+    const target = await pool.query(
+      `SELECT id, role, password_hash FROM users.users WHERE company_id = $1 AND id = $2`,
+      [me.company_id, req.params.id],
+    );
+    if (!target.rows[0]) throw new AuthError(404, 'user not found', 'NOT_FOUND');
+
+    if (isSelf) {
+      if (!input.current_password) {
+        throw new AuthError(400, 'нужен текущий пароль', 'CURRENT_PASSWORD_REQUIRED');
+      }
+      const ok = await bcrypt.compare(input.current_password, target.rows[0].password_hash);
+      if (!ok) throw new AuthError(403, 'текущий пароль неверен', 'BAD_CURRENT_PASSWORD');
+    } else {
+      // Чужой пароль задаёт только owner/admin, и admin не трогает owner'ов —
+      // иначе админ повышает себя до владельца, перехватив его аккаунт.
+      if (!['owner', 'admin'].includes(me.role)) {
+        throw new AuthError(403, 'forbidden', 'FORBIDDEN');
+      }
+      if (me.role === 'admin' && target.rows[0].role === 'owner') {
+        throw new AuthError(403, 'only owner can manage owners', 'FORBIDDEN');
+      }
+    }
+
+    const password_hash = await bcrypt.hash(input.password, 10);
+    await pool.query(
+      `UPDATE users.users SET password_hash = $3, updated_at = NOW()
+       WHERE company_id = $1 AND id = $2`,
+      [me.company_id, req.params.id, password_hash],
+    );
+    // Все активные сессии пользователя рвём: смена пароля должна выкидывать того,
+    // кто мог им пользоваться.
+    await pool.query(
+      `DELETE FROM users.refresh_tokens WHERE user_id = $1`,
+      [req.params.id],
+    );
+    return res.json({ ok: true });
   } catch (e) { return next(e); }
 });
 

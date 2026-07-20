@@ -6902,6 +6902,9 @@ import { trapFocus } from './modules/focus-trap.js';
     document.getElementById('accessModalTitle').textContent = u.full_name || u.email || u.phone || 'Сотрудник';
     document.getElementById('accessRole').value = u.role;
     document.getElementById('accessModalError').hidden = true;
+    // Поле пароля не переносим между сотрудниками — иначе легко задать пароль не тому.
+    const pwdInput = document.getElementById('accessNewPassword');
+    if (pwdInput) pwdInput.value = '';
     renderPermGroups(u.permissions || {});
     document.getElementById('accessModalBackdrop').hidden = false;
   }
@@ -6931,6 +6934,29 @@ import { trapFocus } from './modules/focus-trap.js';
     toast('Доступ обновлён');
     await loadAccessUsers();
   });
+  // Задать пароль сотруднику — отдельной кнопкой, а не вместе с правами:
+  // случайно сохранить непустое поле и разлогинить человека слишком легко.
+  document.getElementById('accessPasswordSave')?.addEventListener('click', async () => {
+    const errEl = document.getElementById('accessModalError');
+    const input = document.getElementById('accessNewPassword');
+    errEl.hidden = true;
+    const userId = document.getElementById('accessUserId').value;
+    const password = (input?.value || '').trim();
+    if (password.length < 8) {
+      errEl.textContent = 'Пароль — минимум 8 символов';
+      errEl.hidden = false;
+      return;
+    }
+    const r = await apiCall('PATCH', `/api/auth/users/${userId}/password`, { password });
+    if (!r.ok) {
+      errEl.textContent = r.data?.error || (r.status === 403 ? 'Недостаточно прав' : 'Ошибка смены пароля');
+      errEl.hidden = false;
+      return;
+    }
+    if (input) input.value = '';
+    toast('Пароль изменён — сотрудник разлогинен на всех устройствах');
+  });
+
   document.getElementById('accessModalClose')?.addEventListener('click', () => { document.getElementById('accessModalBackdrop').hidden = true; });
   document.getElementById('accessModalCancel')?.addEventListener('click', () => { document.getElementById('accessModalBackdrop').hidden = true; });
   document.getElementById('accessModalBackdrop')?.addEventListener('click', (e) => {

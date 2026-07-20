@@ -2135,6 +2135,20 @@
                 </div>
               </div>
               <div id="accessPermGroups"></div>
+
+              <div class="access-password">
+                <label for="accessNewPassword">Новый пароль</label>
+                <div class="access-password-row">
+                  <input id="accessNewPassword" type="text" autocomplete="new-password"
+                         minlength="8" placeholder="минимум 8 символов" />
+                  <button type="button" class="btn-outline btn-sm" id="accessPasswordSave">Задать</button>
+                </div>
+                <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">
+                  Старый пароль знать не нужно. После смены сотрудник будет разлогинен
+                  на всех устройствах — передайте ему новый пароль.
+                </div>
+              </div>
+
               <div class="error" id="accessModalError" hidden></div>
             </div>
             <div class="modal-foot">

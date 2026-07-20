@@ -2496,6 +2496,16 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* ===== Смена пароля сотрудника ===== */
+.access-password {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.access-password-row { display: flex; gap: 8px; align-items: center; }
+.access-password-row > input { flex: 1 1 auto; min-width: 0; }
+.access-password-row > button { flex: 0 0 auto; }
+
 /* ===== Возвращаемость по услугам ===== */
 .analytics-card-head {
   display: flex; align-items: center; justify-content: space-between;
