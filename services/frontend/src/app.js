@@ -2691,13 +2691,21 @@ import { trapFocus } from './modules/focus-trap.js';
         <span class="bk-svc-cell bk-svc-sum num">${pct} %</span>
         <span class="bk-svc-cell bk-svc-sum num">${formatPrice(sumDisc)}</span>
         <span class="bk-svc-cell bk-svc-sum num"><b>${formatPrice(sumTotal)}</b></span>
-        <span class="bk-svc-cell"></span>
+        <span class="bk-svc-cell">
+          <button type="button" class="bk-svc-add" id="bSvcAddInline" aria-label="Добавить услугу">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+        </span>
       `;
       grid.appendChild(foot.content);
     }
 
     const totalEl = document.getElementById('bTotal');
     if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
+    // Кнопка «+» живёт в строке итогов; пока услуг нет, строки нет —
+    // показываем запасную кнопку с подсказкой.
+    const emptyFoot = document.getElementById('bSvcFootEmpty');
+    if (emptyFoot) emptyFoot.hidden = svcRows.length > 0;
     checkBookingOverlap();
   }
 
@@ -2746,6 +2754,11 @@ import { trapFocus } from './modules/focus-trap.js';
   els.bTime?.addEventListener('change', checkBookingOverlap);
   els.bMaster?.addEventListener('change', checkBookingOverlap);
 
+  // Делегирование: кнопка «+» живёт внутри таблицы и пересоздаётся при каждой
+  // перерисовке, прямой слушатель на ней потерялся бы после первой правки.
+  document.getElementById('bSvcGrid')?.addEventListener('click', (e) => {
+    if (e.target.closest('.bk-svc-add')) addServiceRow();
+  });
   document.getElementById('bSvcAdd')?.addEventListener('click', () => addServiceRow());
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.bk-combo')) closeServiceCombos();

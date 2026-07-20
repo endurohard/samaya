@@ -4871,3 +4871,9 @@ html, body { overflow-x: hidden; }
 .bk-link:hover { text-decoration: underline; }
 
 .edit-only[hidden] { display: none; }
+
+/* Кнопка «+» стоит в последней колонке строки итогов — там же, где «−» у
+   строк услуг: так обе кнопки выстроены в один столбец, как в макете. */
+.bk-svc-sum + .bk-svc-cell .bk-svc-add { margin: 4px 0 0; }
+.bk-svc-foot[hidden] { display: none; }
+.bk-svc-foot .bk-svc-total { color: var(--text-dim); font-size: var(--fs-base); }
