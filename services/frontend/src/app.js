@@ -2498,7 +2498,53 @@ import { trapFocus } from './modules/focus-trap.js';
 
     const totalEl = document.getElementById('bTotal');
     if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
+    checkBookingOverlap();
   }
+
+  // Предупреждаем о наложении сразу, а не после нажатия «Создать»: время
+  // окончания зависит от длительности услуг, и на глаз конфликт не виден.
+  function checkBookingOverlap() {
+    const warn = document.getElementById('bTimeWarn');
+    if (!warn) return;
+    const startLocal = bookingStartLocal();
+    const masterId = els.bMaster?.value;
+    const minutes = svcRows.reduce((acc, r) => acc + (Number(r.duration) || 0), 0);
+    if (!startLocal || !masterId || !minutes) { warn.hidden = true; return; }
+
+    const start = new Date(startLocal).getTime();
+    const end = start + minutes * 60_000;
+    const conflict = cachedBookings.find((b) => {
+      if (b.master_id !== masterId) return false;
+      if (b.status === 'canceled' || b.status === 'no_show') return false;
+      if (editingBookingId && b.id === editingBookingId) return false;
+      return start < new Date(b.ends_at).getTime() && end > new Date(b.starts_at).getTime();
+    });
+    const block = cachedTimeBlocks.find((tb) => {
+      if (tb.master_id !== masterId) return false;
+      return start < new Date(tb.ends_at).getTime() && end > new Date(tb.starts_at).getTime();
+    });
+
+    if (conflict) {
+      warn.textContent = `Пересекается с записью ${formatTimeRange(conflict.starts_at, conflict.ends_at)}`
+        + (conflict.client_name ? ` · ${conflict.client_name}` : '');
+      warn.hidden = false;
+    } else if (block) {
+      warn.textContent = `Время занято мастером: ${formatTimeRange(block.starts_at, block.ends_at)}`;
+      warn.hidden = false;
+    } else {
+      const endD = new Date(end);
+      const pad2 = (n) => String(n).padStart(2, '0');
+      warn.textContent = `Запись займёт ${minutes} мин · до ${pad2(endD.getHours())}:${pad2(endD.getMinutes())}`;
+      warn.hidden = false;
+      warn.classList.remove('is-conflict');
+      return;
+    }
+    warn.classList.add('is-conflict');
+  }
+
+  els.bDate?.addEventListener('change', checkBookingOverlap);
+  els.bTime?.addEventListener('change', checkBookingOverlap);
+  els.bMaster?.addEventListener('change', checkBookingOverlap);
 
   document.getElementById('bSvcAdd')?.addEventListener('click', () => addServiceRow());
 

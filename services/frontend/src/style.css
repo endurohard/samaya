@@ -4738,3 +4738,12 @@ html, body { overflow-x: hidden; }
 .bk-combo-item:hover { background: var(--card-hover); }
 .bk-combo-meta { font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; }
 .bk-combo-empty { padding: 8px 10px; font-size: var(--fs-sm); }
+
+/* Предупреждение о длительности и наложении записи */
+.bk-time-warn {
+  margin-top: 10px;
+  font-size: var(--fs-base);
+  color: var(--text-dim);
+}
+.bk-time-warn[hidden] { display: none; }
+.bk-time-warn.is-conflict { color: #dc2626; font-weight: 600; }

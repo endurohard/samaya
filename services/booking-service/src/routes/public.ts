@@ -205,7 +205,7 @@ router.post('/create', async (req, res, next) => {
   } catch (e: unknown) {
     await client.query('ROLLBACK');
     if ((e as { code?: string }).code === '23P01') {
-      return next(new HttpError(409, 'time slot already taken', 'SLOT_TAKEN'));
+      return next(new HttpError(409, 'это время уже занято', 'SLOT_TAKEN'));
     }
     return next(e);
   } finally {

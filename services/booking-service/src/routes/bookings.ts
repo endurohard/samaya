@@ -735,7 +735,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
   } catch (e: unknown) {
     await client.query('ROLLBACK');
     if ((e as { code?: string }).code === '23P01') {
-      return next(new HttpError(409, 'time slot already taken', 'SLOT_TAKEN'));
+      return next(new HttpError(409, 'на это время у мастера уже есть запись', 'SLOT_TAKEN'));
     }
     return next(e);
   } finally {
