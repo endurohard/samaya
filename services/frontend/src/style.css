@@ -2646,6 +2646,14 @@ body.guest .auth-card { margin: 32px auto 0; }
   padding: 0;
 }
 .color-dot.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--card) inset; }
+/* «Без цвета» — перечёркнутый кружок, иначе пустая кнопка выглядит поломанной. */
+.color-dot--none {
+  background:
+    linear-gradient(to bottom right,
+      transparent calc(50% - 1px), var(--text-dim) calc(50% - 1px),
+      var(--text-dim) calc(50% + 1px), transparent calc(50% + 1px));
+  border: 1px solid var(--border);
+}
 
 /* «Занятое время» мастера в календаре: штриховка, чтобы не путать с записью. */
 .cal-block {

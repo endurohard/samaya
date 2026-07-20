@@ -1578,6 +1578,13 @@ import { trapFocus } from './modules/focus-trap.js';
           ${noteBlock}
         `;
 
+        // Цвет записи перекрывает статусный фон: администратор пометил визит
+        // осознанно, и эта пометка важнее дефолтной раскраски по статусу.
+        if (b.color) {
+          block.style.background = `${b.color}2e`;
+          block.style.borderLeftColor = b.color;
+        }
+
         block.addEventListener('mouseenter', (e) => showBookingTooltip(b, e.currentTarget));
         block.addEventListener('mouseleave', hideBookingTooltip);
         block.addEventListener('click', () => openBookingModal(b));
@@ -2173,6 +2180,8 @@ import { trapFocus } from './modules/focus-trap.js';
       const amtEl = document.getElementById('bDiscountAmount');
       if (amtEl) amtEl.value = Number(b.discount_amount || 0);
       updateTotals();
+      selectedBookingColor = b.color || null;
+      renderBookingColors();
 
       const title = document.getElementById('addBookingTitle');
       if (title) title.textContent = 'Изменение записи';
@@ -2284,6 +2293,29 @@ import { trapFocus } from './modules/focus-trap.js';
               data-color="${c}" style="background:${c}" aria-label="Цвет ${c}"></button>
     `).join('');
   }
+
+  // Цвет самой записи — та же палитра, но «без цвета» по умолчанию: красить
+  // каждую запись необязательно, цветом помечают только особые визиты.
+  let selectedBookingColor = null;
+
+  function renderBookingColors() {
+    const host = document.getElementById('bBookingColors');
+    if (!host) return;
+    host.innerHTML = `
+      <button type="button" class="color-dot color-dot--none${selectedBookingColor === null ? ' active' : ''}"
+              data-color="" title="Без цвета" aria-label="Без цвета"></button>
+    ` + BLOCK_COLORS.map((c) => `
+      <button type="button" class="color-dot${c === selectedBookingColor ? ' active' : ''}"
+              data-color="${c}" style="background:${c}" aria-label="Цвет ${c}"></button>
+    `).join('');
+  }
+
+  document.getElementById('bBookingColors')?.addEventListener('click', (e) => {
+    const dot = e.target.closest('.color-dot');
+    if (!dot) return;
+    selectedBookingColor = dot.dataset.color || null;
+    renderBookingColors();
+  });
 
   document.getElementById('bBlockColors')?.addEventListener('click', (e) => {
     const dot = e.target.closest('.color-dot');
@@ -2966,6 +2998,8 @@ import { trapFocus } from './modules/focus-trap.js';
     closeClientSuggest();
     applyServiceFilter();
     priceOverrides = {};
+    selectedBookingColor = null;
+    renderBookingColors();
     const pct = document.getElementById('bDiscountPct');
     const amt = document.getElementById('bDiscountAmount');
     if (pct) pct.value = 0;
@@ -3002,6 +3036,8 @@ import { trapFocus } from './modules/focus-trap.js';
     if (Object.keys(overrides).length) body.price_overrides = overrides;
     const discountAmount = Number(document.getElementById('bDiscountAmount')?.value || 0);
     if (discountAmount > 0) body.discount_amount = discountAmount;
+    // При правке шлём и null — так снимается ранее выбранный цвет.
+    if (selectedBookingColor || editingBookingId) body.color = selectedBookingColor;
     if (client_name) body.client_name = client_name;
     if (notes) body.notes = notes;
     if (manager_id) body.manager_id = manager_id;

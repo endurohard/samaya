@@ -58,7 +58,7 @@ router.get('/', async (req, res, next) => {
       `SELECT b.id, b.master_id, b.manager_id, b.client_id, b.client_phone, b.client_name,
               b.starts_at, b.ends_at, b.status, b.notes, b.total_price::float8 AS total_price,
               b.source, b.created_at, b.updated_at, b.canceled_at, b.completed_at,
-              b.paid_at, b.payment_method,
+              b.paid_at, b.payment_method, b.color,
               b.discount_pct::float8 AS discount_pct,
               b.discount_amount::float8 AS discount_amount,
               COALESCE(m.display_name, '') AS master_name,
@@ -616,6 +616,7 @@ const createSchema = z.object({
   // — выручка и зарплата уже считают revenue как total_price - discount_amount.
   discount_pct: z.number().min(0).max(100).optional(),
   discount_amount: z.number().min(0).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 }).refine((d) => d.client_phone || d.client_id, {
   message: 'client_phone or client_id required',
 });
@@ -664,8 +665,8 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
       `INSERT INTO bookings.bookings
          (company_id, master_id, client_id, client_phone, client_name,
           starts_at, ends_at, status, total_price, source, notes, manager_id,
-          discount_pct, discount_amount)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,'admin',$9,$10,$11,$12)
+          discount_pct, discount_amount, color)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'confirmed',$8,'admin',$9,$10,$11,$12,$13)
        RETURNING *, total_price::float8 AS total_price`,
       [
         companyId, input.master_id,
@@ -678,6 +679,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
         input.manager_id ?? null,
         discountPct,
         discountAmount,
+        input.color ?? null,
       ],
     );
     const booking = ins.rows[0];
@@ -754,6 +756,7 @@ const patchSchema = z.object({
   price_overrides: z.record(z.string().uuid(), z.number().min(0).max(10_000_000)).optional(),
   discount_pct: z.number().min(0).max(100).optional(),
   discount_amount: z.number().min(0).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
 });
 
 router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
@@ -825,6 +828,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
          total_price     = $12,
          discount_pct    = $13,
          discount_amount = $14,
+         color           = CASE WHEN $15::boolean THEN $16::text ELSE color END,
          updated_at      = NOW()
        WHERE company_id = $1 AND id = $2
        RETURNING *, total_price::float8 AS total_price`,
@@ -842,6 +846,8 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
         totalPrice,
         discountPct,
         discountAmount,
+        input.color !== undefined,
+        input.color ?? null,
       ],
     );
 
