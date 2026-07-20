@@ -883,6 +883,15 @@ import { trapFocus } from './modules/focus-trap.js';
     catch (_e) { document.getElementById('svcPreviewLink').select(); toast('Скопируйте вручную'); }
   });
 
+  // Категории услуг нужны не только в карточке услуги, но и в правилах
+  // начисления зарплаты — выносим загрузку отдельно.
+  async function loadServiceCategories() {
+    if (cachedServiceCategories.length) return cachedServiceCategories;
+    const r = await setApi('GET', '/categories');
+    cachedServiceCategories = r.ok ? (r.data?.items || []) : [];
+    return cachedServiceCategories;
+  }
+
   // ----- Группа услуг: dropdown + инлайн-создание -----
   async function populateSvcCategoryDropdown(selectedId) {
     const sel = document.getElementById('svcEditCategory');
@@ -5951,6 +5960,10 @@ import { trapFocus } from './modules/focus-trap.js';
       salLoadFinAccounts(),
       salLoadSettlements(),
       salLoadCommissions(),
+      salLoadStaffGroups(),
+      // Категории нужны для правил «процент с группы услуг» — без них
+      // выпадающий список групп услуг оказался бы пустым.
+      loadServiceCategories(),
     ]);
     await salLoadCalc(salPeriodRange(salPeriod));
     await migrateLocalStorageSalary();
@@ -5987,7 +6000,7 @@ import { trapFocus } from './modules/focus-trap.js';
   function renderSalary() {
     if (salActiveTab === 'payroll') renderSalaryPayroll();
     if (salActiveTab === 'schemes') renderSalarySchemes();
-    if (salActiveTab === 'commissions') renderSalaryCommissions();
+    if (salActiveTab === 'commissions') { renderSalaryCommissions(); renderStaffGroups(); }
   }
 
   // ----- Tab 1: Payroll -----
@@ -6616,7 +6629,7 @@ import { trapFocus } from './modules/focus-trap.js';
     _origSalSwitchTab(tab);
     if (tab === 'settlements') renderSalarySettlements();
     if (tab === 'accruals') renderSalaryAccruals();
-    if (tab === 'commissions') renderSalaryCommissions();
+    if (tab === 'commissions') { renderSalaryCommissions(); renderStaffGroups(); }
   };
   // и activate тоже — обёртка дожидается загрузку данных и потом дорисовывает settlements/accruals
   const _origActivateSalary = activateSalaryView;
@@ -6781,8 +6794,12 @@ import { trapFocus } from './modules/focus-trap.js';
     }
     list.innerHTML = cachedCommissions.map((c) => `
       <div class="sal-row" data-comm-id="${c.id}">
-        <div class="sg-col sg-col-master">${escapeHtml(c.service_name || '— все услуги —')}</div>
-        <div class="sg-col">${escapeHtml(COMM_TYPE_LABELS[c.commission_type] || c.commission_type)}</div>
+        <div class="sg-col sg-col-master">${escapeHtml(
+          c.service_name || (c.category_name ? `Группа: ${c.category_name}` : '— все услуги —'),
+        )}</div>
+        <div class="sg-col">${escapeHtml(COMM_TYPE_LABELS[c.commission_type] || c.commission_type)}${
+          c.staff_group_name ? ` → ${escapeHtml(c.staff_group_name)}` : ''
+        }</div>
         <div class="sg-col sg-col-num">${c.commission_type === 'percent' ? c.amount + '%' : fmtMoney(c.amount) + ' ₽'}</div>
         <div class="sg-col sg-col-date">${escapeHtml((c.effective_from || '').slice(0, 10))}</div>
         <div class="sg-col sg-col-action">
@@ -6800,6 +6817,109 @@ import { trapFocus } from './modules/focus-trap.js';
     });
   }
 
+  // ===== Группы сотрудников (зарплата) =====
+  let cachedStaffGroups = [];
+
+  async function salLoadStaffGroups() {
+    const r = await salApi('GET', '/staff-groups');
+    cachedStaffGroups = r.ok ? (r.data?.items || []) : [];
+  }
+
+  function renderStaffGroups() {
+    const host = document.getElementById('salGroupsList');
+    if (!host) return;
+    if (!cachedStaffGroups.length) {
+      host.innerHTML = '<div class="empty">Групп пока нет. Кнопка «+ Создать группу» — справа сверху.</div>';
+      return;
+    }
+    host.innerHTML = cachedStaffGroups.map((g) => {
+      const names = (g.members || []).map((m) => m.display_name).filter(Boolean);
+      return `
+        <div class="sal-row" data-group-id="${g.id}">
+          <div class="sg-col sg-col-master"><b>${escapeHtml(g.name)}</b></div>
+          <div class="sg-col">${names.length ? escapeHtml(names.join(', ')) : '<span class="muted">нет участников</span>'}</div>
+          <div class="sg-col sg-col-num">${names.length}</div>
+          <div class="sg-col sg-col-action">
+            <button type="button" class="sal-row-action" data-group-edit="${g.id}" title="Изменить">✎</button>
+          </div>
+        </div>`;
+    }).join('');
+    host.querySelectorAll('[data-group-edit]').forEach((btn) => {
+      btn.addEventListener('click', () => salGroupOpenModal(btn.dataset.groupEdit));
+    });
+  }
+
+  function salGroupOpenModal(groupId) {
+    const back = document.getElementById('salGroupModalBackdrop');
+    if (!back) return;
+    const group = cachedStaffGroups.find((g) => g.id === groupId) || null;
+    document.getElementById('salGroupForm')?.reset();
+    document.getElementById('salGroupError').hidden = true;
+    document.getElementById('salGroupId').value = group?.id || '';
+    document.getElementById('salGroupName').value = group?.name || '';
+    document.getElementById('salGroupModalTitle').textContent = group ? 'Изменить группу' : 'Новая группа';
+    document.getElementById('salGroupDelete').hidden = !group;
+
+    // Участники: активные сотрудники с галочками.
+    const memberIds = new Set((group?.members || []).map((m) => m.master_id));
+    const host = document.getElementById('salGroupMembers');
+    if (host) {
+      host.innerHTML = cachedMasters.filter((m) => m.is_active).map((m) => `
+        <label class="service-pick">
+          <input type="checkbox" value="${m.id}" ${memberIds.has(m.id) ? 'checked' : ''} />
+          <span>${escapeHtml(m.display_name)}${m.position ? ' · ' + escapeHtml(m.position) : ''}</span>
+        </label>
+      `).join('');
+    }
+    back.hidden = false;
+  }
+
+  const salGroupCloseModal = () => {
+    const back = document.getElementById('salGroupModalBackdrop');
+    if (back) back.hidden = true;
+  };
+
+  document.getElementById('salGroupAddBtn')?.addEventListener('click', () => salGroupOpenModal(null));
+  document.getElementById('salGroupModalClose')?.addEventListener('click', salGroupCloseModal);
+  document.getElementById('salGroupModalCancel')?.addEventListener('click', salGroupCloseModal);
+
+  document.getElementById('salGroupForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('salGroupError');
+    errEl.hidden = true;
+    const id = document.getElementById('salGroupId').value;
+    const name = document.getElementById('salGroupName').value.trim();
+    const member_ids = Array.from(
+      document.querySelectorAll('#salGroupMembers input:checked'),
+    ).map((cb) => cb.value);
+    if (!name) { errEl.textContent = 'Укажите название'; errEl.hidden = false; return; }
+
+    const r = id
+      ? await salApi('PUT', `/staff-groups/${id}`, { name, member_ids })
+      : await salApi('POST', '/staff-groups', { name, member_ids });
+    if (!r.ok) {
+      errEl.textContent = r.data?.error || 'Ошибка сохранения';
+      errEl.hidden = false;
+      return;
+    }
+    salGroupCloseModal();
+    await salLoadStaffGroups();
+    renderStaffGroups();
+  });
+
+  document.getElementById('salGroupDelete')?.addEventListener('click', async () => {
+    const id = document.getElementById('salGroupId').value;
+    if (!id) return;
+    // Правила, начисляющие на эту группу, удалятся вместе с ней — предупреждаем.
+    if (!confirm('Удалить группу? Правила начисления на неё тоже будут удалены.')) return;
+    const r = await salApi('DELETE', `/staff-groups/${id}`);
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
+    salGroupCloseModal();
+    await Promise.all([salLoadStaffGroups(), salLoadCommissions()]);
+    renderStaffGroups();
+    renderSalaryCommissions();
+  });
+
   function salCommOpenModal() {
     const back = document.getElementById('salCommModalBackdrop');
     if (!back) return;
@@ -6811,6 +6931,19 @@ import { trapFocus } from './modules/focus-trap.js';
       sel.innerHTML = '<option value="">— все услуги —</option>' +
         cachedServices.filter((s) => s.is_active).map((s) =>
           `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    }
+    // Группы услуг (категории) и группы сотрудников
+    const catSel = document.getElementById('salCommCategory');
+    if (catSel) {
+      catSel.innerHTML = '<option value="">— не выбрана —</option>' +
+        cachedServiceCategories.map((c) =>
+          `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    }
+    const grpSel = document.getElementById('salCommGroup');
+    if (grpSel) {
+      grpSel.innerHTML = '<option value="">— всем в общем пуле —</option>' +
+        cachedStaffGroups.map((g) =>
+          `<option value="${g.id}">${escapeHtml(g.name)} (${(g.members || []).length})</option>`).join('');
     }
     // Дефолтная дата — сегодня
     const fromField = document.getElementById('salCommFrom');
@@ -6845,6 +6978,8 @@ import { trapFocus } from './modules/focus-trap.js';
     const fd = new FormData(document.getElementById('salCommForm'));
     const payload = {
       service_id: fd.get('service_id') || null,
+      category_id: fd.get('category_id') || null,
+      staff_group_id: fd.get('staff_group_id') || null,
       commission_type: fd.get('commission_type'),
       amount: parseFloat(fd.get('amount')),
       effective_from: fd.get('effective_from') || undefined,

@@ -1325,6 +1325,20 @@
             </div>
             <div id="salCommPoolSection" class="sal-grid-body" style="margin-bottom:24px;"></div>
 
+            <!-- Группы сотрудников -->
+            <div class="sal-section-title" style="margin-top:8px;">
+              Группы сотрудников
+              <button type="button" class="btn-primary btn-sm" id="salGroupAddBtn" style="margin-left:auto;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                Создать группу
+              </button>
+            </div>
+            <div class="sal-info-banner">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M11 11h1v5h1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Группа получает процент с группы услуг <b>целиком</b>, и он делится между участниками поровну. Например, 2% с «Лазеров» на трёх менеджеров — это 2% на всех, а не по 2% каждому.</span>
+            </div>
+            <div id="salGroupsList" class="sal-grid-body" style="margin-bottom:24px;"></div>
+
             <!-- Правила комиссий -->
             <div class="sal-section-title" style="margin-top:8px;">
               Правила комиссий по услугам
@@ -1368,11 +1382,29 @@
                     </select>
                   </div>
                   <div>
+                    <label for="salCommCategory">Группа услуг</label>
+                    <select id="salCommCategory" name="category_id">
+                      <option value="">— не выбрана —</option>
+                    </select>
+                    <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">
+                      Если выбрана конкретная услуга, она важнее группы.
+                    </div>
+                  </div>
+                  <div>
                     <label for="salCommType">Тип комиссии</label>
                     <select id="salCommType" name="commission_type" required>
-                      <option value="percent">% всем менеджерам</option>
+                      <option value="percent">% в пул</option>
                       <option value="fixed">Фикс. оформившему запись</option>
                     </select>
+                  </div>
+                  <div>
+                    <label for="salCommGroup">Кому начислять</label>
+                    <select id="salCommGroup" name="staff_group_id">
+                      <option value="">— всем в общем пуле —</option>
+                    </select>
+                    <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">
+                      Процент делится между участниками группы поровну.
+                    </div>
                   </div>
                   <div>
                     <label for="salCommAmount" id="salCommAmountLabel">Размер (%)</label>
@@ -1392,6 +1424,33 @@
               <div class="modal-foot">
                 <button type="submit" class="btn-primary">Сохранить</button>
                 <button type="button" class="btn-ghost" id="salCommModalCancel">Отмена</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Modal: группа сотрудников -->
+        <div class="modal-backdrop" id="salGroupModalBackdrop" hidden>
+          <div class="modal salary-modal" id="salGroupModal" role="dialog" aria-modal="true" aria-labelledby="salGroupModalTitle">
+            <div class="modal-head">
+              <h3 class="modal-title" id="salGroupModalTitle">Группа сотрудников</h3>
+              <button type="button" class="modal-close" id="salGroupModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <form id="salGroupForm">
+              <div class="modal-body">
+                <input type="hidden" id="salGroupId" />
+                <div>
+                  <label for="salGroupName">Название группы</label>
+                  <input id="salGroupName" type="text" required maxlength="200" placeholder="Менеджеры по продажам" />
+                </div>
+                <label style="margin-top:12px;">Участники</label>
+                <div class="service-picker" id="salGroupMembers"></div>
+                <div class="error" id="salGroupError" hidden></div>
+              </div>
+              <div class="modal-foot">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-danger-outline" id="salGroupDelete" hidden>Удалить</button>
+                <button type="button" class="btn-ghost" id="salGroupModalCancel">Отмена</button>
               </div>
             </form>
           </div>
