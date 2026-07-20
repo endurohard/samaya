@@ -4771,3 +4771,49 @@ html, body { overflow-x: hidden; }
 }
 .bk-svc-del svg { width: 15px; height: 15px; }
 .bk-svc-del:hover { background: #c94848; }
+
+/* ============================================================ *
+ * Карточка записи — в стиле формы записи (секции, крупные данные)
+ * ============================================================ */
+.bk-modal { width: min(560px, 96vw); }
+.bk-modal .modal-head h3 { font-size: var(--fs-xl); }
+
+.bkv-section { padding: 14px 0; }
+.bkv-section:first-child { padding-top: 4px; }
+
+.bkv-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 5px 0;
+}
+.bkv-label { font-size: var(--fs-base); color: var(--text-dim); }
+.bkv-value { font-size: var(--fs-md); color: var(--text); overflow-wrap: anywhere; }
+
+.bkv-svc-head {
+  display: flex; justify-content: space-between;
+  font-size: var(--fs-sm); color: var(--text-dim); font-weight: 600;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.bkv-svc-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 8px 0;
+  font-size: var(--fs-base);
+  border-bottom: 1px solid var(--border);
+}
+.bkv-svc-row:last-child { border-bottom: none; }
+.bkv-svc-row > span:last-child { white-space: nowrap; }
+.bkv-discount { color: #b3261e; }
+.bkv-total {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  padding-top: 10px;
+}
+
+/* Кнопки карточки: перенос по строкам вместо горизонтальной каши */
+.bk-modal-foot {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  justify-content: flex-end;
+}

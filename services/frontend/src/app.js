@@ -2082,29 +2082,67 @@ import { trapFocus } from './modules/focus-trap.js';
     const totalRow = b.total_price
       ? `<tr><td><b>Итого</b></td><td><b>${formatPrice(b.total_price)}</b></td></tr>` : '';
 
+    // Карточка приведена к стилю формы записи: секции с разделителями,
+    // крупные значения и итог, а не мелкая таблица «label: value».
+    const money = (v) => formatPrice(Number(v) || 0);
+    const discountSum = Number(b.discount_amount || 0);
+    const paidLabels = { cash: 'Наличные', card: 'Карта', online: 'Онлайн', balance: 'С баланса' };
+
     els.bkModalBody.innerHTML = `
-      <div class="bk-meta">
-        <span class="bk-meta-label">Статус</span>
-        <span class="bk-meta-val"><span class="status-pill ${status.cls}">${escapeHtml(status.ru)}</span></span>
-        <span class="bk-meta-label">Сотрудник</span>
-        <span class="bk-meta-val">${escapeHtml(masterName)}</span>
-        <span class="bk-meta-label">Клиент</span>
-        <span class="bk-meta-val">${escapeHtml(b.client_name || '—')}</span>
-        <span class="bk-meta-label">Телефон</span>
-        <span class="bk-meta-val">${escapeHtml(b.client_phone || '—')}</span>
-        ${b.notes ? `<span class="bk-meta-label">Заметка</span><span class="bk-meta-val">${escapeHtml(b.notes)}</span>` : ''}
-        <span class="bk-meta-label">Источник</span>
-        <span class="bk-meta-val">${escapeHtml(SOURCE_LABEL[b.source] || b.source || 'Вручную')}</span>
-        ${b.payment_method ? `<span class="bk-meta-label">Оплата</span><span class="bk-meta-val">${{ cash: '✓ Наличные', card: '✓ Карта', online: '✓ Онлайн', balance: '✓ С баланса' }[b.payment_method] || b.payment_method}</span>` : ''}
-        ${b.discount_pct > 0 ? `<span class="bk-meta-label">Скидка</span><span class="bk-meta-val">${b.discount_pct}%</span>` : ''}
+      <div class="bkv-section">
+        <div class="bkv-row">
+          <span class="bkv-label">Статус</span>
+          <span class="bkv-value"><span class="status-pill ${status.cls}">${escapeHtml(status.ru)}</span></span>
+        </div>
+        <div class="bkv-row">
+          <span class="bkv-label">Сотрудник</span>
+          <span class="bkv-value">${escapeHtml(masterName)}</span>
+        </div>
+        <div class="bkv-row">
+          <span class="bkv-label">Клиент</span>
+          <span class="bkv-value">${escapeHtml(b.client_name || '—')}</span>
+        </div>
+        <div class="bkv-row">
+          <span class="bkv-label">Телефон</span>
+          <span class="bkv-value">${escapeHtml(b.client_phone || '—')}</span>
+        </div>
+        <div class="bkv-row">
+          <span class="bkv-label">Источник</span>
+          <span class="bkv-value">${escapeHtml(SOURCE_LABEL[b.source] || b.source || 'Вручную')}</span>
+        </div>
+        ${b.payment_method ? `
+        <div class="bkv-row">
+          <span class="bkv-label">Оплата</span>
+          <span class="bkv-value">${escapeHtml(paidLabels[b.payment_method] || b.payment_method)}${b.paid_at ? ' · оплачено' : ''}</span>
+        </div>` : ''}
+        ${b.notes ? `
+        <div class="bkv-row">
+          <span class="bkv-label">Комментарий</span>
+          <span class="bkv-value">${escapeHtml(b.notes)}</span>
+        </div>` : ''}
       </div>
+
       ${svcRows ? `
-        <table class="bk-svc-table">
-          <thead><tr><th>Услуга</th><th style="text-align:right">Цена</th></tr></thead>
-          <tbody>${svcRows}</tbody>
-          ${totalRow ? `<tfoot>${totalRow}</tfoot>` : ''}
-        </table>
-      ` : ''}
+      <hr class="bk-divider" />
+      <div class="bkv-section">
+        <div class="bkv-svc-head">
+          <span>Услуга</span><span>Цена</span>
+        </div>
+        ${(b.services || []).map((sv) => `
+          <div class="bkv-svc-row">
+            <span>${escapeHtml(sv.service_name)}</span>
+            <span>${sv.price ? money(sv.price) : '—'}</span>
+          </div>`).join('')}
+        ${discountSum > 0 ? `
+          <div class="bkv-svc-row bkv-discount">
+            <span>Скидка${b.discount_pct > 0 ? ` ${b.discount_pct}%` : ''}</span>
+            <span>−${money(discountSum)}</span>
+          </div>` : ''}
+        <div class="bkv-svc-row bkv-total">
+          <span>Итого</span>
+          <span>${money(Number(b.total_price || 0) - discountSum)}</span>
+        </div>
+      </div>` : ''}
     `;
 
     const isActive = ['pending', 'confirmed'].includes(b.status);
