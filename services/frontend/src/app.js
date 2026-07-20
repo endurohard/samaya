@@ -2107,6 +2107,10 @@ import { trapFocus } from './modules/focus-trap.js';
     const canTopup = topupRole === 'owner' || topupRole === 'admin';
     const topupBtn = document.getElementById('bkModalTopup');
     if (topupBtn) topupBtn.hidden = !(b.client_id && canTopup);
+    // Изменить можно только незавершённую запись: суммы завершённой уже ушли
+    // в выручку, зарплату и финансовые операции — сервер такую правку отклонит.
+    const editBtn = document.getElementById('bkModalEdit');
+    if (editBtn) editBtn.hidden = !(isActive && canTopup);
     if (els.bkModalBackdrop) els.bkModalBackdrop.hidden = false;
     els.bkModal.hidden = false;
     _bkModalRelease = trapFocus(els.bkModal);
@@ -2120,8 +2124,56 @@ import { trapFocus } from './modules/focus-trap.js';
     if (_bkModalRelease) { _bkModalRelease(); _bkModalRelease = null; }
   }
 
-  // ===== Модальное окно «Новая запись» =====
+  // ===== Модальное окно «Новая запись» / «Изменение записи» =====
   let _addBookingRelease = null;
+  // id редактируемой записи; null — создаём новую.
+  let editingBookingId = null;
+
+  function openEditBooking(b) {
+    closeBookingModal();
+    editingBookingId = b.id;
+    resetBookingForm();
+    openAddBookingModal();
+    setAddBookingMode('booking');
+    // Форма заполняется после populateBookingForm — она перерисовывает
+    // селекты мастеров и список услуг асинхронно при первой загрузке.
+    setTimeout(() => {
+      const pad = (n) => String(n).padStart(2, '0');
+      const start = new Date(b.starts_at);
+      if (els.bMaster) els.bMaster.value = b.master_id;
+      const startsEl = document.getElementById('bStarts');
+      if (startsEl) startsEl.value = `${dateToISO(start)}T${pad(start.getHours())}:${pad(start.getMinutes())}`;
+      const phoneEl = document.getElementById('bPhone');
+      const nameEl = document.getElementById('bName');
+      if (phoneEl) phoneEl.value = b.client_phone || '';
+      if (nameEl) nameEl.value = b.client_name || '';
+      _clientSelectedLabel = clientLabel(b);
+      if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
+      if (els.bManager && b.manager_id) els.bManager.value = b.manager_id;
+      const notesEl = document.getElementById('bNotes');
+      if (notesEl) notesEl.value = b.notes || '';
+
+      // Услуги: отмечаем и подставляем цены записи, а не текущий прайс —
+      // иначе редактирование молча переоценит запись по новому прайсу.
+      const byId = new Map((b.services || []).map((s) => [s.service_id, s]));
+      els.bServices?.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+        cb.checked = byId.has(cb.value);
+        if (cb.checked) priceOverrides[cb.value] = Number(byId.get(cb.value).price);
+      });
+      renderPricing();
+      const amtEl = document.getElementById('bDiscountAmount');
+      if (amtEl) amtEl.value = Number(b.discount_amount || 0);
+      updateTotals();
+
+      const title = document.getElementById('addBookingTitle');
+      if (title) title.textContent = 'Изменение записи';
+      const submit = document.getElementById('addBookingSubmit');
+      if (submit) submit.textContent = 'Сохранить';
+      // Занимать время в режиме правки нечего — вкладку прячем.
+      const tabs = document.getElementById('addBookingTabs');
+      if (tabs) tabs.hidden = true;
+    }, 60);
+  }
 
   function openAddBookingModal() {
     populateBookingForm();
@@ -2622,6 +2674,66 @@ import { trapFocus } from './modules/focus-trap.js';
   els.bkModalBackdrop?.addEventListener('click', closeBookingModal);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !els.bkModal?.hidden) closeBookingModal(); });
   els.bkModalRepeat?.addEventListener('click', () => { if (_bkModalCurrent) repeatBooking(_bkModalCurrent); });
+  document.getElementById('bkModalEdit')?.addEventListener('click', () => {
+    if (_bkModalCurrent) openEditBooking(_bkModalCurrent);
+  });
+
+  // ===== История изменений записи =====
+  const AUDIT_ACTION_RU = {
+    created: 'создана', updated: 'изменена', canceled: 'отменена',
+    completed: 'завершена', no_show: 'клиент не пришёл',
+  };
+  const AUDIT_FIELD_RU = {
+    notes: 'примечание', status: 'статус', master_id: 'сотрудник',
+    starts_at: 'начало', ends_at: 'окончание', client_phone: 'телефон',
+    client_name: 'имя клиента', manager_id: 'менеджер', services: 'услуги',
+    total_price: 'стоимость', discount_pct: 'скидка %', discount_amount: 'скидка ₽',
+  };
+
+  function formatAuditValue(field, v) {
+    if (v === null || v === undefined || v === '') return '—';
+    if (field === 'starts_at' || field === 'ends_at') {
+      const d = new Date(v);
+      return `${d.toLocaleDateString('ru-RU')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+    if (field === 'master_id' || field === 'manager_id') {
+      return cachedMasters.find((m) => m.id === v)?.display_name || String(v).slice(0, 8);
+    }
+    if (field === 'total_price' || field === 'discount_amount') return formatPrice(Number(v));
+    return String(v);
+  }
+
+  document.getElementById('bkModalHistory')?.addEventListener('click', async () => {
+    if (!_bkModalCurrent) return;
+    const body = document.getElementById('bkModalBody');
+    if (!body) return;
+    body.innerHTML = '<div class="muted">Загрузка истории…</div>';
+    const r = await apiCall('GET', `/api/bookings/${_bkModalCurrent.id}/history`, null);
+    if (!r.ok) { body.innerHTML = '<div class="muted">Не удалось загрузить историю</div>'; return; }
+    const items = r.data?.items || [];
+    if (!items.length) {
+      body.innerHTML = '<div class="muted">Запись ещё не редактировали</div>';
+      return;
+    }
+    body.innerHTML = `<div class="audit-list">${items.map((it) => {
+      const when = new Date(it.created_at);
+      const changes = Object.entries(it.changes || {}).map(([field, ch]) => `
+        <li><span class="audit-field">${escapeHtml(AUDIT_FIELD_RU[field] || field)}</span>:
+          <s>${escapeHtml(formatAuditValue(field, ch.from))}</s> →
+          <b>${escapeHtml(formatAuditValue(field, ch.to))}</b></li>
+      `).join('');
+      return `
+        <div class="audit-item">
+          <div class="audit-head">
+            <b>${escapeHtml(it.actor_name || 'Система')}</b>
+            <span class="muted">${escapeHtml(it.actor_role || '')}</span>
+            <span class="audit-time">${when.toLocaleDateString('ru-RU')} ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</span>
+          </div>
+          <div class="audit-action">${escapeHtml(AUDIT_ACTION_RU[it.action] || it.action)}</div>
+          ${changes ? `<ul class="audit-changes">${changes}</ul>` : ''}
+        </div>`;
+    }).join('')}</div>`;
+  });
 
   document.getElementById('bkModalConfirm')?.addEventListener('click', async () => {
     if (!_bkModalCurrent) return;
@@ -2830,6 +2942,14 @@ import { trapFocus } from './modules/focus-trap.js';
 
   function resetBookingForm() {
     els.addBookingForm.reset();
+    // Иначе следующая «Новая запись» молча перезапишет ту, что правили до этого.
+    editingBookingId = null;
+    const tabs = document.getElementById('addBookingTabs');
+    if (tabs) tabs.hidden = false;
+    const title = document.getElementById('addBookingTitle');
+    if (title) title.textContent = 'Новая запись';
+    const submit = document.getElementById('addBookingSubmit');
+    if (submit) submit.textContent = 'Создать';
     setAddBookingMode('booking');
     if (els.bClientSearch) els.bClientSearch.value = '';
     if (els.bServiceSearch) els.bServiceSearch.value = '';
@@ -2876,11 +2996,14 @@ import { trapFocus } from './modules/focus-trap.js';
     if (client_name) body.client_name = client_name;
     if (notes) body.notes = notes;
     if (manager_id) body.manager_id = manager_id;
-    const { ok, data, status } = await apiCall('POST', '/api/bookings', body);
+    const { ok, data, status } = editingBookingId
+      ? await apiCall('PATCH', `/api/bookings/${editingBookingId}`, body)
+      : await apiCall('POST', '/api/bookings', body);
     if (!ok) {
       toast(`Ошибка: ${data?.error || status}${data?.code ? ' · ' + data.code : ''}`);
       return;
     }
+    toast(editingBookingId ? 'Запись изменена' : 'Запись создана');
     resetBookingForm();
     closeAddBookingModal();
     if (!els.journalDate.value) els.journalDate.value = todayLocalISO();

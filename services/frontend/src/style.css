@@ -2503,6 +2503,21 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* ===== История изменений записи ===== */
+.audit-list { display: flex; flex-direction: column; gap: 12px; }
+.audit-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+.audit-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.audit-time { margin-left: auto; font-size: var(--fs-sm); color: var(--text-dim); }
+.audit-action { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 2px; }
+.audit-changes { margin: 6px 0 0; padding-left: 18px; font-size: var(--fs-sm); }
+.audit-changes li { margin-bottom: 2px; }
+.audit-field { color: var(--text-dim); }
+
 /* ===== Смена пароля сотрудника ===== */
 .access-password {
   margin-top: 16px;
