@@ -4817,3 +4817,39 @@ html, body { overflow-x: hidden; }
   display: flex; flex-wrap: wrap; gap: 8px;
   justify-content: flex-end;
 }
+
+/* Панель «Итого к оплате / Оплачено / Долг» (макет edit-booking3) */
+.bk-pay-bar {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid #3aa655;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-size: var(--fs-md);
+  color: var(--text);
+  flex-wrap: wrap;
+}
+.bk-pay-bar b { font-weight: 700; }
+.bk-pay-paid { color: #16a34a; font-weight: 700; }
+.bk-pay-debt { color: #dc2626; font-weight: 700; }
+.bk-pay-sep { color: var(--text-dim); }
+
+/* Карточка выбранного клиента в форме правки */
+.bk-client-selected {
+  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-top: 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.bk-client-selected[hidden] { display: none; }
+.bk-cs-name { font-size: var(--fs-md); font-weight: 600; }
+.bk-client-phone { color: var(--text-dim); font-size: var(--fs-base); }
+.bk-link {
+  color: #2f6fd6; font-size: var(--fs-base);
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: inherit;
+}
+.bk-link:hover { text-decoration: underline; }
+
+.edit-only[hidden] { display: none; }

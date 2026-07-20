@@ -903,6 +903,7 @@
                     Новый клиент
                   </button>
                 </div>
+                <div class="bk-client-selected" id="bClientSelected" hidden></div>
                 <div class="bk-client-fields">
                   <div>
                     <label class="bk-field-label" for="bPhone">Телефон клиента</label>
@@ -936,9 +937,16 @@
                   </div>
                 </div>
               </div>
+              <!-- Итог к оплате: виден при правке существующей записи -->
+              <div class="bk-section edit-only" hidden>
+                <div class="bk-pay-bar" id="bPayBar"></div>
+              </div>
             </form>
 
             <div class="modal-foot">
+              <button type="button" class="btn-ghost edit-only" id="bFootHistory" hidden>История изменений</button>
+              <button type="button" class="btn-danger-outline edit-only" id="bFootCancelBooking" hidden>Отменить запись</button>
+              <button type="button" class="btn-outline edit-only" id="bFootRepeat" hidden>Повторить запись</button>
               <button type="submit" class="btn-primary" id="addBookingSubmit" form="addBookingForm">Создать</button>
               <button type="button" class="btn-ghost" id="addBookingCancel">Отмена</button>
             </div>

@@ -2224,6 +2224,10 @@ import { trapFocus } from './modules/focus-trap.js';
       selectedBookingColor = b.color || null;
       renderBookingColors();
 
+      renderPayBar(b);
+      renderSelectedClient(b);
+      document.querySelectorAll('#addBookingBlock .edit-only').forEach((el) => { el.hidden = false; });
+
       const title = document.getElementById('addBookingTitle');
       if (title) title.textContent = 'Изменение записи';
       const submit = document.getElementById('addBookingSubmit');
@@ -2394,6 +2398,72 @@ import { trapFocus } from './modules/focus-trap.js';
     const btn = e.target.closest('.tab-btn');
     if (!btn) return;
     setAddBookingMode(btn.dataset.mode);
+  });
+
+  // Итог к оплате / оплачено / долг — как в DIKIDI. Считаем от суммы после
+  // скидки: именно её платит клиент и именно она попадает в выручку.
+  function renderPayBar(b) {
+    const host = document.getElementById('bPayBar');
+    if (!host) return;
+    const due = Math.max(0, Number(b.total_price || 0) - Number(b.discount_amount || 0));
+    const paid = b.paid_at ? due : 0;
+    const debt = Math.max(0, due - paid);
+    host.innerHTML = `
+      <span>Итого к оплате: <b>${formatPrice(due)}</b></span>
+      <span class="bk-pay-sep">/</span>
+      <span>Оплачено: <span class="bk-pay-paid">${formatPrice(paid)}</span></span>
+      <span class="bk-pay-sep">/</span>
+      <span>Долг: <span class="bk-pay-debt">${formatPrice(debt)}</span></span>
+    `;
+  }
+
+  // Выбранный клиент показывается карточкой: имя, телефон и переход в его
+  // историю — искать клиента в общем списке ради этого неудобно.
+  function renderSelectedClient(b) {
+    const host = document.getElementById('bClientSelected');
+    if (!host) return;
+    if (!b.client_name && !b.client_phone) { host.hidden = true; return; }
+    host.innerHTML = `
+      <span class="bk-cs-name">${escapeHtml(b.client_name || 'Без имени')}</span>
+      <span class="bk-client-phone">${escapeHtml(b.client_phone || '')}</span>
+      ${b.client_id ? `<button type="button" class="bk-link" data-client-id="${b.client_id}">История записей</button>` : ''}
+    `;
+    host.hidden = false;
+  }
+
+  document.getElementById('bClientSelected')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.bk-link');
+    if (!btn) return;
+    closeAddBookingModal();
+    setView('clients');
+    setTimeout(() => openClientModal(btn.dataset.clientId), 60);
+  });
+
+  // Действия над записью прямо из формы правки — не нужно закрывать её и
+  // искать запись в календаре заново.
+  document.getElementById('bFootHistory')?.addEventListener('click', () => {
+    const id = editingBookingId;
+    if (!id) return;
+    const b = cachedBookings.find((x) => x.id === id);
+    closeAddBookingModal();
+    if (b) { openBookingModal(b); document.getElementById('bkModalHistory')?.click(); }
+  });
+
+  document.getElementById('bFootRepeat')?.addEventListener('click', () => {
+    const b = cachedBookings.find((x) => x.id === editingBookingId);
+    if (b) repeatBooking(b);
+  });
+
+  document.getElementById('bFootCancelBooking')?.addEventListener('click', async () => {
+    const id = editingBookingId;
+    if (!id) return;
+    if (!confirm('Отменить эту запись?')) return;
+    const { ok, data, status } = await apiCall('POST', `/api/bookings/${id}/cancel`, {});
+    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
+    toast('Запись отменена');
+    resetBookingForm();
+    closeAddBookingModal();
+    await loadBookings();
   });
 
   async function releaseTimeBlock(tb) {
@@ -3190,6 +3260,9 @@ import { trapFocus } from './modules/focus-trap.js';
     els.addBookingForm.reset();
     // Иначе следующая «Новая запись» молча перезапишет ту, что правили до этого.
     editingBookingId = null;
+    document.querySelectorAll('#addBookingBlock .edit-only').forEach((el) => { el.hidden = true; });
+    const selClient = document.getElementById('bClientSelected');
+    if (selClient) selClient.hidden = true;
     const tabs = document.getElementById('addBookingTabs');
     if (tabs) tabs.hidden = false;
     const title = document.getElementById('addBookingTitle');
