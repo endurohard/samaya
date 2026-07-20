@@ -2198,6 +2198,9 @@ import { trapFocus } from './modules/focus-trap.js';
 
   function openAddBookingModal() {
     populateBookingForm();
+    // Палитра рисуется здесь, а не только в resetBookingForm: открытие через
+    // клик по слоту сброс формы не делает, и палитра оставалась пустой.
+    renderBookingColors();
     if (els.addBookingBackdrop) els.addBookingBackdrop.hidden = false;
     if (els.addBookingBlock) {
       els.addBookingBlock.hidden = false;
