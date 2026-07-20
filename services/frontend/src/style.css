@@ -2496,6 +2496,24 @@ body.guest .auth-card { margin: 32px auto 0; }
   margin: 0;
   z-index: 81;
 }
+/* ===== Возвращаемость по услугам ===== */
+.analytics-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+}
+.retention-controls { display: flex; gap: 8px; }
+.retention-controls select { padding: 6px 10px; border-radius: var(--radius-sm); }
+.ret-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.ret-good { background: rgba(52, 168, 83, 0.14); color: #1e7d34; }
+.ret-mid  { background: rgba(251, 188, 4, 0.18); color: #8a6100; }
+.ret-low  { background: rgba(234, 67, 53, 0.12); color: #b3261e; }
+
 /* ===== Цены и скидка в форме записи ===== */
 #bPricing[hidden] { display: none; }
 .pricing-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }

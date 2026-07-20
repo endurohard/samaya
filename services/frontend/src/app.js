@@ -7961,6 +7961,16 @@ import { trapFocus } from './modules/focus-trap.js';
     } else if (analyticsTab === 'services') {
       const res = await apiCall('GET', `/api/bookings/analytics/services?from=${from}&to=${to}`);
       if (res.ok) renderAnServices(res.data.services);
+    } else if (analyticsTab === 'retention') {
+      const groupBy = document.getElementById('retGroupBy')?.value || 'category';
+      const churn = document.getElementById('retChurnDays')?.value || '180';
+      // Период не передаём: возвращаемость считается по всей истории, иначе
+      // «вернулся» будет означать «вернулся в пределах выбранного месяца».
+      const res = await apiCall(
+        'GET',
+        `/api/bookings/analytics/retention-by-service?group_by=${groupBy}&churn_days=${churn}`,
+      );
+      if (res.ok) renderAnRetention(res.data.items);
     } else if (analyticsTab === 'products') {
       const res = await apiCall('GET', `/api/inventory/stock/consumption-report?from=${from}&to=${to}`);
       if (res.ok) renderAnProducts(res.data.items);
@@ -7972,6 +7982,31 @@ import { trapFocus } from './modules/focus-trap.js';
       if (res.ok) renderMastersReport(res.data.masters);
     }
   }
+
+  function renderAnRetention(items) {
+    const tbody = document.querySelector('#anRetentionTable tbody');
+    if (!tbody) return;
+    if (!items || !items.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="table-empty">Нет завершённых записей — статистика появится после первых оформленных продаж</td></tr>';
+      return;
+    }
+    // Цветовая шкала: возвращаемость ниже 30% — повод разобраться.
+    const rateClass = (r) => (r >= 60 ? 'ret-good' : r >= 30 ? 'ret-mid' : 'ret-low');
+    tbody.innerHTML = items.map((x) => `
+      <tr>
+        <td>${escapeHtml(x.group_name || '—')}</td>
+        <td style="text-align:right;">${x.clients}</td>
+        <td style="text-align:right;">${x.returned_clients}</td>
+        <td style="text-align:right;"><span class="ret-badge ${rateClass(x.return_rate || 0)}">${(x.return_rate ?? 0).toFixed(1)}%</span></td>
+        <td style="text-align:right;">${(x.avg_visits ?? 0).toFixed(1)}</td>
+        <td style="text-align:right;">${x.avg_days_between != null ? Math.round(x.avg_days_between) : '—'}</td>
+        <td style="text-align:right;">${x.churned_clients}</td>
+        <td style="text-align:right;font-weight:600;">${formatPrice(x.revenue)}</td>
+      </tr>`).join('');
+  }
+
+  document.getElementById('retGroupBy')?.addEventListener('change', () => void loadAnalytics());
+  document.getElementById('retChurnDays')?.addEventListener('change', () => void loadAnalytics());
 
   function renderAnServices(services) {
     const tbody = document.querySelector('#anServicesTable tbody');
@@ -8118,7 +8153,7 @@ import { trapFocus } from './modules/focus-trap.js';
     analyticsTab = pill.dataset.tab;
     document.querySelectorAll('#analyticsTabPills .tab-pill').forEach((p) =>
       p.classList.toggle('active', p === pill));
-    ['overview', 'masters', 'services', 'products', 'topups'].forEach((t) => {
+    ['overview', 'masters', 'services', 'retention', 'products', 'topups'].forEach((t) => {
       const el = document.getElementById('anTab' + t.charAt(0).toUpperCase() + t.slice(1));
       if (el) el.style.display = analyticsTab === t ? '' : 'none';
     });

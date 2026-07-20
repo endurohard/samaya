@@ -2342,6 +2342,7 @@
                 <button class="tab-pill active" data-tab="overview">Свод</button>
                 <button class="tab-pill" data-tab="masters">По сотрудникам</button>
                 <button class="tab-pill" data-tab="services">По услугам</button>
+                <button class="tab-pill" data-tab="retention">Возвращаемость</button>
                 <button class="tab-pill" data-tab="products">По товарам</button>
                 <button class="tab-pill" data-tab="topups">Пополнения</button>
               </div>
@@ -2497,6 +2498,44 @@
               </table>
             </div>
           </div><!-- /anTabServices -->
+
+          <!-- Возвращаемость по услугам -->
+          <div id="anTabRetention" style="display:none;">
+            <div class="card analytics-card">
+              <div class="analytics-card-head">
+                <div class="analytics-card-title">Возвращаемость клиентов</div>
+                <div class="retention-controls">
+                  <select id="retGroupBy" class="btn-sm">
+                    <option value="category">По группам услуг (аппаратам)</option>
+                    <option value="service">По конкретным услугам</option>
+                  </select>
+                  <select id="retChurnDays" class="btn-sm" title="Через сколько дней без визита клиент считается ушедшим">
+                    <option value="90">ушёл после 90 дней</option>
+                    <option value="180" selected>ушёл после 180 дней</option>
+                    <option value="365">ушёл после года</option>
+                  </select>
+                </div>
+              </div>
+              <p class="hint">
+                Доля клиентов, пришедших за процедурой более одного раза. Курсовые процедуры
+                (лазерная эпиляция) и разовые (липосакция) сравнивать между собой не стоит —
+                смотрите динамику каждой группы отдельно.
+              </p>
+              <table class="data-table" id="anRetentionTable">
+                <thead><tr>
+                  <th>Группа / услуга</th>
+                  <th style="text-align:right;">Клиентов</th>
+                  <th style="text-align:right;">Вернулись</th>
+                  <th style="text-align:right;">% возврата</th>
+                  <th style="text-align:right;">Ср. визитов</th>
+                  <th style="text-align:right;">Интервал, дн.</th>
+                  <th style="text-align:right;">Ушедших</th>
+                  <th style="text-align:right;">Выручка</th>
+                </tr></thead>
+                <tbody><tr><td colspan="8" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+          </div><!-- /anTabRetention -->
 
           <!-- По товарам -->
           <div id="anTabProducts" style="display:none;">

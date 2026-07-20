@@ -427,6 +427,99 @@ router.get('/analytics/services', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Возвращаемость по услугам / группам услуг =====
+// Общий /retention отвечает «возвращается ли клиент в салон». Здесь другой
+// вопрос: за какими процедурами возвращаются. Лазерная эпиляция — курс из
+// 6-10 визитов, липосакция — разовая; сравнивать их одной цифрой бессмысленно,
+// поэтому разрез по категории (аппарату) или конкретной услуге.
+const retentionByServiceSchema = z.object({
+  from: isoDate().optional(),
+  to: isoDate().optional(),
+  group_by: z.enum(['category', 'service']).default('category'),
+  // Клиент считается «ушедшим», если с последнего визита прошло больше N дней.
+  churn_days: z.coerce.number().int().min(7).max(730).default(180),
+});
+
+router.get('/analytics/retention-by-service', async (req, res, next) => {
+  try {
+    const q = retentionByServiceSchema.parse(req.query);
+    const companyId = req.auth!.company_id;
+    const byCategory = q.group_by === 'category';
+
+    const params: unknown[] = [companyId, `${q.churn_days} days`];
+    let period = '';
+    if (q.from) { params.push(q.from); period += ` AND b.completed_at >= $${params.length}::date`; }
+    if (q.to) { params.push(q.to); period += ` AND b.completed_at < ($${params.length}::date + INTERVAL '1 day')`; }
+
+    // Категорию берём из текущего справочника услуг: в снимке booking_services
+    // её нет, а услуга могла быть переименована или удалена — тогда «Без категории».
+    const groupKey = byCategory
+      ? `COALESCE(c.id::text, 'none')`
+      : `bs.service_id::text`;
+
+    const { rows } = await pool.query(
+      `WITH visits AS (
+         SELECT ${groupKey} AS group_key,
+                ${byCategory ? `COALESCE(c.name, 'Без категории')` : `bs.service_name`} AS group_name,
+                COALESCE(b.client_id::text, b.client_phone) AS client_key,
+                b.completed_at,
+                bs.price
+         FROM bookings.bookings b
+         JOIN bookings.booking_services bs ON bs.booking_id = b.id
+         LEFT JOIN salons.services s ON s.id = bs.service_id
+         LEFT JOIN salons.service_categories c ON c.id = s.category_id
+         WHERE b.company_id = $1
+           AND b.status = 'completed'
+           AND b.completed_at IS NOT NULL
+           AND (b.client_id IS NOT NULL OR b.client_phone IS NOT NULL)
+           ${period}
+       ),
+       per_client AS (
+         SELECT group_key,
+                MAX(group_name) AS group_name,
+                client_key,
+                COUNT(*)::int        AS visits,
+                MIN(completed_at)    AS first_visit,
+                MAX(completed_at)    AS last_visit,
+                SUM(price)           AS revenue
+         FROM visits
+         GROUP BY group_key, client_key
+       )
+       SELECT group_key,
+              MAX(group_name)                                                  AS group_name,
+              COUNT(*)::int                                                    AS clients,
+              COUNT(*) FILTER (WHERE visits > 1)::int                          AS returned_clients,
+              SUM(visits)::int                                                 AS total_visits,
+              ROUND(
+                COUNT(*) FILTER (WHERE visits > 1)::numeric
+                / NULLIF(COUNT(*), 0) * 100, 1
+              )::float8                                                        AS return_rate,
+              ROUND(AVG(visits)::numeric, 1)::float8                           AS avg_visits,
+              -- Средний интервал между визитами: только по вернувшимся, иначе
+              -- одноразовые клиенты с нулевым интервалом занижают цифру.
+              ROUND(AVG(
+                CASE WHEN visits > 1
+                  THEN EXTRACT(EPOCH FROM (last_visit - first_visit)) / 86400 / (visits - 1)
+                END
+              )::numeric, 0)::float8                                           AS avg_days_between,
+              COUNT(*) FILTER (
+                WHERE last_visit < NOW() - CAST($2 AS interval)
+              )::int                                                           AS churned_clients,
+              COALESCE(SUM(revenue), 0)::float8                                AS revenue
+       FROM per_client
+       GROUP BY group_key
+       HAVING COUNT(*) > 0
+       ORDER BY clients DESC, revenue DESC`,
+      params,
+    );
+
+    return res.json({
+      items: rows,
+      meta: { group_by: q.group_by, churn_days: q.churn_days, from: q.from ?? null, to: q.to ?? null },
+    });
+  } catch (e) { return next(e); }
+});
+
 // ===== Reviews list =====
 router.get('/reviews', async (req, res, next) => {
   try {
