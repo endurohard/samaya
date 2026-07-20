@@ -2454,7 +2454,12 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!btn) return;
     closeAddBookingModal();
     setView('clients');
-    setTimeout(() => openClientModal(btn.dataset.clientId), 60);
+    setTimeout(async () => {
+      await openClientModal(btn.dataset.clientId);
+      // Открываем сразу историю: ссылка называется «История записей», а
+      // карточка по умолчанию показывает вкладку с данными.
+      document.getElementById('clientTabHistory')?.click();
+    }, 60);
   });
 
   // Действия над записью прямо из формы правки — не нужно закрывать её и
@@ -4754,15 +4759,23 @@ import { trapFocus } from './modules/focus-trap.js';
     }
   }
 
-  function openClientModal(id) {
+  async function openClientModal(id) {
     els.clientFormError.hidden = true;
     els.clientFormError.textContent = '';
     els.clientForm.reset();
     switchClientTab('info');
     _clCurrentId = id || null;
     if (id) {
-      const c = clientsState.items.find((x) => x.id === id);
-      if (!c) return;
+      // Клиента может не быть в загруженной странице списка — например, когда
+      // пришли из журнала. Раньше функция здесь молча выходила, и вместо
+      // карточки пользователь оставался на общем списке клиентов.
+      let c = clientsState.items.find((x) => x.id === id);
+      if (!c) {
+        const r = await apiCall('GET', `/api/clients/${id}`, null);
+        if (!r.ok || !r.data) { toast('Не удалось открыть карточку клиента'); return; }
+        c = r.data;
+        clientsState.items = [...clientsState.items, c];
+      }
       els.clientModalTitle.textContent = 'Клиент';
       els.clientId.value = c.id;
       els.clFullName.value = c.full_name || '';

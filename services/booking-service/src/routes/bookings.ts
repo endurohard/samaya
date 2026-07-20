@@ -872,7 +872,14 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
       ],
     );
 
+    // Прежний состав фиксируем до замены — иначе сравнивать будет не с чем.
+    let servicesBefore = '';
     if (services) {
+      const prev = await client.query(
+        `SELECT service_name FROM bookings.booking_services WHERE booking_id = $1`,
+        [req.params.id],
+      );
+      servicesBefore = prev.rows.map((r) => r.service_name).sort().join(', ');
       await client.query(`DELETE FROM bookings.booking_services WHERE booking_id = $1`, [req.params.id]);
       const vals: string[] = [];
       const params: unknown[] = [];
@@ -895,7 +902,13 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
       'client_phone', 'client_name', 'manager_id',
       'total_price', 'discount_pct', 'discount_amount',
     ]);
-    if (services) changes.services = { from: '—', to: services.map((s) => s.name).join(', ') };
+    // Состав услуг сравниваем с прежним: PATCH присылает service_ids при
+    // любом сохранении, и без сравнения история заполнялась бы строкой
+    // «услуги: — → …» даже когда услуги не трогали.
+    if (services) {
+      const after2 = services.map((s) => s.name).sort().join(', ');
+      if (servicesBefore !== after2) changes.services = { from: servicesBefore || '—', to: after2 };
+    }
     if (Object.keys(changes).length) {
       await logBookingChange(
         client, companyId, req.params.id,

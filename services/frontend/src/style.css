@@ -2527,18 +2527,21 @@ body.guest .auth-card { margin: 32px auto 0; }
   z-index: 81;
 }
 /* ===== История изменений записи ===== */
-.audit-list { display: flex; flex-direction: column; gap: 12px; }
+.audit-list { display: flex; flex-direction: column; gap: 10px; }
 .audit-item {
-  padding: 10px 12px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--bg-soft);
 }
-.audit-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.audit-time { margin-left: auto; font-size: var(--fs-sm); color: var(--text-dim); }
-.audit-action { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 2px; }
-.audit-changes { margin: 6px 0 0; padding-left: 18px; font-size: var(--fs-sm); }
-.audit-changes li { margin-bottom: 2px; }
+.audit-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.audit-head b { font-size: var(--fs-md); }
+.audit-time { margin-left: auto; font-size: var(--fs-base); color: var(--text-dim); }
+.audit-action { font-size: var(--fs-base); color: var(--text-dim); margin-top: 3px; }
+.audit-changes { margin: 10px 0 0; padding-left: 18px; font-size: var(--fs-base); }
+.audit-changes li { margin-bottom: 5px; line-height: 1.5; }
+.audit-changes s { color: var(--text-dim); }
+.audit-changes b { color: var(--text); }
 .audit-field { color: var(--text-dim); }
 
 /* ===== Смена пароля сотрудника ===== */
