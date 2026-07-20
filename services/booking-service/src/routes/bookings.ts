@@ -4,6 +4,7 @@ import { isoDate } from '../validators';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { loadServiceSnapshots, assertMaster, assertMasterActor, assertNoTimeBlock } from '../services';
+import { logBookingChange, diffFields } from '../audit';
 import { config } from '../config';
 import { sendMail, buildReviewEmail } from '../mailer';
 import { notifyMasterNewBooking } from '../notify';
@@ -57,6 +58,9 @@ router.get('/', async (req, res, next) => {
       `SELECT b.id, b.master_id, b.manager_id, b.client_id, b.client_phone, b.client_name,
               b.starts_at, b.ends_at, b.status, b.notes, b.total_price::float8 AS total_price,
               b.source, b.created_at, b.updated_at, b.canceled_at, b.completed_at,
+              b.paid_at, b.payment_method,
+              b.discount_pct::float8 AS discount_pct,
+              b.discount_amount::float8 AS discount_amount,
               COALESCE(m.display_name, '') AS master_name,
               COALESCE(
                 (SELECT json_agg(json_build_object(
@@ -741,29 +745,163 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
 const patchSchema = z.object({
   notes: z.string().max(2000).optional(),
   status: z.enum(['pending', 'confirmed']).optional(),
+  master_id: z.string().uuid().optional(),
+  starts_at: z.string().datetime({ offset: true }).optional(),
+  client_phone: z.string().min(5).optional(),
+  client_name: z.string().max(200).optional(),
+  manager_id: z.string().uuid().nullable().optional(),
+  service_ids: z.array(z.string().uuid()).min(1).optional(),
+  price_overrides: z.record(z.string().uuid(), z.number().min(0).max(10_000_000)).optional(),
+  discount_pct: z.number().min(0).max(100).optional(),
+  discount_amount: z.number().min(0).optional(),
 });
 
 router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
   try {
     const input = patchSchema.parse(req.body);
-    const fields: string[] = [];
-    const values: unknown[] = [req.auth!.company_id, req.params.id];
-    if (input.notes !== undefined) {
-      values.push(input.notes);
-      fields.push(`notes = $${values.length}`);
-    }
-    if (input.status !== undefined) {
-      values.push(input.status);
-      fields.push(`status = $${values.length}`);
-    }
-    if (!fields.length) return res.status(400).json({ error: 'no fields to update' });
-    const { rows } = await pool.query(
-      `UPDATE bookings.bookings SET ${fields.join(', ')}
-       WHERE company_id = $1 AND id = $2 RETURNING *, total_price::float8 AS total_price`,
-      values,
+    const companyId = req.auth!.company_id;
+    await client.query('BEGIN');
+
+    const cur = await client.query(
+      `SELECT * , total_price::float8 AS total_price,
+              discount_pct::float8 AS discount_pct,
+              discount_amount::float8 AS discount_amount
+       FROM bookings.bookings
+       WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+      [companyId, req.params.id],
     );
-    if (!rows[0]) return next(new HttpError(404, 'booking not found'));
-    return res.json(rows[0]);
+    const before = cur.rows[0];
+    if (!before) { await client.query('ROLLBACK'); return next(new HttpError(404, 'booking not found')); }
+    // Завершённую запись не правим: её суммы уже попали в выручку, зарплату и
+    // финансовые операции — правка разъедет отчёты с фактом.
+    if (before.status === 'completed') {
+      await client.query('ROLLBACK');
+      return next(new HttpError(409, 'запись уже завершена — изменить нельзя', 'ALREADY_COMPLETED'));
+    }
+
+    const masterId = input.master_id ?? before.master_id;
+    if (input.master_id) await assertMaster(client, companyId, masterId);
+
+    // Услуги и цены пересобираем целиком, если состав прислали.
+    let services: { id: string; name: string; price: number; duration_minutes: number }[] | null = null;
+    let totalPrice = Number(before.total_price);
+    let totalDuration = Math.round(
+      (new Date(before.ends_at).getTime() - new Date(before.starts_at).getTime()) / 60_000,
+    );
+    if (input.service_ids) {
+      const base = await loadServiceSnapshots(client, companyId, input.service_ids);
+      services = base.map((s) => {
+        const override = input.price_overrides?.[s.id];
+        return override === undefined ? s : { ...s, price: override };
+      });
+      totalPrice = round2(services.reduce((acc, s) => acc + Number(s.price), 0));
+      totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
+    }
+
+    const startsAt = input.starts_at ? new Date(input.starts_at) : new Date(before.starts_at);
+    const endsAt = new Date(startsAt.getTime() + totalDuration * 60_000);
+
+    // Время или мастер изменились — проверяем, что слот свободен.
+    if (input.starts_at || input.master_id || input.service_ids) {
+      await assertNoTimeBlock(client, companyId, masterId, startsAt, endsAt);
+    }
+
+    const discountPct = input.discount_pct ?? Number(before.discount_pct ?? 0);
+    const discountAmount = input.discount_pct !== undefined
+      ? round2(totalPrice * discountPct / 100)
+      : Math.min(round2(input.discount_amount ?? Number(before.discount_amount ?? 0)), totalPrice);
+
+    const upd = await client.query(
+      `UPDATE bookings.bookings SET
+         notes           = COALESCE($3, notes),
+         status          = COALESCE($4, status),
+         master_id       = $5,
+         starts_at       = $6,
+         ends_at         = $7,
+         client_phone    = COALESCE($8, client_phone),
+         client_name     = COALESCE($9, client_name),
+         manager_id      = CASE WHEN $10::boolean THEN $11::uuid ELSE manager_id END,
+         total_price     = $12,
+         discount_pct    = $13,
+         discount_amount = $14,
+         updated_at      = NOW()
+       WHERE company_id = $1 AND id = $2
+       RETURNING *, total_price::float8 AS total_price`,
+      [
+        companyId, req.params.id,
+        input.notes ?? null,
+        input.status ?? null,
+        masterId,
+        startsAt.toISOString(),
+        endsAt.toISOString(),
+        input.client_phone ? normalizePhone(input.client_phone) : null,
+        input.client_name ?? null,
+        input.manager_id !== undefined,
+        input.manager_id ?? null,
+        totalPrice,
+        discountPct,
+        discountAmount,
+      ],
+    );
+
+    if (services) {
+      await client.query(`DELETE FROM bookings.booking_services WHERE booking_id = $1`, [req.params.id]);
+      const vals: string[] = [];
+      const params: unknown[] = [];
+      services.forEach((s, i) => {
+        const b = i * 5;
+        vals.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5})`);
+        params.push(req.params.id, s.id, s.name, s.price, s.duration_minutes);
+      });
+      await client.query(
+        `INSERT INTO bookings.booking_services
+           (booking_id, service_id, service_name, price, duration_minutes)
+         VALUES ${vals.join(', ')}`,
+        params,
+      );
+    }
+
+    const after = upd.rows[0];
+    const changes = diffFields(before, after, [
+      'notes', 'status', 'master_id', 'starts_at', 'ends_at',
+      'client_phone', 'client_name', 'manager_id',
+      'total_price', 'discount_pct', 'discount_amount',
+    ]);
+    if (services) changes.services = { from: '—', to: services.map((s) => s.name).join(', ') };
+    if (Object.keys(changes).length) {
+      await logBookingChange(
+        client, companyId, req.params.id,
+        { sub: req.auth!.sub, role: req.auth!.role },
+        'updated', changes,
+      );
+    }
+
+    await client.query('COMMIT');
+    return res.json(after);
+  } catch (e: unknown) {
+    await client.query('ROLLBACK').catch(() => { /* соединение уже мертво */ });
+    if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '23P01') {
+      return next(new HttpError(409, 'на это время у мастера уже есть запись', 'TIME_TAKEN'));
+    }
+    return next(e);
+  } finally {
+    client.release();
+  }
+});
+
+// ===== История изменений записи =====
+router.get('/:id/history', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, actor_id, actor_name, actor_role, action, changes, created_at
+       FROM bookings.booking_audit
+       WHERE company_id = $1 AND booking_id = $2
+       ORDER BY created_at DESC
+       LIMIT 100`,
+      [req.auth!.company_id, req.params.id],
+    );
+    return res.json({ items: rows });
   } catch (e) { return next(e); }
 });
 
@@ -939,6 +1077,8 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
     const upd = await client.query(
       `UPDATE bookings.bookings
        SET status = 'completed', completed_at = NOW(),
+           -- Признак оплаты для второй галочки в журнале.
+           paid_at = NOW(),
            payment_method = $3,
            discount_pct = $4,
            discount_amount = $5,
