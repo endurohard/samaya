@@ -809,7 +809,7 @@
           </div>
 
           <div class="modal-backdrop" id="addBookingBackdrop" hidden></div>
-          <div class="modal modal--wide" id="addBookingBlock" hidden role="dialog" aria-modal="true" aria-labelledby="addBookingTitle">
+          <div class="modal modal--booking" id="addBookingBlock" hidden role="dialog" aria-modal="true" aria-labelledby="addBookingTitle">
             <div class="modal-head">
               <h3 id="addBookingTitle">Новая запись</h3>
               <button type="button" class="modal-close" id="addBookingClose" aria-label="Закрыть">×</button>
@@ -818,98 +818,129 @@
               <button type="button" class="tab-btn tab-btn--active" data-mode="booking">Запись клиента</button>
               <button type="button" class="tab-btn" data-mode="block">Занять время</button>
             </div>
+
             <form id="addBookingForm" class="form modal-body">
-              <div class="form-grid">
-                <div>
-                  <label for="bMaster">Сотрудник</label>
-                  <select id="bMaster" name="master_id" required></select>
+              <!-- Мастер / Дата / Время -->
+              <div class="bk-section">
+                <div class="bk-row-mdt">
+                  <div>
+                    <label class="bk-field-label" for="bMaster">Мастер</label>
+                    <select id="bMaster" name="master_id" required></select>
+                  </div>
+                  <div>
+                    <label class="bk-field-label" for="bDate">Дата</label>
+                    <input id="bDate" type="date" required />
+                  </div>
+                  <div>
+                    <label class="bk-field-label" for="bTime">Время</label>
+                    <input id="bTime" type="time" step="300" required />
+                  </div>
                 </div>
-                <div>
-                  <label for="bStarts">Время начала</label>
-                  <input id="bStarts" name="starts_at" type="datetime-local" required />
+              </div>
+
+              <hr class="bk-divider booking-only" />
+
+              <!-- Услуги: строка на услугу -->
+              <div class="bk-section booking-only">
+                <div class="bk-svc-grid" id="bSvcGrid">
+                  <span class="bk-col-head">Услуга</span>
+                  <span class="bk-col-head">Длит.</span>
+                  <span class="bk-col-head">Цена</span>
+                  <span class="bk-col-head">Скидка&nbsp;-&nbsp;%</span>
+                  <span class="bk-col-head">Скидка&nbsp;-&nbsp;&Sigma;</span>
+                  <span class="bk-col-head">Итого</span>
+                  <span class="bk-col-head"></span>
                 </div>
-                <div class="block-only" hidden>
-                  <label for="bBlockDuration">Длительность</label>
-                  <select id="bBlockDuration">
-                    <option value="15">15 минут</option>
-                    <option value="30">30 минут</option>
-                    <option value="45">45 минут</option>
-                    <option value="60" selected>1 час</option>
-                    <option value="90">1,5 часа</option>
-                    <option value="120">2 часа</option>
-                    <option value="180">3 часа</option>
-                    <option value="240">4 часа</option>
-                    <option value="480">8 часов</option>
-                  </select>
+                <div class="bk-svc-foot">
+                  <button type="button" class="bk-svc-add" id="bSvcAdd" aria-label="Добавить услугу">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                  </button>
+                  <span class="bk-svc-total">Итого: <b id="bTotal">0 &#8381;</b></span>
                 </div>
-                <div class="form-grid-full block-only" hidden>
-                  <label for="bBlockReason">Комментарий</label>
-                  <input id="bBlockReason" type="text" maxlength="500" placeholder="Перерыв, обучение, личные дела" />
+              </div>
+
+              <!-- Занять время -->
+              <div class="bk-section block-only" hidden>
+                <div class="bk-row-mdt">
+                  <div>
+                    <label class="bk-field-label" for="bBlockDuration">Длительность</label>
+                    <select id="bBlockDuration">
+                      <option value="15">15 минут</option>
+                      <option value="30">30 минут</option>
+                      <option value="45">45 минут</option>
+                      <option value="60" selected>1 час</option>
+                      <option value="90">1,5 часа</option>
+                      <option value="120">2 часа</option>
+                      <option value="180">3 часа</option>
+                      <option value="240">4 часа</option>
+                      <option value="480">8 часов</option>
+                    </select>
+                  </div>
+                  <div style="grid-column: 2 / -1;">
+                    <label class="bk-field-label" for="bBlockReason">Комментарий</label>
+                    <input id="bBlockReason" type="text" maxlength="500" placeholder="Перерыв, обучение, личные дела" />
+                  </div>
                 </div>
-                <div class="form-grid-full block-only" hidden>
-                  <label>Цвет метки</label>
-                  <div class="color-picker" id="bBlockColors"></div>
-                </div>
-                <div class="form-grid-full client-picker booking-only">
-                  <label for="bClientSearch">Клиент</label>
-                  <div class="client-picker-row">
+                <label class="bk-field-label" style="margin-top:14px;">Цвет метки</label>
+                <div class="color-picker" id="bBlockColors"></div>
+              </div>
+
+              <hr class="bk-divider booking-only" />
+
+              <!-- Клиент -->
+              <div class="bk-section booking-only">
+                <div class="bk-client-row">
+                  <div class="bk-client-field client-picker">
+                    <label class="bk-field-label" for="bClientSearch">Клиент</label>
                     <input id="bClientSearch" type="text" autocomplete="off" spellcheck="false"
                            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="bClientSuggest"
-                           placeholder="Выберите клиента — поиск по имени, фамилии или телефону" />
-                    <button type="button" class="btn-outline btn-sm" id="bClientNew" title="Создать нового клиента">
-                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-                      Новый клиент
-                    </button>
+                           placeholder="Имя клиента, фамилия или телефон" />
+                    <div class="client-suggest" id="bClientSuggest" role="listbox" hidden></div>
                   </div>
-                  <div class="client-suggest" id="bClientSuggest" role="listbox" hidden></div>
+                  <button type="button" class="btn-outline btn-sm" id="bClientNew" title="Создать нового клиента">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:4px;vertical-align:-2px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                    Новый клиент
+                  </button>
                 </div>
-                <div class="booking-only">
-                  <label for="bPhone">Телефон клиента</label>
-                  <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
-                </div>
-                <div class="booking-only">
-                  <label for="bName">Имя клиента</label>
-                  <input id="bName" name="client_name" type="text" placeholder="Виктория" />
-                </div>
-                <div class="booking-only">
-                  <label for="bManager">Менеджер (оформил)</label>
-                  <select id="bManager" name="manager_id">
-                    <option value="">— без менеджера —</option>
-                  </select>
-                </div>
-              </div>
-              <label class="booking-only" for="bServiceSearch">Услуги</label>
-              <input id="bServiceSearch" class="service-search booking-only" type="text" autocomplete="off" spellcheck="false"
-                     placeholder="Поиск по названию услуги" aria-controls="bServices" />
-              <div class="service-picker booking-only" id="bServices"></div>
-              <div class="booking-only" id="bPricing" hidden>
-                <div class="pricing-rows" id="bPricingRows"></div>
-                <div class="pricing-totals">
-                  <div class="pricing-field">
-                    <label for="bDiscountPct">Скидка&nbsp;%</label>
-                    <input id="bDiscountPct" type="number" min="0" max="100" step="0.1" value="0" />
+                <div class="bk-client-fields">
+                  <div>
+                    <label class="bk-field-label" for="bPhone">Телефон клиента</label>
+                    <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
                   </div>
-                  <div class="pricing-field">
-                    <label for="bDiscountAmount">Скидка&nbsp;₽</label>
-                    <input id="bDiscountAmount" type="number" min="0" step="1" value="0" />
+                  <div>
+                    <label class="bk-field-label" for="bName">Имя клиента</label>
+                    <input id="bName" name="client_name" type="text" placeholder="Виктория" />
                   </div>
-                  <div class="pricing-field pricing-total">
-                    <label>Итого</label>
-                    <output id="bTotal">0 ₽</output>
+                  <div>
+                    <label class="bk-field-label" for="bManager">Менеджер (оформил)</label>
+                    <select id="bManager" name="manager_id">
+                      <option value="">— без менеджера —</option>
+                    </select>
                   </div>
                 </div>
               </div>
-              <label class="booking-only" for="bNotes">Примечание</label>
-              <input id="bNotes" class="booking-only" name="notes" type="text" placeholder="опц." />
-              <div class="booking-only">
-                <label>Цвет записи</label>
-                <div class="color-picker" id="bBookingColors"></div>
-              </div>
-              <div class="form-actions">
-                <button type="submit" class="btn-primary" id="addBookingSubmit">Создать</button>
-                <button type="button" class="btn-ghost" id="addBookingCancel">Отмена</button>
+
+              <hr class="bk-divider booking-only" />
+
+              <!-- Комментарий + цвет -->
+              <div class="bk-section booking-only">
+                <div class="bk-comment-grid">
+                  <div>
+                    <label class="bk-field-label" for="bNotes">Комментарий</label>
+                    <textarea id="bNotes" name="notes" placeholder="Пожелания клиента, пометки администратора"></textarea>
+                  </div>
+                  <div>
+                    <label class="bk-field-label">Цвет записи</label>
+                    <div class="bk-colors" id="bBookingColors"></div>
+                  </div>
+                </div>
               </div>
             </form>
+
+            <div class="modal-foot">
+              <button type="submit" class="btn-primary" id="addBookingSubmit" form="addBookingForm">Создать</button>
+              <button type="button" class="btn-ghost" id="addBookingCancel">Отмена</button>
+            </div>
           </div>
 
           <div class="journal-layout">

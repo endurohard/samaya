@@ -115,8 +115,8 @@ import { trapFocus } from './modules/focus-trap.js';
     addBookingCancel: document.getElementById('addBookingCancel'),
     bMaster: document.getElementById('bMaster'),
     bManager: document.getElementById('bManager'),
-    bServices: document.getElementById('bServices'),
-    bServiceSearch: document.getElementById('bServiceSearch'),
+    bDate: document.getElementById('bDate'),
+    bTime: document.getElementById('bTime'),
     bClientSearch: document.getElementById('bClientSearch'),
     bClientSuggest: document.getElementById('bClientSuggest'),
     bClientNew: document.getElementById('bClientNew'),
@@ -2160,8 +2160,8 @@ import { trapFocus } from './modules/focus-trap.js';
       const pad = (n) => String(n).padStart(2, '0');
       const start = new Date(b.starts_at);
       if (els.bMaster) els.bMaster.value = b.master_id;
-      const startsEl = document.getElementById('bStarts');
-      if (startsEl) startsEl.value = `${dateToISO(start)}T${pad(start.getHours())}:${pad(start.getMinutes())}`;
+      if (els.bDate) els.bDate.value = dateToISO(start);
+      if (els.bTime) els.bTime.value = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
       const phoneEl = document.getElementById('bPhone');
       const nameEl = document.getElementById('bName');
       if (phoneEl) phoneEl.value = b.client_phone || '';
@@ -2174,15 +2174,15 @@ import { trapFocus } from './modules/focus-trap.js';
 
       // Услуги: отмечаем и подставляем цены записи, а не текущий прайс —
       // иначе редактирование молча переоценит запись по новому прайсу.
-      const byId = new Map((b.services || []).map((s) => [s.service_id, s]));
-      els.bServices?.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-        cb.checked = byId.has(cb.value);
-        if (cb.checked) priceOverrides[cb.value] = Number(byId.get(cb.value).price);
-      });
-      renderPricing();
-      const amtEl = document.getElementById('bDiscountAmount');
-      if (amtEl) amtEl.value = Number(b.discount_amount || 0);
-      updateTotals();
+      // Цены берём из записи, а не из прайса: открытие на редактирование не
+      // должно молча переоценить запись по новым ценам.
+      svcRows = (b.services || []).map((s) => ({
+        service_id: s.service_id,
+        price: Number(s.price),
+        discountPct: 0,
+        duration: s.duration_minutes,
+      }));
+      renderServiceRows();
       selectedBookingColor = b.color || null;
       renderBookingColors();
 
@@ -2307,17 +2307,18 @@ import { trapFocus } from './modules/focus-trap.js';
   function renderBookingColors() {
     const host = document.getElementById('bBookingColors');
     if (!host) return;
+    const check = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     host.innerHTML = `
-      <button type="button" class="color-dot color-dot--none${selectedBookingColor === null ? ' active' : ''}"
+      <button type="button" class="bk-color bk-color--none${selectedBookingColor === null ? ' is-selected' : ''}"
               data-color="" title="Без цвета" aria-label="Без цвета"></button>
     ` + BLOCK_COLORS.map((c) => `
-      <button type="button" class="color-dot${c === selectedBookingColor ? ' active' : ''}"
-              data-color="${c}" style="background:${c}" aria-label="Цвет ${c}"></button>
+      <button type="button" class="bk-color${c === selectedBookingColor ? ' is-selected' : ''}"
+              data-color="${c}" style="background:${c}" aria-label="Цвет ${c}">${c === selectedBookingColor ? check : ''}</button>
     `).join('');
   }
 
   document.getElementById('bBookingColors')?.addEventListener('click', (e) => {
-    const dot = e.target.closest('.color-dot');
+    const dot = e.target.closest('.bk-color');
     if (!dot) return;
     selectedBookingColor = dot.dataset.color || null;
     renderBookingColors();
@@ -2372,8 +2373,8 @@ import { trapFocus } from './modules/focus-trap.js';
     openAddBookingModal();
     setTimeout(() => {
       if (els.bMaster) els.bMaster.value = masterId;
-      const bStartsEl = document.getElementById('bStarts');
-      if (bStartsEl) bStartsEl.value = `${dateStr}T${timeStr}`;
+      if (els.bDate) els.bDate.value = dateStr;
+      if (els.bTime) els.bTime.value = timeStr;
       els.bClientSearch?.focus();
     }, 0);
   }
@@ -2385,8 +2386,8 @@ import { trapFocus } from './modules/focus-trap.js';
       if (els.bMaster) els.bMaster.value = b.master_id;
       const origStart = new Date(b.starts_at);
       const timeStr = `${String(origStart.getHours()).padStart(2, '0')}:${String(origStart.getMinutes()).padStart(2, '0')}`;
-      const bStartsEl = document.getElementById('bStarts');
-      if (bStartsEl) bStartsEl.value = `${addDaysISO(todayLocalISO(), 1)}T${timeStr}`;
+      if (els.bDate) els.bDate.value = addDaysISO(todayLocalISO(), 1);
+      if (els.bTime) els.bTime.value = timeStr;
       const bPhoneEl = document.getElementById('bPhone');
       if (bPhoneEl) bPhoneEl.value = b.client_phone || '';
       const bNameEl = document.getElementById('bName');
@@ -2396,11 +2397,13 @@ import { trapFocus } from './modules/focus-trap.js';
       const bNotesEl = document.getElementById('bNotes');
       if (bNotesEl) bNotesEl.value = b.notes || '';
       const serviceIds = new Set((b.services || []).map((s) => s.service_id));
-      els.bServices.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-        cb.checked = serviceIds.has(cb.value);
-      });
-      // Галочки проставлены кодом — событие change не всплывёт, зовём вручную.
-      renderPricing();
+      svcRows = (b.services || []).map((s) => ({
+        service_id: s.service_id,
+        price: Number(s.price),
+        discountPct: 0,
+        duration: s.duration_minutes,
+      }));
+      renderServiceRows();
     }, 30);
   }
 
@@ -2424,129 +2427,139 @@ import { trapFocus } from './modules/focus-trap.js';
       els.bManager.innerHTML = '<option value="">— без менеджера —</option>' +
         managers.map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}${m.position ? ' · ' + m.position : ''}</option>`).join('');
     }
-    els.bServices.innerHTML = cachedServices
-      .filter((s) => s.is_active)
-      .map((s) => `
-        <label class="service-pick">
-          <input type="checkbox" value="${s.id}" data-duration="${s.duration_minutes}" data-price="${s.price}" />
-          <span>${escapeHtml(s.name)} · ${s.duration_minutes} мин · ${formatPrice(s.price)}</span>
-        </label>
-      `).join('');
-    applyServiceFilter();
+    renderServiceRows();
   }
 
-  // ===== Поиск по списку услуг в форме записи =====
-  // Прячем несовпадающие, но всегда оставляем уже отмеченные — иначе выбор
-  // «пропадает» при вводе запроса и его легко потерять из виду.
-  function applyServiceFilter() {
-    if (!els.bServices) return;
-    const q = (els.bServiceSearch?.value || '').trim().toLowerCase();
-    let visible = 0;
-    els.bServices.querySelectorAll('.service-pick').forEach((row) => {
-      const checked = row.querySelector('input')?.checked;
-      const match = !q || row.textContent.toLowerCase().includes(q);
-      const show = match || checked;
-      row.hidden = !show;
-      if (show) visible += 1;
+  // ===== Услуги записи: строка на позицию =====
+  // Раньше был список чекбоксов: 50+ услуг занимали пол-экрана, а цену и
+  // скидку приходилось искать в отдельном блоке. Теперь строка на услугу —
+  // выбор, длительность, цена, скидка и итог рядом, как в кассовом чеке.
+  // rows: [{ service_id, price, discountPct, duration }]
+  let svcRows = [];
+
+  const activeServices = () => cachedServices.filter((s) => s.is_active);
+
+  function serviceById(id) {
+    return cachedServices.find((s) => s.id === id) || null;
+  }
+
+  function rowTotal(row) {
+    const price = Number(row.price) || 0;
+    const disc = Math.min(100, Math.max(0, Number(row.discountPct) || 0));
+    return Math.max(0, Math.round((price - price * disc / 100) * 100) / 100);
+  }
+
+  const bookingSubtotal = () => svcRows.reduce((acc, r) => acc + rowTotal(r), 0);
+  const bookingDiscountSum = () =>
+    svcRows.reduce((acc, r) => acc + Math.max(0, (Number(r.price) || 0) - rowTotal(r)), 0);
+
+  function addServiceRow(serviceId) {
+    const svc = serviceId ? serviceById(serviceId) : activeServices()[0];
+    if (!svc) return;
+    svcRows.push({
+      service_id: svc.id,
+      price: Number(svc.price),
+      discountPct: 0,
+      duration: svc.duration_minutes,
     });
-    let empty = els.bServices.querySelector('.service-pick-empty');
-    if (!visible) {
-      if (!empty) {
-        empty = document.createElement('div');
-        empty.className = 'service-pick-empty muted';
-        els.bServices.appendChild(empty);
-      }
-      empty.textContent = 'Услуги не найдены';
-      empty.hidden = false;
-    } else if (empty) {
-      empty.hidden = true;
-    }
+    renderServiceRows();
   }
 
-  els.bServiceSearch?.addEventListener('input', applyServiceFilter);
-  els.bServices?.addEventListener('change', () => {
-    // Снятая галочка со скрытой строки должна снова подчиниться фильтру.
-    if (els.bServiceSearch?.value.trim()) applyServiceFilter();
-    renderPricing();
-  });
+  function renderServiceRows() {
+    const grid = document.getElementById('bSvcGrid');
+    if (!grid || !cachedServices.length) return;
+    // Шапка (первые 7 элементов) остаётся, строки перерисовываем.
+    grid.querySelectorAll('.bk-svc-cell').forEach((el) => el.remove());
 
-  // ===== Цены и скидка по выбранным услугам =====
-  // Цену позиции администратор может изменить (договорились на другую сумму),
-  // поэтому храним переопределения отдельно от прайса.
-  let priceOverrides = {};
-
-  const selectedServiceIds = () =>
-    Array.from(els.bServices?.querySelectorAll('input:checked') || []).map((x) => x.value);
-
-  function servicePrice(id) {
-    if (priceOverrides[id] !== undefined) return priceOverrides[id];
-    const svc = cachedServices.find((s) => s.id === id);
-    return svc ? Number(svc.price) : 0;
-  }
-
-  function pricingSubtotal() {
-    return selectedServiceIds().reduce((acc, id) => acc + servicePrice(id), 0);
-  }
-
-  function renderPricing() {
-    const host = document.getElementById('bPricing');
-    const rows = document.getElementById('bPricingRows');
-    if (!host || !rows) return;
-    const ids = selectedServiceIds();
-    host.hidden = ids.length === 0;
-    if (!ids.length) { updateTotals(); return; }
-
-    rows.innerHTML = ids.map((id) => {
-      const svc = cachedServices.find((s) => s.id === id);
-      const name = svc ? svc.name : 'Услуга';
+    const options = activeServices();
+    svcRows.forEach((row, idx) => {
+      const svc = serviceById(row.service_id);
       const base = svc ? Number(svc.price) : 0;
-      const price = servicePrice(id);
-      const changed = price !== base;
-      return `
-        <div class="pricing-row">
-          <span class="pricing-name">${escapeHtml(name)}</span>
-          <span class="pricing-base${changed ? '' : ' is-hidden'}">${formatPrice(base)}</span>
-          <input class="pricing-price" type="number" min="0" step="1"
-                 data-service-id="${id}" value="${price}" aria-label="Цена: ${escapeHtml(name)}" />
+      const cells = document.createElement('template');
+      cells.innerHTML = `
+        <div class="bk-svc-cell">
+          <select class="bk-svc-service" data-idx="${idx}" aria-label="Услуга">
+            ${options.map((o) => `<option value="${o.id}"${o.id === row.service_id ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
+          </select>
         </div>
+        <div class="bk-svc-cell"><input class="bk-svc-duration" data-idx="${idx}" type="number" min="5" step="5" value="${row.duration}" aria-label="Длительность, мин" /></div>
+        <div class="bk-svc-cell bk-price-wrap">
+          ${row.price !== base ? '<span class="bk-price-badge">изм</span>' : ''}
+          <input class="bk-svc-price" data-idx="${idx}" type="number" min="0" step="1" value="${row.price}" aria-label="Цена" />
+        </div>
+        <div class="bk-svc-cell"><input class="bk-svc-disc-pct" data-idx="${idx}" type="number" min="0" max="100" step="0.1" value="${row.discountPct}" aria-label="Скидка %" /></div>
+        <div class="bk-svc-cell"><input class="bk-svc-disc-sum" data-idx="${idx}" type="number" min="0" step="1" value="${Math.round((Number(row.price) || 0) - rowTotal(row))}" aria-label="Скидка сумма" /></div>
+        <div class="bk-svc-cell"><output class="bk-svc-total-cell">${formatPrice(rowTotal(row))}</output></div>
+        <div class="bk-svc-cell"><button type="button" class="bk-svc-del" data-idx="${idx}" aria-label="Убрать услугу">×</button></div>
       `;
-    }).join('');
-    updateTotals();
-  }
+      grid.appendChild(cells.content);
+    });
 
-  function updateTotals() {
-    const subtotal = pricingSubtotal();
-    const pctEl = document.getElementById('bDiscountPct');
-    const amtEl = document.getElementById('bDiscountAmount');
     const totalEl = document.getElementById('bTotal');
-    if (!totalEl) return;
-    const discount = Math.min(Number(amtEl?.value || 0), subtotal);
-    totalEl.textContent = formatPrice(Math.max(0, subtotal - discount));
-    if (pctEl && document.activeElement !== pctEl) {
-      pctEl.value = subtotal ? Math.round((discount / subtotal) * 1000) / 10 : 0;
-    }
+    if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
   }
 
-  document.getElementById('bPricingRows')?.addEventListener('input', (e) => {
-    const inp = e.target.closest('.pricing-price');
-    if (!inp) return;
-    const val = Number(inp.value);
-    priceOverrides[inp.dataset.serviceId] = Number.isFinite(val) && val >= 0 ? val : 0;
-    syncDiscountFromPct();
+  document.getElementById('bSvcAdd')?.addEventListener('click', () => addServiceRow());
+
+  document.getElementById('bSvcGrid')?.addEventListener('change', (e) => {
+    const sel = e.target.closest('.bk-svc-service');
+    if (!sel) return;
+    const row = svcRows[Number(sel.dataset.idx)];
+    const svc = serviceById(sel.value);
+    if (!row || !svc) return;
+    // Смена услуги подставляет её прайс и длительность: держать цену прежней
+    // услуги — почти всегда ошибка ввода.
+    row.service_id = svc.id;
+    row.price = Number(svc.price);
+    row.duration = svc.duration_minutes;
+    renderServiceRows();
   });
 
-  // Процент и сумма — две проекции одной скидки: правка одной пересчитывает вторую.
-  function syncDiscountFromPct() {
-    const pctEl = document.getElementById('bDiscountPct');
-    const amtEl = document.getElementById('bDiscountAmount');
-    if (!pctEl || !amtEl) return;
-    const pct = Math.min(100, Math.max(0, Number(pctEl.value || 0)));
-    amtEl.value = Math.round(pricingSubtotal() * pct) / 100;
-    updateTotals();
-  }
+  document.getElementById('bSvcGrid')?.addEventListener('input', (e) => {
+    const t = e.target;
+    const idx = Number(t.dataset.idx);
+    const row = svcRows[idx];
+    if (!row) return;
 
-  document.getElementById('bDiscountPct')?.addEventListener('input', syncDiscountFromPct);
-  document.getElementById('bDiscountAmount')?.addEventListener('input', updateTotals);
+    if (t.classList.contains('bk-svc-price')) {
+      row.price = Math.max(0, Number(t.value) || 0);
+    } else if (t.classList.contains('bk-svc-duration')) {
+      row.duration = Math.max(5, Number(t.value) || 5);
+    } else if (t.classList.contains('bk-svc-disc-pct')) {
+      row.discountPct = Math.min(100, Math.max(0, Number(t.value) || 0));
+    } else if (t.classList.contains('bk-svc-disc-sum')) {
+      // Сумма скидки — вторая проекция процента: пересчитываем процент,
+      // иначе два поля разъедутся и непонятно, какое из них главное.
+      const sum = Math.min(Number(t.value) || 0, row.price);
+      row.discountPct = row.price ? Math.round((sum / row.price) * 1000) / 10 : 0;
+    } else {
+      return;
+    }
+    // Перерисовываем только итоги, чтобы не терять фокус в поле ввода.
+    const cells = document.getElementById('bSvcGrid').querySelectorAll('.bk-svc-cell');
+    const perRow = 7;
+    const totalCell = cells[idx * perRow + 5]?.querySelector('.bk-svc-total-cell');
+    if (totalCell) totalCell.textContent = formatPrice(rowTotal(row));
+    if (!t.classList.contains('bk-svc-disc-pct')) {
+      const pctCell = cells[idx * perRow + 3]?.querySelector('.bk-svc-disc-pct');
+      if (pctCell && document.activeElement !== pctCell) pctCell.value = row.discountPct;
+    }
+    if (!t.classList.contains('bk-svc-disc-sum')) {
+      const sumCell = cells[idx * perRow + 4]?.querySelector('.bk-svc-disc-sum');
+      if (sumCell && document.activeElement !== sumCell) {
+        sumCell.value = Math.round(row.price - rowTotal(row));
+      }
+    }
+    const totalEl = document.getElementById('bTotal');
+    if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
+  });
+
+  document.getElementById('bSvcGrid')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.bk-svc-del');
+    if (!btn) return;
+    svcRows.splice(Number(btn.dataset.idx), 1);
+    renderServiceRows();
+  });
 
   // ===== Автодополнение клиентов в форме записи =====
   let _clientSuggestItems = [];
@@ -2955,7 +2968,7 @@ import { trapFocus } from './modules/focus-trap.js';
 
   async function submitTimeBlock() {
     const master_id = document.getElementById('bMaster')?.value || '';
-    const startLocal = document.getElementById('bStarts')?.value || '';
+    const startLocal = bookingStartLocal();
     const minutes = Number(document.getElementById('bBlockDuration')?.value || 60);
     const reason = document.getElementById('bBlockReason')?.value.trim() || '';
     if (!master_id || !startLocal) {
@@ -2999,29 +3012,31 @@ import { trapFocus } from './modules/focus-trap.js';
     if (submit) submit.textContent = 'Создать';
     setAddBookingMode('booking');
     if (els.bClientSearch) els.bClientSearch.value = '';
-    if (els.bServiceSearch) els.bServiceSearch.value = '';
     _clientSelectedLabel = '';
     closeClientSuggest();
-    applyServiceFilter();
-    priceOverrides = {};
+    svcRows = [];
+    renderServiceRows();
     selectedBookingColor = null;
     renderBookingColors();
-    const pct = document.getElementById('bDiscountPct');
-    const amt = document.getElementById('bDiscountAmount');
-    if (pct) pct.value = 0;
-    if (amt) amt.value = 0;
-    renderPricing();
   }
+  // Дата и время — раздельные поля (как в референсе), а сервер ждёт один
+  // локальный момент вида «2026-04-25T11:00».
+  function bookingStartLocal() {
+    const d = els.bDate?.value || '';
+    const t = els.bTime?.value || '';
+    return d && t ? `${d}T${t}` : '';
+  }
+
   els.addBookingForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (addBookingMode === 'block') { await submitTimeBlock(); return; }
     const fd = new FormData(els.addBookingForm);
     const master_id = String(fd.get('master_id') || '');
-    const startsLocal = String(fd.get('starts_at') || '');  // "2026-04-25T11:00"
+    const startsLocal = bookingStartLocal();  // "2026-04-25T11:00"
     const client_phone = String(fd.get('client_phone') || '').trim();
     const client_name = String(fd.get('client_name') || '').trim();
     const notes = String(fd.get('notes') || '').trim();
-    const service_ids = Array.from(els.bServices.querySelectorAll('input:checked')).map((x) => x.value);
+    const service_ids = svcRows.map((r) => r.service_id);
     if (!master_id || !startsLocal || !client_phone || service_ids.length === 0) {
       toast('Заполни сотрудника, время, телефон и хотя бы одну услугу');
       return;
@@ -3030,17 +3045,17 @@ import { trapFocus } from './modules/focus-trap.js';
     const tz = '+03:00'; // соответствует COMPANY_TZ_OFFSET в booking-service
     const starts_at = `${startsLocal}:00${tz}`;
     const body = { master_id, service_ids, starts_at, client_phone };
-    // Отправляем только реально изменённые цены — иначе зафиксируем прайс
-    // навсегда и запись перестанет реагировать на его обновление.
+    // Цена позиции = цена из строки; на сервер уходит только то, что реально
+    // отличается от прайса, иначе запись навсегда зафиксирует текущие цены.
     const overrides = {};
-    service_ids.forEach((id) => {
-      const svc = cachedServices.find((s) => s.id === id);
-      if (priceOverrides[id] !== undefined && svc && priceOverrides[id] !== Number(svc.price)) {
-        overrides[id] = priceOverrides[id];
-      }
+    svcRows.forEach((r) => {
+      const svc = cachedServices.find((s) => s.id === r.service_id);
+      if (svc && Number(r.price) !== Number(svc.price)) overrides[r.service_id] = Number(r.price);
     });
     if (Object.keys(overrides).length) body.price_overrides = overrides;
-    const discountAmount = Number(document.getElementById('bDiscountAmount')?.value || 0);
+    // Скидки заданы построчно — на запись уходит их сумма: в bookings скидка
+    // хранится одним полем, и именно её вычитают выручка и зарплата.
+    const discountAmount = Math.round(bookingDiscountSum());
     if (discountAmount > 0) body.discount_amount = discountAmount;
     // При правке шлём и null — так снимается ранее выбранный цвет.
     if (selectedBookingColor || editingBookingId) body.color = selectedBookingColor;

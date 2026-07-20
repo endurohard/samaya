@@ -4581,3 +4581,133 @@ html, body { overflow-x: hidden; }
 @media (min-width: 901px) {
   .sal-grid { overflow-x: auto; }
 }
+
+/* ============================================================ *
+ * Форма записи — построчные услуги (макет add-booking)
+ * ============================================================ */
+.modal--booking { width: min(920px, 96vw); }
+.modal--booking .modal-body { gap: 0; }
+
+.bk-section { padding: 16px 0; }
+.bk-section:first-child { padding-top: 4px; }
+.bk-section[hidden] { display: none; }
+.bk-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+.bk-divider[hidden] { display: none; }
+
+.bk-field-label {
+  display: block;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.bk-row-mdt {
+  display: grid;
+  grid-template-columns: 1fr 170px 140px;
+  gap: 14px;
+  align-items: end;
+}
+
+/* Таблица услуг: колонки как в чеке — услуга, длительность, цена, скидки, итог */
+.bk-svc-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 110px 92px 100px 110px 32px;
+  gap: 6px 10px;
+  align-items: center;
+}
+.bk-svc-grid .bk-col-head {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-weight: 600;
+  padding-bottom: 2px;
+}
+.bk-svc-cell { min-width: 0; }
+.bk-svc-cell input,
+.bk-svc-cell select { width: 100%; }
+.bk-svc-cell input[type="number"] { text-align: right; }
+.bk-svc-total-cell { display: block; text-align: right; font-weight: 600; padding: 8px 0; }
+
+.bk-price-wrap { position: relative; display: flex; align-items: center; }
+.bk-price-badge {
+  position: absolute; left: 8px;
+  font-size: 10px; font-weight: 700;
+  color: var(--primary, #7c3aed);
+  border: 1px solid var(--border);
+  border-radius: 5px; padding: 0 4px;
+  pointer-events: none; background: var(--card);
+}
+.bk-price-wrap input { padding-left: 40px; }
+
+.bk-svc-del {
+  width: 26px; height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+}
+.bk-svc-del:hover { border-color: #dc2626; color: #dc2626; }
+
+.bk-svc-foot {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 12px;
+}
+.bk-svc-add {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #3aa655; border: none; color: #fff; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+}
+.bk-svc-add svg { width: 16px; height: 16px; }
+.bk-svc-total { margin-left: auto; font-size: var(--fs-md); }
+.bk-svc-total b { font-size: var(--fs-xl); }
+
+/* Клиент */
+.bk-client-row { display: flex; gap: 12px; align-items: flex-end; }
+.bk-client-row > .bk-client-field { flex: 1 1 auto; min-width: 0; }
+.bk-client-field { position: relative; }
+.bk-client-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+/* Комментарий + цвет */
+.bk-comment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 32px;
+  align-items: start;
+}
+.bk-comment-grid textarea { width: 100%; min-height: 92px; resize: vertical; }
+.bk-colors { display: flex; gap: 12px; flex-wrap: wrap; }
+.bk-color {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: none; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.06);
+}
+.bk-color.is-selected { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--primary, #7c3aed); }
+.bk-color svg { width: 18px; height: 18px; color: #fff; }
+/* «Без цвета» — перечёркнутый кружок */
+.bk-color--none {
+  background:
+    linear-gradient(to bottom right,
+      transparent calc(50% - 1px), var(--text-dim) calc(50% - 1px),
+      var(--text-dim) calc(50% + 1px), transparent calc(50% + 1px));
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+@media (max-width: 860px) {
+  .bk-row-mdt { grid-template-columns: 1fr; }
+  .bk-client-fields { grid-template-columns: 1fr; }
+  .bk-comment-grid { grid-template-columns: 1fr; }
+  /* На узком экране таблица услуг не помещается — переводим в две колонки,
+     подписи столбцов теряют смысл и скрываются. */
+  .bk-svc-grid { grid-template-columns: 1fr 1fr; }
+  .bk-svc-grid .bk-col-head { display: none; }
+  .bk-svc-cell:first-child { grid-column: 1 / -1; }
+}
