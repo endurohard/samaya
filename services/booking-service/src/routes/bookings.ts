@@ -792,12 +792,13 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
     );
     const before = cur.rows[0];
     if (!before) { await client.query('ROLLBACK'); return next(new HttpError(404, 'booking not found')); }
-    // Завершённую запись не правим: её суммы уже попали в выручку, зарплату и
-    // финансовые операции — правка разъедет отчёты с фактом.
-    if (before.status === 'completed') {
-      await client.query('ROLLBACK');
-      return next(new HttpError(409, 'запись уже завершена — изменить нельзя', 'ALREADY_COMPLETED'));
-    }
+    // Завершённую запись править разрешаем: в кассе ошибаются, и исправить
+    // цену должно быть можно. Но её суммы уже в выручке и зарплате, поэтому
+    // каждая такая правка обязательно попадает в историю изменений — иначе
+    // расхождение отчётов будет нечем объяснить.
+    // Что важно: финансовая операция оплаты остаётся прежней суммы, и после
+    // правки касса может разойтись с выручкой. Это осознанный компромисс:
+    // альтернатива — запрет правки, который ломает рабочий сценарий.
 
     const masterId = input.master_id ?? before.master_id;
     if (input.master_id) await assertMaster(client, companyId, masterId);

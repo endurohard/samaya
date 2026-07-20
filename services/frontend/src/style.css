@@ -4884,3 +4884,19 @@ html, body { overflow-x: hidden; }
 /* Баланс клиента в карточке формы записи */
 .bk-cs-balance { color: var(--text-dim); font-size: var(--fs-base); }
 .bk-cs-balance.is-positive { color: #1e7d34; font-weight: 600; }
+
+/* Пояснение в форме записи: почему нельзя менять / на что повлияет правка */
+.bk-readonly-note {
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-md);
+  background: rgba(120, 120, 130, 0.10);
+  color: var(--text-dim);
+  font-size: var(--fs-base);
+  line-height: 1.45;
+}
+.bk-readonly-note.is-warn {
+  background: rgba(251, 188, 4, 0.14);
+  color: #8a6100;
+}
+.bk-readonly-note[hidden] { display: none; }

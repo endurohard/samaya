@@ -1587,13 +1587,10 @@ import { trapFocus } from './modules/focus-trap.js';
 
         block.addEventListener('mouseenter', (e) => showBookingTooltip(b, e.currentTarget));
         block.addEventListener('mouseleave', hideBookingTooltip);
-        block.addEventListener('click', () => {
-          // Активную запись сразу открываем на редактирование — это основной
-          // сценарий. Завершённую и отменённую править нельзя (суммы уже в
-          // выручке и зарплате), поэтому для них остаётся карточка просмотра.
-          const editable = b.status === 'pending' || b.status === 'confirmed';
-          if (editable) openEditBooking(b); else openBookingModal(b);
-        });
+        // Все записи открываются одной формой: завершённые и отменённые —
+        // в заблокированном виде. Разные окна для одного объекта путают
+        // сильнее, чем недоступные поля с объяснением, почему они недоступны.
+        block.addEventListener('click', () => openEditBooking(b));
 
         col.appendChild(block);
       });
@@ -2190,6 +2187,10 @@ import { trapFocus } from './modules/focus-trap.js';
   let editingBookingId = null;
 
   function openEditBooking(b) {
+    // Оплаченную запись править можно: в кассе ошибаются, и исправить цену
+    // должно быть можно — так же работает DIKIDI. Заблокирована только
+    // отменённая: менять в ней нечего.
+    const readOnly = b.status === 'canceled' || b.status === 'no_show';
     closeBookingModal();
     // Порядок важен: resetBookingForm() обнуляет editingBookingId, поэтому
     // сначала чистим форму и только потом помечаем режим правки. Иначе
@@ -2246,10 +2247,12 @@ import { trapFocus } from './modules/focus-trap.js';
       showIf('bFootComplete', canMoney);
       showIf('bFootTopup', !!b.client_id && canMoney);
 
+      applyBookingReadOnly(readOnly, b);
+
       const title = document.getElementById('addBookingTitle');
-      if (title) title.textContent = 'Изменение записи';
+      if (title) title.textContent = readOnly ? 'Запись' : 'Изменение записи';
       const submit = document.getElementById('addBookingSubmit');
-      if (submit) submit.textContent = 'Сохранить';
+      if (submit) { submit.textContent = 'Сохранить'; submit.hidden = readOnly; }
       // Занимать время в режиме правки нечего — вкладку прячем.
       const tabs = document.getElementById('addBookingTabs');
       if (tabs) tabs.hidden = true;
@@ -2417,6 +2420,55 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!btn) return;
     setAddBookingMode(btn.dataset.mode);
   });
+
+  // Блокировка формы для завершённых и отменённых записей: поля видны, но
+  // недоступны, а сверху — объяснение, почему менять нельзя.
+  function applyBookingReadOnly(readOnly, b) {
+    const form = document.getElementById('addBookingForm');
+    if (!form) return;
+    form.querySelectorAll('input, select, textarea, button').forEach((el) => {
+      if (el.closest('.modal-foot')) return;
+      el.disabled = readOnly;
+    });
+    // Кнопки действий, которые для закрытой записи не имеют смысла.
+    ['bFootComplete', 'bFootConfirm', 'bFootNoShow', 'bFootCancelBooking'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && readOnly) el.hidden = true;
+    });
+
+    let note = document.getElementById('bReadOnlyNote');
+    if (readOnly) {
+      if (!note) {
+        note = document.createElement('div');
+        note.id = 'bReadOnlyNote';
+        note.className = 'bk-readonly-note';
+        form.prepend(note);
+      }
+      note.textContent = b.status === 'no_show'
+        ? 'Клиент не пришёл — запись закрыта.'
+        : 'Запись отменена — изменить нельзя.';
+      note.className = 'bk-readonly-note';
+      note.hidden = false;
+    } else if (note) {
+      note.hidden = true;
+    }
+
+    // Оплаченную править можно, но предупреждаем: суммы уже в отчётах.
+    let warn = document.getElementById('bPaidWarnNote');
+    if (b.status === 'completed') {
+      if (!warn) {
+        warn = document.createElement('div');
+        warn.id = 'bPaidWarnNote';
+        warn.className = 'bk-readonly-note is-warn';
+        form.prepend(warn);
+      }
+      warn.textContent = 'Запись оплачена. Изменения повлияют на выручку и зарплату, '
+        + 'а сумма проведённой оплаты останется прежней — проверьте кассу после правки.';
+      warn.hidden = false;
+    } else if (warn) {
+      warn.hidden = true;
+    }
+  }
 
   // Итог к оплате / оплачено / долг — как в DIKIDI. Считаем от суммы после
   // скидки: именно её платит клиент и именно она попадает в выручку.
@@ -3354,6 +3406,10 @@ import { trapFocus } from './modules/focus-trap.js';
     document.querySelectorAll('#addBookingBlock .edit-only').forEach((el) => { el.hidden = true; });
     const selClient = document.getElementById('bClientSelected');
     if (selClient) selClient.hidden = true;
+    // Снимаем блокировку — иначе следующая новая запись откроется нередактируемой.
+    applyBookingReadOnly(false, {});
+    const submitBtn = document.getElementById('addBookingSubmit');
+    if (submitBtn) submitBtn.hidden = false;
     const tabs = document.getElementById('addBookingTabs');
     if (tabs) tabs.hidden = false;
     const title = document.getElementById('addBookingTitle');
