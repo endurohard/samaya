@@ -2477,10 +2477,11 @@ import { trapFocus } from './modules/focus-trap.js';
       const base = svc ? Number(svc.price) : 0;
       const cells = document.createElement('template');
       cells.innerHTML = `
-        <div class="bk-svc-cell">
-          <select class="bk-svc-service" data-idx="${idx}" aria-label="Услуга">
-            ${options.map((o) => `<option value="${o.id}"${o.id === row.service_id ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
-          </select>
+        <div class="bk-svc-cell bk-combo" data-idx="${idx}">
+          <input class="bk-combo-input" data-idx="${idx}" type="text" autocomplete="off" spellcheck="false"
+                 role="combobox" aria-expanded="false" aria-label="Услуга"
+                 value="${escapeHtml(svc ? svc.name : '')}" placeholder="Начните вводить название" />
+          <div class="bk-combo-list" hidden></div>
         </div>
         <div class="bk-svc-cell"><input class="bk-svc-duration" data-idx="${idx}" type="number" min="5" step="5" value="${row.duration}" aria-label="Длительность, мин" /></div>
         <div class="bk-svc-cell bk-price-wrap">
@@ -2501,22 +2502,72 @@ import { trapFocus } from './modules/focus-trap.js';
 
   document.getElementById('bSvcAdd')?.addEventListener('click', () => addServiceRow());
 
-  document.getElementById('bSvcGrid')?.addEventListener('change', (e) => {
-    const sel = e.target.closest('.bk-svc-service');
-    if (!sel) return;
-    const row = svcRows[Number(sel.dataset.idx)];
-    const svc = serviceById(sel.value);
+  // ===== Выбор услуги с поиском =====
+  // Нативный <select> искать не умеет, а услуг больше полусотни: без поиска
+  // нужную позицию приходится прокручивать глазами.
+  function openServiceCombo(input) {
+    const wrap = input.closest('.bk-combo');
+    const list = wrap?.querySelector('.bk-combo-list');
+    if (!list) return;
+    const q = input.value.trim().toLowerCase();
+    const matches = activeServices().filter((s) => !q || s.name.toLowerCase().includes(q));
+    list.innerHTML = matches.length
+      ? matches.map((s) => `
+          <button type="button" class="bk-combo-item" data-service-id="${s.id}">
+            <span class="bk-combo-name">${escapeHtml(s.name)}</span>
+            <span class="bk-combo-meta">${s.duration_minutes} мин · ${formatPrice(s.price)}</span>
+          </button>`).join('')
+      : '<div class="bk-combo-empty muted">Услуги не найдены</div>';
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeServiceCombos() {
+    document.querySelectorAll('#bSvcGrid .bk-combo-list').forEach((l) => { l.hidden = true; });
+    document.querySelectorAll('#bSvcGrid .bk-combo-input').forEach((i) => i.setAttribute('aria-expanded', 'false'));
+  }
+
+  document.getElementById('bSvcGrid')?.addEventListener('focusin', (e) => {
+    const input = e.target.closest('.bk-combo-input');
+    if (!input) { closeServiceCombos(); return; }
+    // Открываем со списком целиком: поле уже содержит название выбранной
+    // услуги, и фильтровать по нему бессмысленно.
+    input.dataset.prev = input.value;
+    input.value = '';
+    openServiceCombo(input);
+  });
+
+  document.getElementById('bSvcGrid')?.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.bk-combo-item');
+    if (!item) return;
+    e.preventDefault();
+    const wrap = item.closest('.bk-combo');
+    const row = svcRows[Number(wrap.dataset.idx)];
+    const svc = serviceById(item.dataset.serviceId);
     if (!row || !svc) return;
     // Смена услуги подставляет её прайс и длительность: держать цену прежней
     // услуги — почти всегда ошибка ввода.
     row.service_id = svc.id;
     row.price = Number(svc.price);
     row.duration = svc.duration_minutes;
+    closeServiceCombos();
     renderServiceRows();
+  });
+
+  document.getElementById('bSvcGrid')?.addEventListener('focusout', (e) => {
+    const input = e.target.closest('.bk-combo-input');
+    if (!input) return;
+    // Ушли, ничего не выбрав, — возвращаем прежнее название, иначе поле
+    // осталось бы пустым при выбранной услуге.
+    setTimeout(() => {
+      if (input.value.trim() === '') input.value = input.dataset.prev || '';
+      closeServiceCombos();
+    }, 120);
   });
 
   document.getElementById('bSvcGrid')?.addEventListener('input', (e) => {
     const t = e.target;
+    if (t.classList.contains('bk-combo-input')) { openServiceCombo(t); return; }
     const idx = Number(t.dataset.idx);
     const row = svcRows[idx];
     if (!row) return;

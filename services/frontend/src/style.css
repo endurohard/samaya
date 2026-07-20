@@ -4711,3 +4711,30 @@ html, body { overflow-x: hidden; }
   .bk-svc-grid .bk-col-head { display: none; }
   .bk-svc-cell:first-child { grid-column: 1 / -1; }
 }
+
+/* Выбор услуги с поиском (строка услуги) */
+.bk-combo { position: relative; }
+.bk-combo-input { width: 100%; }
+.bk-combo-list {
+  position: absolute;
+  top: calc(100% + 4px); left: 0;
+  min-width: 100%;
+  width: max(100%, 320px);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 60;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px -8px rgba(17, 24, 39, 0.24);
+}
+.bk-combo-list[hidden] { display: none; }
+.bk-combo-item {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 8px 10px;
+  border: 0; background: none; cursor: pointer; text-align: left;
+  font-size: var(--fs-base); color: inherit;
+}
+.bk-combo-item:hover { background: var(--card-hover); }
+.bk-combo-meta { font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; }
+.bk-combo-empty { padding: 8px 10px; font-size: var(--fs-sm); }
