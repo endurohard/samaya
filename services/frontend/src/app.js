@@ -2749,12 +2749,12 @@ import { trapFocus } from './modules/focus-trap.js';
       const durLabel = hours ? `${hours} ч${sumMin % 60 ? ' ' + (sumMin % 60) + ' м' : ''}` : `${sumMin} м`;
       const foot = document.createElement('template');
       foot.innerHTML = `
-        <span class="bk-svc-cell bk-svc-sum"></span>
-        <span class="bk-svc-cell bk-svc-sum num">${durLabel}</span>
-        <span class="bk-svc-cell bk-svc-sum num">${formatPrice(sumPrice)}</span>
-        <span class="bk-svc-cell bk-svc-sum num">${pct} %</span>
-        <span class="bk-svc-cell bk-svc-sum num">${formatPrice(sumDisc)}</span>
-        <span class="bk-svc-cell bk-svc-sum num"><b>${formatPrice(sumTotal)}</b></span>
+        <span class="bk-svc-cell bk-svc-sum bk-sum-spacer"></span>
+        <span class="bk-svc-cell bk-svc-sum num bk-sum-dur">${durLabel}</span>
+        <span class="bk-svc-cell bk-svc-sum num bk-sum-price">${formatPrice(sumPrice)}</span>
+        <span class="bk-svc-cell bk-svc-sum num bk-sum-pct">${pct} %</span>
+        <span class="bk-svc-cell bk-svc-sum num bk-sum-disc">${formatPrice(sumDisc)}</span>
+        <span class="bk-svc-cell bk-svc-sum num bk-sum-total"><b>${formatPrice(sumTotal)}</b></span>
         <span class="bk-svc-cell">
           <button type="button" class="bk-svc-add" id="bSvcAddInline" aria-label="Добавить услугу">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
@@ -2861,6 +2861,10 @@ import { trapFocus } from './modules/focus-trap.js';
     const search = panel.querySelector('.bk-combo-search');
     if (search) search.value = '';
     renderComboList(wrap, '');
+    // Если до низа окна меньше высоты панели, открываем её вверх — снизу
+    // список обрезался бы прокручиваемой областью модалки.
+    const r = trigger.getBoundingClientRect();
+    panel.classList.toggle('is-up', window.innerHeight - r.bottom < 320 && r.top > 320);
     panel.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
     search?.focus();

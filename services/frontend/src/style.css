@@ -2790,6 +2790,9 @@ body.guest .auth-card { margin: 32px auto 0; }
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  /* В режиме правки записи в футере до 8 кнопок: без переноса на окнах
+     901–1100px они вылезали за край и обрезались overflow модалки. */
+  flex-wrap: wrap;
   gap: 10px;
   padding: 16px 24px;
   border-top: 1px solid var(--border);
@@ -3579,7 +3582,6 @@ body.guest .auth-card { margin: 32px auto 0; }
 .modal--wide { width: min(700px, 96vw); }
 /* Форма записи шире прочих модалок: услуги идут в 2–3 колонки, а строки цен
    требуют места под название, прайс и поле ввода. */
-#addBookingBlock { width: min(880px, 96vw); }
 
 /* Tab bar inside modal */
 .tab-bar {
@@ -4730,7 +4732,13 @@ html, body { overflow-x: hidden; }
      подписи столбцов теряют смысл и скрываются. */
   .bk-svc-grid { grid-template-columns: 1fr 1fr; }
   .bk-svc-grid .bk-col-head { display: none; }
-  .bk-svc-cell:first-child { grid-column: 1 / -1; }
+  /* Выбор услуги — на всю строку в КАЖДОЙ позиции (не только первой):
+     иначе панель поиска шириной 340px вылезала за край у второй строки. */
+  .bk-svc-grid .bk-combo { grid-column: 1 / -1; }
+  /* Итоговая строка: из 7 ячеек в 2 колонках получалась каша — оставляем
+     пару «длительность · итог», остальные прячем. */
+  .bk-sum-spacer, .bk-sum-price, .bk-sum-pct, .bk-sum-disc { display: none; }
+  .bk-sum-dur { text-align: left; }
 }
 
 /* Выбор услуги: кнопка-триггер + панель с поиском (макет add-booking2) */
@@ -4759,6 +4767,9 @@ html, body { overflow-x: hidden; }
   overflow: hidden;
 }
 .bk-combo-panel[hidden] { display: none; }
+/* Когда снизу модалки не хватает места, панель открывается вверх — иначе
+   список обрезался прокручиваемой областью modal-body. */
+.bk-combo-panel.is-up { top: auto; bottom: calc(100% + 4px); }
 .bk-combo-search {
   width: 100%; padding: 10px 12px;
   border: none; border-bottom: 1px solid var(--border);
