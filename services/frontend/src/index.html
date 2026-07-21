@@ -2465,6 +2465,7 @@
                 <button class="tab-pill" data-tab="masters">По сотрудникам</button>
                 <button class="tab-pill" data-tab="services">По услугам</button>
                 <button class="tab-pill" data-tab="retention">Возвращаемость</button>
+                <button class="tab-pill" data-tab="suspicious">Контроль</button>
                 <button class="tab-pill" data-tab="products">По товарам</button>
                 <button class="tab-pill" data-tab="topups">Пополнения</button>
               </div>
@@ -2658,6 +2659,32 @@
               </table>
             </div>
           </div><!-- /anTabRetention -->
+
+          <!-- Контроль: правки оплаченных записей -->
+          <div id="anTabSuspicious" style="display:none;">
+            <div class="card analytics-card">
+              <div class="analytics-card-head">
+                <div class="analytics-card-title">Изменения оплаченных записей</div>
+                <div class="susp-total" id="anSuspTotal"></div>
+              </div>
+              <p class="hint">
+                Правка суммы уже оплаченной записи меняет выручку и зарплату задним числом.
+                Здесь видно, кто и когда это делал и на сколько изменилась сумма к оплате.
+              </p>
+              <table class="data-table" id="anSuspiciousTable">
+                <thead><tr>
+                  <th>Когда</th>
+                  <th>Кто</th>
+                  <th>Запись</th>
+                  <th>Клиент</th>
+                  <th style="text-align:right;">Было</th>
+                  <th style="text-align:right;">Стало</th>
+                  <th style="text-align:right;">Разница</th>
+                </tr></thead>
+                <tbody><tr><td colspan="7" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+          </div><!-- /anTabSuspicious -->
 
           <!-- По товарам -->
           <div id="anTabProducts" style="display:none;">

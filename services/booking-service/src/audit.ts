@@ -12,7 +12,7 @@ export interface AuditActor {
   full_name?: string | null;
 }
 
-export type AuditAction = 'created' | 'updated' | 'canceled' | 'completed' | 'no_show';
+export type AuditAction = 'created' | 'updated' | 'updated_paid' | 'canceled' | 'completed' | 'no_show';
 
 export async function logBookingChange(
   client: PoolClient,

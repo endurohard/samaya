@@ -529,6 +529,55 @@ router.get('/analytics/retention-by-service', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ===== Правки оплаченных записей (контроль владельца) =====
+// Занизить сумму уже закрытой записи — классический способ увести деньги.
+// Обычная история изменений это показывает, но её надо открывать по каждой
+// записи отдельно; здесь всё за период одним списком.
+const suspiciousSchema = z.object({
+  from: isoDate().optional(),
+  to: isoDate().optional(),
+});
+
+router.get('/analytics/suspicious', async (req, res, next) => {
+  try {
+    const q = suspiciousSchema.parse(req.query);
+    const params: unknown[] = [req.auth!.company_id];
+    let where = `a.company_id = $1 AND a.action = 'updated_paid'`;
+    if (q.from) { params.push(q.from); where += ` AND a.created_at >= $${params.length}::date`; }
+    if (q.to) { params.push(q.to); where += ` AND a.created_at < ($${params.length}::date + INTERVAL '1 day')`; }
+
+    const { rows } = await pool.query(
+      `SELECT a.id, a.booking_id, a.actor_name, a.actor_role, a.changes, a.created_at,
+              b.client_name, b.starts_at,
+              b.total_price::float8 AS total_price,
+              b.discount_amount::float8 AS discount_amount,
+              COALESCE(m.display_name, '') AS master_name
+       FROM bookings.booking_audit a
+       JOIN bookings.bookings b ON b.id = a.booking_id
+       LEFT JOIN salons.masters m ON m.id = b.master_id
+       WHERE ${where}
+       ORDER BY a.created_at DESC
+       LIMIT 200`,
+      params,
+    );
+
+    // Считаем денежную дельту правки: именно она интересна владельцу.
+    const items = rows.map((r) => {
+      const ch = r.changes || {};
+      const priceFrom = Number(ch.total_price?.from ?? r.total_price);
+      const priceTo = Number(ch.total_price?.to ?? r.total_price);
+      const discFrom = Number(ch.discount_amount?.from ?? r.discount_amount);
+      const discTo = Number(ch.discount_amount?.to ?? r.discount_amount);
+      const wasDue = priceFrom - discFrom;
+      const nowDue = priceTo - discTo;
+      return { ...r, was_due: wasDue, now_due: nowDue, delta: Math.round((nowDue - wasDue) * 100) / 100 };
+    });
+
+    const totalDelta = items.reduce((acc, i) => acc + i.delta, 0);
+    return res.json({ items, total_delta: Math.round(totalDelta * 100) / 100 });
+  } catch (e) { return next(e); }
+});
+
 // ===== Reviews list =====
 router.get('/reviews', async (req, res, next) => {
   try {
@@ -911,10 +960,12 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
       if (servicesBefore !== after2) changes.services = { from: servicesBefore || '—', to: after2 };
     }
     if (Object.keys(changes).length) {
+      // Правка оплаченной записи — отдельное действие: она меняет выручку и
+      // зарплату задним числом, и владелец должен видеть такие случаи списком.
       await logBookingChange(
         client, companyId, req.params.id,
         { sub: req.auth!.sub, role: req.auth!.role },
-        'updated', changes,
+        before.status === 'completed' ? 'updated_paid' : 'updated', changes,
       );
     }
 

@@ -8736,6 +8736,9 @@ import { trapFocus } from './modules/focus-trap.js';
         `/api/bookings/analytics/retention-by-service?group_by=${groupBy}&churn_days=${churn}`,
       );
       if (res.ok) renderAnRetention(res.data.items);
+    } else if (analyticsTab === 'suspicious') {
+      const res = await apiCall('GET', `/api/bookings/analytics/suspicious?from=${from}&to=${to}`);
+      if (res.ok) renderAnSuspicious(res.data);
     } else if (analyticsTab === 'products') {
       const res = await apiCall('GET', `/api/inventory/stock/consumption-report?from=${from}&to=${to}`);
       if (res.ok) renderAnProducts(res.data.items);
@@ -8746,6 +8749,39 @@ import { trapFocus } from './modules/focus-trap.js';
       const res = await apiCall('GET', `/api/bookings/analytics/masters?from=${from}&to=${to}`);
       if (res.ok) renderMastersReport(res.data.masters);
     }
+  }
+
+  function renderAnSuspicious(data) {
+    const tbody = document.querySelector('#anSuspiciousTable tbody');
+    const totalEl = document.getElementById('anSuspTotal');
+    if (!tbody) return;
+    const items = data?.items || [];
+    if (totalEl) {
+      const d = Number(data?.total_delta || 0);
+      totalEl.textContent = items.length
+        ? `Итого изменение: ${d > 0 ? '+' : ''}${formatPrice(d)}`
+        : '';
+      totalEl.className = 'susp-total' + (d < 0 ? ' is-minus' : d > 0 ? ' is-plus' : '');
+    }
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">Оплаченные записи за период не изменяли</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map((x) => {
+      const when = new Date(x.created_at);
+      const visit = new Date(x.starts_at);
+      const delta = Number(x.delta || 0);
+      return `
+        <tr>
+          <td>${when.toLocaleDateString('ru-RU')} ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</td>
+          <td>${escapeHtml(x.actor_name || 'Система')}<div class="muted" style="font-size:var(--fs-sm)">${escapeHtml(x.actor_role || '')}</div></td>
+          <td>${visit.toLocaleDateString('ru-RU')}<div class="muted" style="font-size:var(--fs-sm)">${escapeHtml(x.master_name || '')}</div></td>
+          <td>${escapeHtml(x.client_name || '—')}</td>
+          <td style="text-align:right;">${formatPrice(x.was_due)}</td>
+          <td style="text-align:right;">${formatPrice(x.now_due)}</td>
+          <td style="text-align:right;font-weight:700;" class="${delta < 0 ? 'susp-minus' : delta > 0 ? 'susp-plus' : ''}">${delta > 0 ? '+' : ''}${formatPrice(delta)}</td>
+        </tr>`;
+    }).join('');
   }
 
   function renderAnRetention(items) {
@@ -8918,7 +8954,7 @@ import { trapFocus } from './modules/focus-trap.js';
     analyticsTab = pill.dataset.tab;
     document.querySelectorAll('#analyticsTabPills .tab-pill').forEach((p) =>
       p.classList.toggle('active', p === pill));
-    ['overview', 'masters', 'services', 'retention', 'products', 'topups'].forEach((t) => {
+    ['overview', 'masters', 'services', 'retention', 'suspicious', 'products', 'topups'].forEach((t) => {
       const el = document.getElementById('anTab' + t.charAt(0).toUpperCase() + t.slice(1));
       if (el) el.style.display = analyticsTab === t ? '' : 'none';
     });
