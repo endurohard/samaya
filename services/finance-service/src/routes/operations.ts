@@ -86,10 +86,12 @@ const incomeSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-router.post('/income', requireRole(['owner', 'admin']), async (req, res, next) => {
+// master тоже может проводить приход: оформление продажи в кассу делает тот,
+// кто принял оплату, а это в клинике и врач.
+router.post('/income', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
   const client = await pool.connect();
   try {
-    const input = incomeSchema.parse(req.body);
+    const input = incomeWithSourceSchema.parse(req.body);
     await client.query('BEGIN');
     const { id } = await insertOpAndUpdateBalance(client, {
       companyId: req.auth!.company_id,
@@ -102,6 +104,8 @@ router.post('/income', requireRole(['owner', 'admin']), async (req, res, next) =
       note: input.note ?? null,
       transferGroupId: null,
       createdByUserId: req.auth!.sub,
+      sourceType: input.source_type ?? null,
+      sourceId: input.source_id ?? null,
     });
     await client.query('COMMIT');
     return res.status(201).json({ id });
@@ -111,6 +115,12 @@ router.post('/income', requireRole(['owner', 'admin']), async (req, res, next) =
   } finally {
     client.release();
   }
+});
+
+const incomeWithSourceSchema = incomeSchema.extend({
+  // Идемпотентный ключ источника (booking_sale и т.п.) — повтор не задвоит приход.
+  source_type: z.string().max(50).optional(),
+  source_id: z.string().uuid().optional(),
 });
 
 // ===== POST /expense =====

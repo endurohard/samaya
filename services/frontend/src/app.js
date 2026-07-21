@@ -8111,8 +8111,42 @@ import { trapFocus } from './modules/focus-trap.js';
         </select>
       </div>
       <div id="mcAccessPermGroups">${groupsHtml}</div>
+
+      <div class="access-password">
+        <label for="mcNewPassword">Новый пароль</label>
+        <div class="access-password-row">
+          <input id="mcNewPassword" type="text" autocomplete="new-password" minlength="8" placeholder="минимум 8 символов" />
+          <button type="button" class="btn-outline btn-sm" id="mcPasswordSave">Задать</button>
+        </div>
+        <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">
+          Старый пароль знать не нужно. После смены сотрудник будет разлогинен на всех устройствах.
+        </div>
+      </div>
+
       <div class="error" id="mcAccessError" hidden></div>
       <div class="mc-actions"><button type="button" class="btn-primary" id="mcAccessSave">Сохранить доступ</button></div>`;
+
+    // Пароль — отдельной кнопкой, как в «Настройки → Доступ»: случайно
+    // разлогинить человека общим «Сохранить» слишком легко.
+    document.getElementById('mcPasswordSave').addEventListener('click', async () => {
+      const errEl = document.getElementById('mcAccessError');
+      const input = document.getElementById('mcNewPassword');
+      errEl.hidden = true;
+      const password = (input?.value || '').trim();
+      if (password.length < 8) {
+        errEl.textContent = 'Пароль — минимум 8 символов';
+        errEl.hidden = false;
+        return;
+      }
+      const pr = await apiCall('PATCH', `/api/auth/users/${userId}/password`, { password });
+      if (!pr.ok) {
+        errEl.textContent = pr.data?.error || (pr.status === 403 ? 'Недостаточно прав' : 'Ошибка смены пароля');
+        errEl.hidden = false;
+        return;
+      }
+      input.value = '';
+      toast('Пароль изменён — сотрудник разлогинен на всех устройствах');
+    });
     document.getElementById('mcAccessRole').value = u.role;
     document.getElementById('mcAccessRole').addEventListener('change', (e) => {
       const defaults = accessCatalog?.role_defaults?.[e.target.value];

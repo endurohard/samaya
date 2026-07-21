@@ -20,6 +20,7 @@ const schema = z.object({
   SLOT_STEP_MINUTES: z.coerce.number().int().positive().default(15),
   LOG_LEVEL: z.string().default('info'),
   WHATSAPP_SERVICE_URL: z.string().url().default('http://whatsapp-service:3008'),
+  FINANCE_SERVICE_URL: z.string().url().default('http://finance-service:3006'),
   // Внутренний токен для service-to-service вызовов whatsapp-service
   WHATSAPP_INTERNAL_TOKEN: z.string().default('dev_internal_token'),
   // Интервал проверки напоминаний (мс). По умолчанию 10 минут.

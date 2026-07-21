@@ -1196,6 +1196,49 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       return next(new HttpError(404, 'booking not found or not completable'));
     }
 
+    // ── Приход в кассу ──────────────────────────────────────────────────
+    // Раньше продажа НЕ проводилась в финансы: запись закрывалась, а касса
+    // денег не видела. Оплата «с баланса» прихода не создаёт — эти деньги
+    // уже попали в кассу при пополнении лицевого счёта, иначе задвоение.
+    const salePaid = Number(upd.rows[0].paid_amount || 0);
+    if (salePaid > 0 && input.payment_method !== 'balance') {
+      const token = (req.headers.authorization || '').slice(7);
+      const auth = { Authorization: `Bearer ${token}` };
+      const accResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/accounts`, { headers: auth });
+      if (!accResp.ok) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(502, 'касса недоступна — продажа не проведена, повторите', 'FINANCE_DOWN'));
+      }
+      const accounts = ((await accResp.json() as { items?: { id: string; type: string; is_active: boolean }[] }).items) || [];
+      const wantType = input.payment_method === 'cash' ? 'cash' : 'bank';
+      const account = accounts.find((a) => a.type === wantType && a.is_active !== false)
+        ?? accounts.find((a) => a.is_active !== false);
+      if (!account) {
+        await client.query('ROLLBACK');
+        return next(new HttpError(409, 'в финансах нет ни одного счёта — создайте счёт «Наличные»/«Безналичные»', 'NO_ACCOUNT'));
+      }
+      const incResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/operations/income`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth },
+        body: JSON.stringify({
+          account_id: account.id,
+          amount: salePaid,
+          op_date: new Date().toISOString().slice(0, 10),
+          note: `Продажа: запись ${req.params.id.slice(0, 8)}`,
+          // Идемпотентный ключ: повторное проведение той же продажи не задвоит приход.
+          source_type: 'booking_sale',
+          source_id: req.params.id,
+        }),
+      });
+      if (!incResp.ok) {
+        // Продажу откатываем целиком: молчаливое «запись закрыта, а в кассе
+        // пусто» хуже, чем просьба повторить. Идемпотентный ключ защищает
+        // от задвоения, если операция всё же успела провестись.
+        await client.query('ROLLBACK');
+        return next(new HttpError(502, 'не удалось провести оплату в кассу — продажа не проведена, повторите', 'FINANCE_DOWN'));
+      }
+    }
+
     // Двигаем бонусный счёт клиента атомарно в той же транзакции + журнал.
     if (bk0.client_id && (bonusSpend > 0 || bonusAccrual > 0)) {
       await client.query(
