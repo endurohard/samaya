@@ -6644,8 +6644,8 @@ import { trapFocus } from './modules/focus-trap.js';
     list.innerHTML = items.map((s) => {
       const masterName = masterMap.get(s.master_id) || '—';
       return `
-        <div class="sal-row" data-scheme-id="${s.id}">
-          <div class="sg-col sg-col-master">${escapeHtml(masterName)}</div>
+        <div class="sal-row sal-row--clickable" data-scheme-id="${s.id}">
+          <div class="sg-col sg-col-master"><a href="#" class="sal-link" data-act="edit">${escapeHtml(masterName)}</a></div>
           <div class="sg-col">${escapeHtml(SAL_SCHEME_LABELS[s.scheme_type] || s.scheme_type)}</div>
           <div class="sg-col sg-col-date">${escapeHtml(s.effective_from)}</div>
           <div class="sg-col sg-col-action">
@@ -6659,11 +6659,19 @@ import { trapFocus } from './modules/focus-trap.js';
     }).join('');
 
     list.querySelectorAll('[data-act]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (ev) => {
+        ev.preventDefault();
         const id = btn.closest('.sal-row').dataset.schemeId;
         const act = btn.dataset.act;
         const s = salSchemes.find((x) => x.id === id);
         if (!s) return;
+        if (act === 'edit') {
+          // Схемы версионные: «правка» открывает форму с текущими значениями,
+          // сохранение создаст новую версию, прежняя закроется этой датой.
+          salOpenSchemeModal();
+          salSchemePrefill(s);
+          return;
+        }
         if (act === 'dup') {
           const r = await salApi('POST', '/schemes', {
             master_id: s.master_id,
@@ -6691,6 +6699,24 @@ import { trapFocus } from './modules/focus-trap.js';
         }
       });
     });
+  }
+
+  function salSchemePrefill(s) {
+    const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+    setV('salSchemeMaster', s.master_id);
+    const typeRadio = document.querySelector(`#salSchemeForm input[name="scheme_type"][value="${s.scheme_type}"]`);
+    if (typeRadio) { typeRadio.checked = true; typeRadio.dispatchEvent(new Event('change', { bubbles: true })); }
+    setV('salSchemeRate', Number(s.rate_amount) || '');
+    setV('salSchemePeriod', s.rate_period || 'month');
+    setV('salSchemePctSvc', Number(s.percent_services) || 0);
+    setV('salSchemePctGoods', Number(s.percent_goods) || 0);
+    setV('salSchemePctCompany', Number(s.percent_company) || 0);
+    setV('salSchemePctCreated', Number(s.percent_created) || 0);
+    setV('salSchemeGuarantee', Number(s.guaranteed) || '');
+    const disc = document.getElementById('salSchemeUseDiscount');
+    if (disc) disc.checked = !!s.apply_discount;
+    const title = document.getElementById('salSchemeModalTitle');
+    if (title) title.textContent = 'Изменение схемы ЗП';
   }
 
   // ----- Modal: salary_scheme_create -----

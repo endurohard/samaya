@@ -4987,3 +4987,7 @@ html, body { overflow-x: hidden; }
 .msr-name { min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; }
 .msr-name .muted { font-size: var(--fs-xs); }
 .msr-row input { text-align: right; }
+
+/* Схемы ЗП: строка открывается на правку */
+.sal-link { color: #2f6fd6; text-decoration: none; }
+.sal-link:hover { text-decoration: underline; }
