@@ -439,8 +439,16 @@
               <input type="hidden" id="clientId" name="id" />
               <div class="form-grid">
                 <div>
-                  <label for="clFullName">Имя</label>
-                  <input id="clFullName" name="full_name" type="text" required placeholder="Фамилия Имя" />
+                  <label for="clLastName">Фамилия</label>
+                  <input id="clLastName" type="text" placeholder="Магомедова" />
+                </div>
+                <div>
+                  <label for="clFirstName">Имя</label>
+                  <input id="clFirstName" type="text" placeholder="Амина" />
+                </div>
+                <div>
+                  <label for="clMiddleName">Отчество</label>
+                  <input id="clMiddleName" type="text" placeholder="необязательно" />
                 </div>
                 <div>
                   <label for="clPhone">Телефон</label>
@@ -906,11 +914,11 @@
                 </div>
                 <div class="bk-client-selected" id="bClientSelected" hidden></div>
                 <div class="bk-client-fields">
-                  <div>
+                  <div id="bPhoneWrap">
                     <label class="bk-field-label" for="bPhone">Телефон клиента</label>
                     <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
                   </div>
-                  <div>
+                  <div id="bNameWrap">
                     <label class="bk-field-label" for="bName">Имя клиента</label>
                     <input id="bName" name="client_name" type="text" placeholder="Виктория" />
                   </div>
@@ -2831,6 +2839,38 @@
 
       <!-- Modal: оформить продажу (complete booking) -->
       <div class="modal-backdrop" id="saleModalBackdrop" hidden></div>
+      <!-- Шаг 2: оплата частями (поверх модалки продажи, как в DIKIDI) -->
+      <div class="modal-backdrop modal-backdrop--stacked" id="salePayBackdrop" hidden></div>
+      <div class="modal modal--stacked" id="salePayModal" hidden role="dialog" aria-modal="true" aria-labelledby="salePayTitle">
+        <div class="modal-head">
+          <h3 class="modal-title" id="salePayTitle">Оплата товаров и услуг</h3>
+          <button type="button" class="modal-close" id="salePayClose" aria-label="Закрыть">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="pay-due">Сумма к оплате: <b id="payDue">0 ₽</b></div>
+
+          <div class="pay-tiles" id="payTiles">
+            <button type="button" class="pay-tile" data-method="cash">💵<span>Наличные</span></button>
+            <button type="button" class="pay-tile" data-method="card">💳<span>Карта</span></button>
+            <button type="button" class="pay-tile" data-method="online">🔲<span>QR-код</span></button>
+            <button type="button" class="pay-tile" data-method="balance">👤<span>С баланса</span></button>
+            <button type="button" class="pay-tile" data-method="certificate">🎁<span>Сертификат</span></button>
+          </div>
+
+          <div class="pay-parts" id="payParts"></div>
+
+          <div class="pay-summary">
+            <div>Итого оплачено: <b id="payGiven">0 ₽</b></div>
+            <div id="payRest" class="pay-rest" hidden></div>
+          </div>
+          <div class="error" id="payError" hidden></div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn-primary" id="payConfirm" disabled>Сохранить</button>
+          <button type="button" class="btn-ghost" id="payCancel">Назад</button>
+        </div>
+      </div>
+
       <div class="modal" id="saleModal" hidden role="dialog" aria-modal="true" aria-labelledby="saleModalTitle">
         <div class="modal-head">
           <h3 class="modal-title" id="saleModalTitle">Оформить продажу</h3>
@@ -2839,13 +2879,6 @@
         <form id="saleForm">
           <div class="modal-body">
             <div id="saleModalServices" style="margin-bottom:12px;color:var(--text-dim);font-size:13px;"></div>
-            <label for="salePaymentMethod">Способ оплаты</label>
-            <select id="salePaymentMethod" name="payment_method" required>
-              <option value="cash">Наличные</option>
-              <option value="card">Карта</option>
-              <option value="online">Онлайн</option>
-              <option value="balance">С лицевого счёта</option>
-            </select>
             <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:flex-end;">
               <div>
                 <label for="salePromoCode">Промокод</label>
@@ -2882,7 +2915,7 @@
           </div>
           <div class="modal-foot">
             <button type="button" class="btn-secondary" id="saleModalCancel">Отмена</button>
-            <button type="submit" class="btn-primary" id="saleModalSubmit">Провести оплату</button>
+            <button type="submit" class="btn-primary" id="saleModalSubmit">Перейти к оплате</button>
           </div>
         </form>
       </div>

@@ -4918,3 +4918,50 @@ html, body { overflow-x: hidden; }
 .susp-total.is-plus { color: #1e7d34; }
 .susp-minus { color: #b3261e; }
 .susp-plus { color: #1e7d34; }
+
+/* ============================================================ *
+ * Оплата частями (шаг 2 продажи, как в DIKIDI)
+ * ============================================================ */
+#salePayModal { width: min(560px, 96vw); }
+.pay-due {
+  text-align: center;
+  font-size: var(--fs-lg);
+  padding: 10px;
+  background: var(--bg-soft);
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+}
+.pay-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pay-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--text);
+  font-size: var(--fs-base);
+  cursor: pointer;
+}
+.pay-tile:hover:not(:disabled) { border-color: var(--primary, #7c3aed); }
+.pay-tile:disabled { opacity: 0.45; cursor: not-allowed; }
+.pay-parts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.pay-part {
+  display: grid;
+  grid-template-columns: 1fr 140px 32px;
+  gap: 10px;
+  align-items: center;
+}
+.pay-part-amount { text-align: right; }
+.pay-summary {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-md);
+}
+.pay-rest { color: #b3261e; font-weight: 700; }
+.pay-rest.is-over { color: #8a6100; }

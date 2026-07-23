@@ -2492,7 +2492,7 @@ import { trapFocus } from './modules/focus-trap.js';
   async function renderSelectedClient(b) {
     const host = document.getElementById('bClientSelected');
     if (!host) return;
-    if (!b.client_name && !b.client_phone) { host.hidden = true; return; }
+    if (!b.client_name && !b.client_phone) { host.hidden = true; toggleClientManualFields(true); return; }
     host.innerHTML = `
       <span class="bk-cs-name">${escapeHtml(b.client_name || 'Без имени')}</span>
       <span class="bk-client-phone">${escapeHtml(b.client_phone || '')}</span>
@@ -2500,6 +2500,7 @@ import { trapFocus } from './modules/focus-trap.js';
       ${b.client_id ? `<button type="button" class="bk-link" data-client-id="${b.client_id}">История записей</button>` : ''}
     `;
     host.hidden = false;
+    toggleClientManualFields(false);
 
     // Баланс лицевого счёта прямо здесь: без него легко пополнить счёт
     // однофамильцу и не заметить — в клинике фамилии часто похожи.
@@ -2510,6 +2511,16 @@ import { trapFocus } from './modules/focus-trap.js';
     const bal = Number(r.data.balance || 0);
     balEl.textContent = `На счету: ${formatPrice(bal)}`;
     balEl.classList.toggle('is-positive', bal > 0);
+  }
+
+  // Поля ручного ввода телефона/имени видны только пока клиент не выбран из
+  // базы: для выбранного данные показывает карточка, а дублирующие поля
+  // провоцировали править их вразнобой.
+  function toggleClientManualFields(show) {
+    ['bPhoneWrap', 'bNameWrap'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.hidden = !show;
+    });
   }
 
   document.getElementById('bClientSelected')?.addEventListener('click', (e) => {
@@ -2604,6 +2615,7 @@ import { trapFocus } from './modules/focus-trap.js';
   // (клик по пустой ячейке в журнале).
   function openNewBookingAt(masterId, dateStr, timeStr) {
     openAddBookingModal();
+    if (svcRows.length === 0) addServiceRow();
     setTimeout(() => {
       if (els.bMaster) els.bMaster.value = masterId;
       if (els.bDate) els.bDate.value = dateStr;
@@ -2687,20 +2699,21 @@ import { trapFocus } from './modules/focus-trap.js';
     svcRows.reduce((acc, r) => acc + Math.max(0, (Number(r.price) || 0) - rowTotal(r)), 0);
 
   function addServiceRow(serviceId) {
-    const svc = serviceId ? serviceById(serviceId) : activeServices()[0];
-    if (!svc) return;
+    // Без аргумента строка создаётся ПУСТОЙ: менеджер выбирает услугу сам,
+    // автоподстановка первой из прайса приводила к продажам не той услуги.
+    const svc = serviceId ? serviceById(serviceId) : null;
     svcRows.push({
-      service_id: svc.id,
-      price: Number(svc.price),
+      service_id: svc ? svc.id : null,
+      price: svc ? Number(svc.price) : 0,
       discountPct: 0,
-      duration: svc.duration_minutes,
+      duration: svc ? svc.duration_minutes : 0,
     });
     renderServiceRows();
   }
 
   function renderServiceRows() {
     const grid = document.getElementById('bSvcGrid');
-    if (!grid || !cachedServices.length) return;
+    if (!grid) return;
     // Шапка (первые 7 элементов) остаётся, строки перерисовываем.
     grid.querySelectorAll('.bk-svc-cell').forEach((el) => el.remove());
 
@@ -3004,6 +3017,7 @@ import { trapFocus } from './modules/focus-trap.js';
     if (nameEl) nameEl.value = c.full_name || '';
     _clientSelectedLabel = clientLabel(c);
     if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
+    void renderSelectedClient({ client_id: c.id, client_name: c.full_name, client_phone: c.phone });
     closeClientSuggest();
   }
 
@@ -3100,8 +3114,13 @@ import { trapFocus } from './modules/focus-trap.js';
       if (!typed) return;
       // Цифры → телефон, иначе имя.
       const isPhone = /^[\d+][\d\s()+-]*$/.test(typed);
-      if (isPhone && els.clPhone) els.clPhone.value = typed;
-      else if (els.clFullName) els.clFullName.value = typed;
+      if (isPhone && els.clPhone) { els.clPhone.value = typed; }
+      else {
+        const fio = typed.split(/\s+/);
+        const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+        setV('clLastName', fio[0]);
+        setV('clFirstName', fio.slice(1).join(' '));
+      }
     }, 60);
   });
 
@@ -3347,6 +3366,7 @@ import { trapFocus } from './modules/focus-trap.js';
     if (isAddBookingOpen()) { closeAddBookingModal(); return; }
     resetBookingForm();
     openAddBookingModal();
+    if (svcRows.length === 0) addServiceRow();
     setTimeout(() => els.bClientSearch?.focus(), 50);
   });
   els.addBookingCancel?.addEventListener('click', () => {
@@ -3410,6 +3430,7 @@ import { trapFocus } from './modules/focus-trap.js';
     document.querySelectorAll('#addBookingBlock .edit-only').forEach((el) => { el.hidden = true; });
     const selClient = document.getElementById('bClientSelected');
     if (selClient) selClient.hidden = true;
+    toggleClientManualFields(true);
     // Снимаем блокировку — иначе следующая новая запись откроется нередактируемой.
     applyBookingReadOnly(false, {});
     const submitBtn = document.getElementById('addBookingSubmit');
@@ -3446,6 +3467,10 @@ import { trapFocus } from './modules/focus-trap.js';
     const client_phone = String(fd.get('client_phone') || '').trim();
     const client_name = String(fd.get('client_name') || '').trim();
     const notes = String(fd.get('notes') || '').trim();
+    if (svcRows.some((r) => !r.service_id)) {
+      toast('Выберите услугу в каждой строке');
+      return;
+    }
     const service_ids = svcRows.map((r) => r.service_id);
     if (!master_id || !startsLocal || !client_phone || service_ids.length === 0) {
       toast('Заполни сотрудника, время, телефон и хотя бы одну услугу');
@@ -4850,7 +4875,13 @@ import { trapFocus } from './modules/focus-trap.js';
       }
       els.clientModalTitle.textContent = 'Клиент';
       els.clientId.value = c.id;
-      els.clFullName.value = c.full_name || '';
+      {
+        const fio = (c.full_name || '').trim().split(/\s+/);
+        const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+        setV('clLastName', fio[0]);
+        setV('clFirstName', fio[1]);
+        setV('clMiddleName', fio.slice(2).join(' '));
+      }
       els.clPhone.value = c.phone || '';
       els.clBirthday.value = c.birthday || '';
       els.clGender.value = c.gender || '';
@@ -4896,7 +4927,7 @@ import { trapFocus } from './modules/focus-trap.js';
     els.clientModalBackdrop.hidden = false;
     els.clientModal.hidden = false;
     _clientModalRelease = trapFocus(els.clientModal);
-    setTimeout(() => els.clFullName.focus(), 50);
+    setTimeout(() => document.getElementById('clLastName')?.focus(), 50);
   }
 
   let _clientModalRelease = null;
@@ -4911,19 +4942,27 @@ import { trapFocus } from './modules/focus-trap.js';
     e.preventDefault();
     els.clientFormError.hidden = true;
     const id = els.clientId.value.trim();
+    // ФИО собирается из трёх необязательных полей: в базе остаётся единое
+    // full_name, чтобы поиск и отчёты не менялись.
+    const fullName = [
+      document.getElementById('clLastName')?.value.trim(),
+      document.getElementById('clFirstName')?.value.trim(),
+      document.getElementById('clMiddleName')?.value.trim(),
+    ].filter(Boolean).join(' ');
     const body = {
-      full_name: els.clFullName.value.trim(),
+      full_name: fullName,
       phone: els.clPhone.value.trim(),
       birthday: els.clBirthday.value || null,
       gender: els.clGender.value || null,
       email: els.clEmail.value.trim() || null,
       comment: els.clComment.value.trim() || null,
     };
-    if (!body.full_name || !body.phone) {
+    if (!body.phone) {
       els.clientFormError.hidden = false;
-      els.clientFormError.textContent = 'Имя и телефон обязательны';
+      els.clientFormError.textContent = 'Телефон обязателен';
       return;
     }
+    if (!body.full_name) body.full_name = 'Без имени';
     const res = id
       ? await apiCall('PUT', `/api/clients/${id}`, body)
       : await apiCall('POST', '/api/clients', body);
@@ -9247,8 +9286,7 @@ import { trapFocus } from './modules/focus-trap.js';
       salesCurrentBonusBalance,
       salesCurrentBookingPrice * (loadBonusSettings().max_spend_pct / 100),
     );
-    _saleCertSpend = Math.min(_saleCertBalance, Math.max(0, afterDiscount - bonusSpend));
-    const finalTotal = Math.max(0, afterDiscount - bonusSpend - _saleCertSpend);
+    const finalTotal = Math.max(0, afterDiscount - bonusSpend);
     document.getElementById('saleTotalDisplay').textContent = formatPrice(finalTotal);
     if (els.saleBonusHint && salesCurrentBonusBalance > 0) {
       const maxBonus = Math.floor(salesCurrentBookingPrice * loadBonusSettings().max_spend_pct / 100);
@@ -9304,55 +9342,182 @@ import { trapFocus } from './modules/focus-trap.js';
   document.getElementById('saleDiscount')?.addEventListener('input', updateSaleTotal);
   els.saleBonusSpend?.addEventListener('input', updateSaleTotal);
 
+  // ── Шаг 2: оплата частями (как в DIKIDI) ─────────────────────────────
+  // Шаг 1 собирает чек (скидка, промокод, бонусы), шаг 2 — способы оплаты:
+  // часть картой, часть наличными, с баланса, сертификатом.
+  let _payParts = [];
+  let _payDue = 0;
+  let _payClientBalance = 0;
+  let _paySaleCtx = null;
+
+  const PAY_METHOD_RU = {
+    cash: 'Наличные', card: 'Карта', online: 'QR-код',
+    balance: 'С баланса', certificate: 'Сертификат',
+  };
+
   document.getElementById('saleForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!salesCurrentBookingId) return;
-    const method = document.getElementById('salePaymentMethod').value;
     const discountPct = Number(document.getElementById('saleDiscount').value) || 0;
     const promoCode = els.salePromoCode?.value?.trim().toUpperCase() || undefined;
-    const btn = document.getElementById('saleModalSubmit');
-    btn.disabled = true; btn.textContent = 'Проводим…';
-
     const bonusSettings = loadBonusSettings();
-    const bonusSpend = Math.min(
+    const bonusSpend = Math.round(Math.min(
       Number(els.saleBonusSpend?.value) || 0,
       salesCurrentBonusBalance,
       salesCurrentBookingPrice * (bonusSettings.max_spend_pct / 100),
-    );
-    const paidAmount = salesCurrentBookingPrice * (1 - discountPct / 100) - bonusSpend;
-    const bonusAccrual = Math.floor(Math.max(0, paidAmount) * (bonusSettings.accrual_rate / 100));
+    ) * 100) / 100;
+    _payDue = Math.round(Math.max(0, salesCurrentBookingPrice * (1 - discountPct / 100) - bonusSpend) * 100) / 100;
+    _paySaleCtx = { discountPct, promoCode, bonusSpend };
 
-    const { ok, data } = await apiCall('POST', `/api/bookings/${salesCurrentBookingId}/complete`, {
-      payment_method: method,
-      discount_pct: discountPct,
-      ...(promoCode ? { promo_code: promoCode } : {}),
-      bonus_spend: Math.round(bonusSpend * 100) / 100,
-      bonus_accrual: bonusAccrual,
-    });
+    // Баланс клиента — лимит для способа «С баланса».
+    _payClientBalance = 0;
+    if (salesCurrentClientId) {
+      const r = await apiCall('GET', `/api/clients/${salesCurrentClientId}`, null);
+      if (r.ok && r.data) _payClientBalance = Number(r.data.balance || 0);
+    }
 
-    btn.disabled = false; btn.textContent = 'Провести оплату';
+    _payParts = [];
+    renderPayParts();
+    document.getElementById('payDue').textContent = formatPrice(_payDue);
+    document.getElementById('payError').hidden = true;
+    // Сертификат доступен только после проверки кода на шаге 1: иначе нечем
+    // подтвердить номинал.
+    const certTile = document.querySelector('#payTiles [data-method="certificate"]');
+    if (certTile) {
+      certTile.disabled = !_saleCertId;
+      certTile.title = _saleCertId ? '' : 'Сначала проверьте код сертификата в форме продажи';
+    }
+    const balTile = document.querySelector('#payTiles [data-method="balance"]');
+    if (balTile) {
+      balTile.disabled = _payClientBalance <= 0;
+      balTile.title = _payClientBalance > 0
+        ? `На счету: ${formatPrice(_payClientBalance)}`
+        : 'На лицевом счету клиента нет средств';
+    }
+    document.getElementById('salePayBackdrop').hidden = false;
+    document.getElementById('salePayModal').hidden = false;
+  });
 
-    if (!ok) {
-      toast('Ошибка: ' + (data?.error || 'неизвестная ошибка'));
+  function payGivenSum() {
+    return Math.round(_payParts.reduce((a, pp) => a + (Number(pp.amount) || 0), 0) * 100) / 100;
+  }
+
+  function renderPayParts() {
+    const host = document.getElementById('payParts');
+    if (!host) return;
+    host.innerHTML = _payParts.map((pp, i) => `
+      <div class="pay-part">
+        <span class="pay-part-name">${PAY_METHOD_RU[pp.method]}</span>
+        <input type="number" class="pay-part-amount" data-idx="${i}" min="0" step="1" value="${pp.amount}" />
+        <button type="button" class="bk-svc-del" data-del="${i}" aria-label="Убрать способ">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+      </div>`).join('');
+    updatePaySummary();
+  }
+
+  function updatePaySummary() {
+    const given = payGivenSum();
+    const rest = Math.round((_payDue - given) * 100) / 100;
+    document.getElementById('payGiven').textContent = formatPrice(given);
+    const restEl = document.getElementById('payRest');
+    if (restEl) {
+      restEl.hidden = rest === 0;
+      restEl.textContent = rest > 0 ? `Осталось внести: ${formatPrice(rest)}` : `Лишние: ${formatPrice(-rest)}`;
+      restEl.classList.toggle('is-over', rest < 0);
+    }
+    // Лимиты источников: с баланса не больше баланса, сертификатом не больше номинала.
+    const balPart = _payParts.filter((pp) => pp.method === 'balance').reduce((a, pp) => a + Number(pp.amount || 0), 0);
+    const certPart = _payParts.filter((pp) => pp.method === 'certificate').reduce((a, pp) => a + Number(pp.amount || 0), 0);
+    const err = document.getElementById('payError');
+    let msg = '';
+    if (balPart > _payClientBalance + 0.001) msg = `С баланса доступно только ${formatPrice(_payClientBalance)}`;
+    if (certPart > _saleCertBalance + 0.001) msg = `На сертификате только ${formatPrice(_saleCertBalance)}`;
+    if (err) { err.textContent = msg; err.hidden = !msg; }
+    const btn = document.getElementById('payConfirm');
+    if (btn) btn.disabled = !!msg || rest !== 0 || (_payDue > 0 && _payParts.length === 0);
+  }
+
+  document.getElementById('payTiles')?.addEventListener('click', (e) => {
+    const tile = e.target.closest('.pay-tile');
+    if (!tile || tile.disabled) return;
+    const method = tile.dataset.method;
+    const existing = _payParts.findIndex((pp) => pp.method === method);
+    if (existing >= 0) {
+      document.querySelector(`.pay-part-amount[data-idx="${existing}"]`)?.focus();
       return;
     }
-    // Update client bonus balance
-    const clientIdForBonus = salesCurrentClientId;
-    const oldBalance = salesCurrentBonusBalance;
-    if (clientIdForBonus && (bonusSpend > 0 || bonusAccrual > 0)) {
-      const newBalance = Math.max(0, oldBalance - bonusSpend) + bonusAccrual;
-      void apiCall('PATCH', `/api/clients/${clientIdForBonus}`, { bonus_balance: newBalance });
+    // Новая часть получает весь остаток — чаще всего платят одним способом,
+    // а при разбивке сумму корректируют руками.
+    const rest = Math.max(0, Math.round((_payDue - payGivenSum()) * 100) / 100);
+    let amount = rest;
+    if (method === 'balance') amount = Math.min(amount, _payClientBalance);
+    if (method === 'certificate') amount = Math.min(amount, _saleCertBalance);
+    _payParts.push({ method, amount });
+    renderPayParts();
+  });
+
+  document.getElementById('payParts')?.addEventListener('input', (e) => {
+    const inp = e.target.closest('.pay-part-amount');
+    if (!inp) return;
+    const part = _payParts[Number(inp.dataset.idx)];
+    if (part) part.amount = Math.max(0, Number(inp.value) || 0);
+    updatePaySummary();
+  });
+
+  document.getElementById('payParts')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-del]');
+    if (!btn) return;
+    _payParts.splice(Number(btn.dataset.del), 1);
+    renderPayParts();
+  });
+
+  function closePayModal() {
+    document.getElementById('salePayBackdrop').hidden = true;
+    document.getElementById('salePayModal').hidden = true;
+  }
+  document.getElementById('payClose')?.addEventListener('click', closePayModal);
+  document.getElementById('payCancel')?.addEventListener('click', closePayModal);
+  document.getElementById('salePayClose')?.addEventListener('click', closePayModal);
+
+  document.getElementById('payConfirm')?.addEventListener('click', async () => {
+    if (!salesCurrentBookingId || !_paySaleCtx) return;
+    const btn = document.getElementById('payConfirm');
+    btn.disabled = true; btn.textContent = 'Проводим…';
+
+    const parts = _payParts.filter((pp) => Number(pp.amount) > 0)
+      .map((pp) => ({ method: pp.method, amount: Math.round(Number(pp.amount) * 100) / 100 }));
+    const { ok, data } = await apiCall('POST', `/api/bookings/${salesCurrentBookingId}/complete`, {
+      payments: parts.length ? parts : undefined,
+      payment_method: parts[0]?.method === 'certificate' ? 'cash' : (parts[0]?.method || 'cash'),
+      discount_pct: _paySaleCtx.discountPct,
+      ...(_paySaleCtx.promoCode ? { promo_code: _paySaleCtx.promoCode } : {}),
+      bonus_spend: _paySaleCtx.bonusSpend,
+    });
+    btn.disabled = false; btn.textContent = 'Сохранить';
+    if (!ok) {
+      const err = document.getElementById('payError');
+      err.textContent = data?.error || 'Ошибка проведения оплаты';
+      err.hidden = false;
+      return;
     }
-    // Redeem certificate if used
-    if (_saleCertId && _saleCertSpend > 0) {
+
+    // Гашение сертификата — его частью, а не всем остатком.
+    const certAmount = parts.filter((pp) => pp.method === 'certificate')
+      .reduce((a, pp) => a + pp.amount, 0);
+    if (_saleCertId && certAmount > 0) {
       void finApi('POST', `/certificates/${_saleCertId}/redeem`, {
-        amount: _saleCertSpend,
+        amount: certAmount,
         booking_id: salesCurrentBookingId,
       });
     }
+    // Бонусный баланс клиента обновляет сервер в той же транзакции.
+    closePayModal();
     closeSaleModal();
     closeBookingModal();
-    // Refresh journal and sales
+    resetBookingForm();
+    closeAddBookingModal();
+    toast('Продажа проведена');
     void loadBookings();
     if (currentView === 'sales') void loadSales();
   });

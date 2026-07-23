@@ -1053,8 +1053,16 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
 });
 
 // ===== Complete (оформить продажу) =====
+const paymentPartSchema = z.object({
+  method: z.enum(['cash', 'card', 'online', 'balance', 'certificate']),
+  amount: z.number().positive(),
+});
+
 const completeSchema = z.object({
   payment_method: z.enum(['cash', 'card', 'online', 'balance']).default('cash'),
+  // Составная оплата: часть картой, часть наличными, часть сертификатом или
+  // с лицевого счёта. Если не передана — работает одиночный payment_method.
+  payments: z.array(paymentPartSchema).min(1).max(6).optional(),
   // Не .default(0): скидку могли задать ещё при создании записи, и молчаливый
   // ноль от клиента её бы обнулил. Пустое значение → берём сохранённую в записи.
   discount_pct: z.number().min(0).max(100).optional(),
@@ -1166,6 +1174,23 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
     const bonusAccrual =
       bonusEnabled && bk0.client_id && accrualRate > 0 ? round2(paidAmount * accrualRate / 100) : 0;
 
+    // ── Части оплаты ────────────────────────────────────────────────────
+    // Сумма частей обязана сходиться с суммой к оплате копейка в копейку:
+    // «принято меньше, чем чек» — это долг, а долгов в закрытой продаже нет.
+    const parts = (input.payments && input.payments.length
+      ? input.payments
+      : [{ method: input.payment_method, amount: paidAmount }])
+      .map((pp) => ({ method: pp.method, amount: round2(pp.amount) }))
+      .filter((pp) => pp.amount > 0);
+    const partsSum = round2(parts.reduce((acc, pp) => acc + pp.amount, 0));
+    if (paidAmount > 0 && Math.abs(partsSum - paidAmount) > 0.01) {
+      await client.query('ROLLBACK');
+      return next(new HttpError(400,
+        `сумма частей оплаты (${partsSum}) не равна сумме к оплате (${paidAmount})`, 'SPLIT_MISMATCH'));
+    }
+    // Одна часть — её метод; несколько — 'split', состав в booking_payments.
+    const effectiveMethod = parts.length === 1 ? parts[0].method : 'split';
+
     const upd = await client.query(
       `UPDATE bookings.bookings
        SET status = 'completed', completed_at = NOW(),
@@ -1186,7 +1211,7 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
          bonus_accrual::float8 AS bonus_accrual,
          GREATEST(total_price - discount_amount - bonus_spend, 0)::float8 AS paid_amount`,
       [
-        req.auth!.company_id, req.params.id, input.payment_method, discountPct,
+        req.auth!.company_id, req.params.id, effectiveMethod, discountPct,
         discountAmount, promoId, input.promo_code?.toUpperCase() ?? null,
         bonusSpend, bonusAccrual,
       ],
@@ -1196,12 +1221,22 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       return next(new HttpError(404, 'booking not found or not completable'));
     }
 
-    // ── Приход в кассу ──────────────────────────────────────────────────
-    // Раньше продажа НЕ проводилась в финансы: запись закрывалась, а касса
-    // денег не видела. Оплата «с баланса» прихода не создаёт — эти деньги
-    // уже попали в кассу при пополнении лицевого счёта, иначе задвоение.
-    const salePaid = Number(upd.rows[0].paid_amount || 0);
-    if (salePaid > 0 && input.payment_method !== 'balance') {
+    // ── Детали оплаты и приход в кассу по частям ────────────────────────
+    // Наличные → счёт «Наличные», карта и QR/онлайн → «Безналичные».
+    // «С баланса» прихода не создаёт (деньги пришли при пополнении счёта),
+    // сертификат — тоже: его продажа проводится отдельно, здесь только
+    // погашение. Идемпотентный ключ включает метод, чтобы части одной
+    // продажи не конфликтовали между собой.
+    for (const pp of parts) {
+      await client.query(
+        `INSERT INTO bookings.booking_payments (company_id, booking_id, method, amount)
+         VALUES ($1, $2, $3, $4)`,
+        [req.auth!.company_id, req.params.id, pp.method, pp.amount],
+      );
+    }
+
+    const cashParts = parts.filter((pp) => pp.method === 'cash' || pp.method === 'card' || pp.method === 'online');
+    if (cashParts.length > 0) {
       const token = (req.headers.authorization || '').slice(7);
       const auth = { Authorization: `Bearer ${token}` };
       const accResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/accounts`, { headers: auth });
@@ -1210,32 +1245,30 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
         return next(new HttpError(502, 'касса недоступна — продажа не проведена, повторите', 'FINANCE_DOWN'));
       }
       const accounts = ((await accResp.json() as { items?: { id: string; type: string; is_active: boolean }[] }).items) || [];
-      const wantType = input.payment_method === 'cash' ? 'cash' : 'bank';
-      const account = accounts.find((a) => a.type === wantType && a.is_active !== false)
-        ?? accounts.find((a) => a.is_active !== false);
-      if (!account) {
-        await client.query('ROLLBACK');
-        return next(new HttpError(409, 'в финансах нет ни одного счёта — создайте счёт «Наличные»/«Безналичные»', 'NO_ACCOUNT'));
-      }
-      const incResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/operations/income`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth },
-        body: JSON.stringify({
-          account_id: account.id,
-          amount: salePaid,
-          op_date: new Date().toISOString().slice(0, 10),
-          note: `Продажа: запись ${req.params.id.slice(0, 8)}`,
-          // Идемпотентный ключ: повторное проведение той же продажи не задвоит приход.
-          source_type: 'booking_sale',
-          source_id: req.params.id,
-        }),
-      });
-      if (!incResp.ok) {
-        // Продажу откатываем целиком: молчаливое «запись закрыта, а в кассе
-        // пусто» хуже, чем просьба повторить. Идемпотентный ключ защищает
-        // от задвоения, если операция всё же успела провестись.
-        await client.query('ROLLBACK');
-        return next(new HttpError(502, 'не удалось провести оплату в кассу — продажа не проведена, повторите', 'FINANCE_DOWN'));
+      for (const pp of cashParts) {
+        const wantType = pp.method === 'cash' ? 'cash' : 'bank';
+        const account = accounts.find((a) => a.type === wantType && a.is_active !== false)
+          ?? accounts.find((a) => a.is_active !== false);
+        if (!account) {
+          await client.query('ROLLBACK');
+          return next(new HttpError(409, 'в финансах нет ни одного счёта — создайте счёт «Наличные»/«Безналичные»', 'NO_ACCOUNT'));
+        }
+        const incResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/operations/income`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...auth },
+          body: JSON.stringify({
+            account_id: account.id,
+            amount: pp.amount,
+            op_date: new Date().toISOString().slice(0, 10),
+            note: `Продажа: запись ${req.params.id.slice(0, 8)} (${pp.method})`,
+            source_type: `booking_sale:${pp.method}`,
+            source_id: req.params.id,
+          }),
+        });
+        if (!incResp.ok) {
+          await client.query('ROLLBACK');
+          return next(new HttpError(502, 'не удалось провести оплату в кассу — продажа не проведена, повторите', 'FINANCE_DOWN'));
+        }
       }
     }
 
@@ -1265,10 +1298,12 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       }
     }
 
-    // Оплата с лицевого счёта клиента: списываем сумму к оплате с баланса.
-    if (input.payment_method === 'balance') {
+    // Оплата с лицевого счёта клиента: списываем balance-часть оплаты.
+    const balancePart = round2(parts.filter((pp) => pp.method === 'balance')
+      .reduce((acc, pp) => acc + pp.amount, 0));
+    if (balancePart > 0) {
       const bk = upd.rows[0];
-      const paid = bk.paid_amount; // total − discount − bonus_spend
+      const paid = balancePart;
       if (!bk.client_id) {
         await client.query('ROLLBACK');
         return next(new HttpError(400, 'нет привязанного клиента для оплаты с баланса', 'NO_CLIENT'));
@@ -1305,7 +1340,7 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
       [upd.rows[0].id, req.auth!.company_id, JSON.stringify({
         booking_id: upd.rows[0].id,
         completed_by: req.auth!.sub,
-        payment_method: input.payment_method,
+        payment_method: effectiveMethod,
         discount_pct: discountPct,
         promo_code: input.promo_code ?? null,
       })],
