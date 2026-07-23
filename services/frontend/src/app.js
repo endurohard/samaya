@@ -2208,9 +2208,8 @@ import { trapFocus } from './modules/focus-trap.js';
       if (els.bDate) els.bDate.value = dateToISO(start);
       if (els.bTime) els.bTime.value = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
       const phoneEl = document.getElementById('bPhone');
-      const nameEl = document.getElementById('bName');
       if (phoneEl) phoneEl.value = b.client_phone || '';
-      if (nameEl) nameEl.value = b.client_name || '';
+      setBookingClientName(b.client_name);
       _clientSelectedLabel = clientLabel(b);
       if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
       if (els.bManager && b.manager_id) els.bManager.value = b.manager_id;
@@ -2513,6 +2512,20 @@ import { trapFocus } from './modules/focus-trap.js';
     balEl.classList.toggle('is-positive', bal > 0);
   }
 
+  // Имя клиента в записи хранится одной строкой, в форме — тремя полями.
+  function setBookingClientName(fullName) {
+    const fio = (fullName || '').trim().split(/\s+/).filter(Boolean);
+    const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+    setV('bLastName', fio[0]);
+    setV('bFirstName', fio[1]);
+    setV('bMiddleName', fio.slice(2).join(' '));
+  }
+  function getBookingClientName() {
+    return ['bLastName', 'bFirstName', 'bMiddleName']
+      .map((id) => document.getElementById(id)?.value.trim())
+      .filter(Boolean).join(' ');
+  }
+
   // Поля ручного ввода телефона/имени видны только пока клиент не выбран из
   // базы: для выбранного данные показывает карточка, а дублирующие поля
   // провоцировали править их вразнобой.
@@ -2635,8 +2648,7 @@ import { trapFocus } from './modules/focus-trap.js';
       if (els.bTime) els.bTime.value = timeStr;
       const bPhoneEl = document.getElementById('bPhone');
       if (bPhoneEl) bPhoneEl.value = b.client_phone || '';
-      const bNameEl = document.getElementById('bName');
-      if (bNameEl) bNameEl.value = b.client_name || '';
+      setBookingClientName(b.client_name);
       _clientSelectedLabel = clientLabel(b);
       if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
       const bNotesEl = document.getElementById('bNotes');
@@ -3012,9 +3024,8 @@ import { trapFocus } from './modules/focus-trap.js';
     const c = _clientSuggestItems[idx];
     if (!c) return;
     const phoneEl = document.getElementById('bPhone');
-    const nameEl = document.getElementById('bName');
     if (phoneEl) phoneEl.value = c.phone || '';
-    if (nameEl) nameEl.value = c.full_name || '';
+    setBookingClientName(c.full_name);
     _clientSelectedLabel = clientLabel(c);
     if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
     void renderSelectedClient({ client_id: c.id, client_name: c.full_name, client_phone: c.phone });
@@ -3092,8 +3103,7 @@ import { trapFocus } from './modules/focus-trap.js';
     input.addEventListener('blur', () => setTimeout(closeClientSuggest, 150));
   }
 
-  [els.bClientSearch, document.getElementById('bName'), document.getElementById('bPhone')]
-    .forEach(attachClientAutocomplete);
+  attachClientAutocomplete(els.bClientSearch);
 
   els.bClientSuggest?.addEventListener('mousedown', (e) => {
     const btn = e.target.closest('.client-suggest-item');
@@ -3128,9 +3138,8 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!_clientModalFromBooking) return;
     _clientModalFromBooking = false;
     const phoneEl = document.getElementById('bPhone');
-    const nameEl = document.getElementById('bName');
     if (phoneEl) phoneEl.value = client.phone || '';
-    if (nameEl) nameEl.value = client.full_name || '';
+    setBookingClientName(client.full_name);
     _clientSelectedLabel = clientLabel(client);
     if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
   }
@@ -3465,7 +3474,7 @@ import { trapFocus } from './modules/focus-trap.js';
     const master_id = String(fd.get('master_id') || '');
     const startsLocal = bookingStartLocal();  // "2026-04-25T11:00"
     const client_phone = String(fd.get('client_phone') || '').trim();
-    const client_name = String(fd.get('client_name') || '').trim();
+    const client_name = getBookingClientName();
     const notes = String(fd.get('notes') || '').trim();
     if (svcRows.some((r) => !r.service_id)) {
       toast('Выберите услугу в каждой строке');

@@ -423,120 +423,7 @@
             </div>
           </div>
 
-          <div class="modal-backdrop" id="clientModalBackdrop" hidden></div>
-          <div class="modal modal--wide" id="clientModal" hidden role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
-            <div class="modal-head">
-              <h3 id="clientModalTitle">Новый клиент</h3>
-              <button type="button" class="modal-close" id="clientModalClose" aria-label="Закрыть">×</button>
-            </div>
-            <div class="tab-bar" id="clientTabBar">
-              <button class="tab-btn tab-btn--active" data-tab="info">Данные</button>
-              <button class="tab-btn" data-tab="history" id="clientTabHistory" disabled>История</button>
-              <button class="tab-btn" data-tab="analyzes" id="clientTabAnalyzes" disabled>Анализы</button>
-            </div>
-            <!-- Tab: info -->
-            <form id="clientForm" class="form modal-body" data-client-tab="info">
-              <input type="hidden" id="clientId" name="id" />
-              <div class="form-grid">
-                <div>
-                  <label for="clLastName">Фамилия</label>
-                  <input id="clLastName" type="text" placeholder="Магомедова" />
-                </div>
-                <div>
-                  <label for="clFirstName">Имя</label>
-                  <input id="clFirstName" type="text" placeholder="Амина" />
-                </div>
-                <div>
-                  <label for="clMiddleName">Отчество</label>
-                  <input id="clMiddleName" type="text" placeholder="необязательно" />
-                </div>
-                <div>
-                  <label for="clPhone">Телефон</label>
-                  <input id="clPhone" name="phone" type="tel" required placeholder="+7 (___) ___-__-__" />
-                </div>
-                <div>
-                  <label for="clBirthday">Дата рождения</label>
-                  <input id="clBirthday" name="birthday" type="date" />
-                </div>
-                <div>
-                  <label for="clGender">Пол</label>
-                  <select id="clGender" name="gender">
-                    <option value="">—</option>
-                    <option value="female">Женский</option>
-                    <option value="male">Мужской</option>
-                  </select>
-                </div>
-                <div class="form-grid-full">
-                  <label for="clEmail">Email</label>
-                  <input id="clEmail" name="email" type="email" placeholder="user@mail.ru" />
-                </div>
-                <div class="form-grid-full">
-                  <label for="clComment">Заметка</label>
-                  <textarea id="clComment" name="comment" rows="3" placeholder="Комментарий администратора"></textarea>
-                </div>
-              </div>
-              <!-- Bonus section (shown only when editing existing client) -->
-              <div id="clBonusSection" hidden style="padding:12px 0 4px;">
-                <div class="cl-bonus-row">
-                  <span class="cl-bonus-label">Бонусный счёт:</span>
-                  <span class="cl-bonus-val" id="clBonusDisplay">0 ₽</span>
-                  <button type="button" class="btn-ghost btn-sm" id="clBonusAdjBtn">Изменить</button>
-                </div>
-                <div id="clBonusAdjForm" hidden class="cl-bonus-adj-form">
-                  <input id="clBonusAdjAmount" type="number" step="1" placeholder="Сумма (отриц. = списание)" />
-                  <input id="clBonusAdjNote" type="text" placeholder="Причина (необязательно)" maxlength="200" />
-                  <button type="button" class="btn-primary btn-sm" id="clBonusAdjSave">Применить</button>
-                  <button type="button" class="btn-ghost btn-sm" id="clBonusAdjCancel">Отмена</button>
-                </div>
-              </div>
-              <!-- Лицевой счёт (баланс для пополнения/списания за услуги) -->
-              <div id="clBalanceSection" hidden style="padding:4px 0 8px;">
-                <div class="cl-bonus-row">
-                  <span class="cl-bonus-label">Лицевой счёт:</span>
-                  <span class="cl-bonus-val" id="clBalanceDisplay">0 ₽</span>
-                  <button type="button" class="btn-ghost btn-sm" id="clBalanceTopupBtn">Пополнить</button>
-                </div>
-                <div id="clBalanceTopupForm" hidden class="cl-bonus-adj-form">
-                  <input id="clBalanceAmount" type="number" step="1" min="1" placeholder="Сумма пополнения" />
-                  <select id="clBalanceAccount"><option value="">— счёт (нал/безнал) —</option></select>
-                  <input id="clBalanceNote" type="text" placeholder="Комментарий" maxlength="200" />
-                  <button type="button" class="btn-primary btn-sm" id="clBalanceSave">Пополнить</button>
-                  <button type="button" class="btn-ghost btn-sm" id="clBalanceCancel">Отмена</button>
-                </div>
-                <div id="clBalanceOps" class="cl-balance-ops"></div>
-              </div>
-              <div class="modal-foot">
-                <div class="form-actions">
-                  <button type="submit" class="btn-primary" id="clientSubmit">Сохранить</button>
-                  <button type="button" class="btn-ghost" id="clientCancel">Отмена</button>
-                  <button type="button" class="btn-ghost btn-sm" id="clWaSendBtn" hidden title="Написать в WhatsApp">&#128172; WhatsApp</button>
-                  <button type="button" class="btn-ghost btn-sm" id="clWaSendPortalBtn" hidden title="Отправить ссылку на портал через WhatsApp">&#127968; Портал в WA</button>
-                </div>
-                <button type="button" class="btn-link-danger" id="clientDelete" hidden>Удалить</button>
-              </div>
-              <div class="error" id="clientFormError" hidden></div>
-            </form>
-            <!-- Tab: history -->
-            <div class="modal-body" id="clientHistoryTab" data-client-tab="history" hidden>
-              <div id="clientHistoryList" class="cl-history-list"></div>
-            </div>
-            <!-- Tab: analyzes -->
-            <div class="modal-body" id="clientAnalyzesTab" data-client-tab="analyzes" hidden>
-              <div class="analyzes-toolbar">
-                <button type="button" class="btn-ghost btn-sm" id="clCopyPortalLink">
-                  &#127968; Личный кабинет
-                </button>
-                <button type="button" class="btn-ghost btn-sm" id="clCopyUploadLink">
-                  &#128279; Загрузка файлов
-                </button>
-                <label class="btn-secondary btn-sm analyzes-upload-label" for="clFileUpload">
-                  + Загрузить файл
-                </label>
-                <input type="file" id="clFileUpload" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif" hidden multiple />
-              </div>
-              <div id="clFilesList" class="analyzes-list"></div>
-            </div>
-          </div>
+<!-- clientModal перенесена в глобальные модалки: из секции она открывалась внутри display:none -->
         </section>
 
         <!-- View: services -->
@@ -918,9 +805,19 @@
                     <label class="bk-field-label" for="bPhone">Телефон клиента</label>
                     <input id="bPhone" name="client_phone" type="text" required placeholder="+7 900 000-00-00" />
                   </div>
-                  <div id="bNameWrap">
-                    <label class="bk-field-label" for="bName">Имя клиента</label>
-                    <input id="bName" name="client_name" type="text" placeholder="Виктория" />
+                  <div id="bNameWrap" class="bk-fio-wrap">
+                    <div>
+                      <label class="bk-field-label" for="bLastName">Фамилия</label>
+                      <input id="bLastName" type="text" placeholder="необязательно" />
+                    </div>
+                    <div>
+                      <label class="bk-field-label" for="bFirstName">Имя</label>
+                      <input id="bFirstName" type="text" placeholder="необязательно" />
+                    </div>
+                    <div>
+                      <label class="bk-field-label" for="bMiddleName">Отчество</label>
+                      <input id="bMiddleName" type="text" placeholder="необязательно" />
+                    </div>
                   </div>
                   <div>
                     <label class="bk-field-label" for="bManager">Менеджер (оформил)</label>
@@ -2791,6 +2688,122 @@
       </div>
 
       <!-- Modal: view booking -->
+      <!-- Карточка клиента: глобально, чтобы открываться из любого раздела (журнал, продажа) -->
+          <div class="modal-backdrop" id="clientModalBackdrop" hidden></div>
+          <div class="modal modal--wide" id="clientModal" hidden role="dialog" aria-modal="true" aria-labelledby="clientModalTitle">
+            <div class="modal-head">
+              <h3 id="clientModalTitle">Новый клиент</h3>
+              <button type="button" class="modal-close" id="clientModalClose" aria-label="Закрыть">×</button>
+            </div>
+            <div class="tab-bar" id="clientTabBar">
+              <button class="tab-btn tab-btn--active" data-tab="info">Данные</button>
+              <button class="tab-btn" data-tab="history" id="clientTabHistory" disabled>История</button>
+              <button class="tab-btn" data-tab="analyzes" id="clientTabAnalyzes" disabled>Анализы</button>
+            </div>
+            <!-- Tab: info -->
+            <form id="clientForm" class="form modal-body" data-client-tab="info">
+              <input type="hidden" id="clientId" name="id" />
+              <div class="form-grid">
+                <div>
+                  <label for="clLastName">Фамилия</label>
+                  <input id="clLastName" type="text" placeholder="Магомедова" />
+                </div>
+                <div>
+                  <label for="clFirstName">Имя</label>
+                  <input id="clFirstName" type="text" placeholder="Амина" />
+                </div>
+                <div>
+                  <label for="clMiddleName">Отчество</label>
+                  <input id="clMiddleName" type="text" placeholder="необязательно" />
+                </div>
+                <div>
+                  <label for="clPhone">Телефон</label>
+                  <input id="clPhone" name="phone" type="tel" required placeholder="+7 (___) ___-__-__" />
+                </div>
+                <div>
+                  <label for="clBirthday">Дата рождения</label>
+                  <input id="clBirthday" name="birthday" type="date" />
+                </div>
+                <div>
+                  <label for="clGender">Пол</label>
+                  <select id="clGender" name="gender">
+                    <option value="">—</option>
+                    <option value="female">Женский</option>
+                    <option value="male">Мужской</option>
+                  </select>
+                </div>
+                <div class="form-grid-full">
+                  <label for="clEmail">Email</label>
+                  <input id="clEmail" name="email" type="email" placeholder="user@mail.ru" />
+                </div>
+                <div class="form-grid-full">
+                  <label for="clComment">Заметка</label>
+                  <textarea id="clComment" name="comment" rows="3" placeholder="Комментарий администратора"></textarea>
+                </div>
+              </div>
+              <!-- Bonus section (shown only when editing existing client) -->
+              <div id="clBonusSection" hidden style="padding:12px 0 4px;">
+                <div class="cl-bonus-row">
+                  <span class="cl-bonus-label">Бонусный счёт:</span>
+                  <span class="cl-bonus-val" id="clBonusDisplay">0 ₽</span>
+                  <button type="button" class="btn-ghost btn-sm" id="clBonusAdjBtn">Изменить</button>
+                </div>
+                <div id="clBonusAdjForm" hidden class="cl-bonus-adj-form">
+                  <input id="clBonusAdjAmount" type="number" step="1" placeholder="Сумма (отриц. = списание)" />
+                  <input id="clBonusAdjNote" type="text" placeholder="Причина (необязательно)" maxlength="200" />
+                  <button type="button" class="btn-primary btn-sm" id="clBonusAdjSave">Применить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="clBonusAdjCancel">Отмена</button>
+                </div>
+              </div>
+              <!-- Лицевой счёт (баланс для пополнения/списания за услуги) -->
+              <div id="clBalanceSection" hidden style="padding:4px 0 8px;">
+                <div class="cl-bonus-row">
+                  <span class="cl-bonus-label">Лицевой счёт:</span>
+                  <span class="cl-bonus-val" id="clBalanceDisplay">0 ₽</span>
+                  <button type="button" class="btn-ghost btn-sm" id="clBalanceTopupBtn">Пополнить</button>
+                </div>
+                <div id="clBalanceTopupForm" hidden class="cl-bonus-adj-form">
+                  <input id="clBalanceAmount" type="number" step="1" min="1" placeholder="Сумма пополнения" />
+                  <select id="clBalanceAccount"><option value="">— счёт (нал/безнал) —</option></select>
+                  <input id="clBalanceNote" type="text" placeholder="Комментарий" maxlength="200" />
+                  <button type="button" class="btn-primary btn-sm" id="clBalanceSave">Пополнить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="clBalanceCancel">Отмена</button>
+                </div>
+                <div id="clBalanceOps" class="cl-balance-ops"></div>
+              </div>
+              <div class="modal-foot">
+                <div class="form-actions">
+                  <button type="submit" class="btn-primary" id="clientSubmit">Сохранить</button>
+                  <button type="button" class="btn-ghost" id="clientCancel">Отмена</button>
+                  <button type="button" class="btn-ghost btn-sm" id="clWaSendBtn" hidden title="Написать в WhatsApp">&#128172; WhatsApp</button>
+                  <button type="button" class="btn-ghost btn-sm" id="clWaSendPortalBtn" hidden title="Отправить ссылку на портал через WhatsApp">&#127968; Портал в WA</button>
+                </div>
+                <button type="button" class="btn-link-danger" id="clientDelete" hidden>Удалить</button>
+              </div>
+              <div class="error" id="clientFormError" hidden></div>
+            </form>
+            <!-- Tab: history -->
+            <div class="modal-body" id="clientHistoryTab" data-client-tab="history" hidden>
+              <div id="clientHistoryList" class="cl-history-list"></div>
+            </div>
+            <!-- Tab: analyzes -->
+            <div class="modal-body" id="clientAnalyzesTab" data-client-tab="analyzes" hidden>
+              <div class="analyzes-toolbar">
+                <button type="button" class="btn-ghost btn-sm" id="clCopyPortalLink">
+                  &#127968; Личный кабинет
+                </button>
+                <button type="button" class="btn-ghost btn-sm" id="clCopyUploadLink">
+                  &#128279; Загрузка файлов
+                </button>
+                <label class="btn-secondary btn-sm analyzes-upload-label" for="clFileUpload">
+                  + Загрузить файл
+                </label>
+                <input type="file" id="clFileUpload" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif" hidden multiple />
+              </div>
+              <div id="clFilesList" class="analyzes-list"></div>
+            </div>
+          </div>
+
       <div class="modal-backdrop" id="bkModalBackdrop" hidden></div>
       <div class="modal bk-modal" id="bkModal" hidden role="dialog" aria-modal="true" aria-labelledby="bkModalTitle">
         <div class="modal-head">

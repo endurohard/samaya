@@ -4965,3 +4965,7 @@ html, body { overflow-x: hidden; }
 }
 .pay-rest { color: #b3261e; font-weight: 700; }
 .pay-rest.is-over { color: #8a6100; }
+
+/* ФИО клиента в форме записи: три поля в ряд внутри своей ячейки */
+.bk-fio-wrap { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; grid-column: 2 / -1; }
+@media (max-width: 860px) { .bk-fio-wrap { grid-template-columns: 1fr; grid-column: auto; } }
