@@ -36,6 +36,8 @@ router.get('/', async (req, res, next) => {
               percent_goods::float8 AS percent_goods,
               apply_discount,
               guaranteed::float8 AS guaranteed,
+              percent_company::float8 AS percent_company,
+              percent_created::float8 AS percent_created,
               effective_from, effective_to, notes, created_at
        FROM salary.schemes
        WHERE ${where}
@@ -55,6 +57,10 @@ const createSchema = z.object({
   percent_goods: z.number().min(0).max(100).default(0),
   apply_discount: z.boolean().default(false),
   guaranteed: z.number().min(0).default(0),
+  // Проценты в объёме DIKIDI: от продаж всей компании и от записей, которые
+  // сотрудник оформил (по manager_id записи).
+  percent_company: z.number().min(0).max(100).default(0),
+  percent_created: z.number().min(0).max(100).default(0),
   effective_from: isoDate(),
   notes: z.string().max(2000).optional(),
 });
@@ -79,20 +85,23 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
       `INSERT INTO salary.schemes
          (company_id, master_id, scheme_type, rate_amount, rate_period,
           percent_services, percent_goods, apply_discount, guaranteed,
-          effective_from, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          percent_company, percent_created, effective_from, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING id, master_id, scheme_type,
                  rate_amount::float8 AS rate_amount, rate_period,
                  percent_services::float8 AS percent_services,
                  percent_goods::float8 AS percent_goods,
                  apply_discount,
                  guaranteed::float8 AS guaranteed,
+                 percent_company::float8 AS percent_company,
+                 percent_created::float8 AS percent_created,
                  effective_from, effective_to, notes, created_at`,
       [
         req.auth!.company_id, input.master_id, input.scheme_type,
         input.rate_amount, input.rate_period,
         input.percent_services, input.percent_goods, input.apply_discount,
-        input.guaranteed, input.effective_from, input.notes ?? null,
+        input.guaranteed, input.percent_company, input.percent_created,
+        input.effective_from, input.notes ?? null,
       ],
     );
     await client.query('COMMIT');
@@ -118,6 +127,63 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
     if (!rows[0]) return next(new HttpError(404, 'scheme not found'));
     return res.json({ ok: true });
   } catch (e) { return next(e); }
+});
+
+// ===== Пер-услуга вознаграждение мастера («Детальные настройки» DIKIDI) =====
+router.get('/service-rates/:masterId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT service_id,
+              percent::float8 AS percent,
+              fixed_amount::float8 AS fixed_amount
+       FROM salary.master_service_rates
+       WHERE company_id = $1 AND master_id = $2`,
+      [req.auth!.company_id, req.params.masterId],
+    );
+    return res.json({ items: rows });
+  } catch (e) { return next(e); }
+});
+
+const svcRatesSchema = z.object({
+  items: z.array(z.object({
+    service_id: z.string().uuid(),
+    percent: z.number().min(0).max(100).nullable().optional(),
+    fixed_amount: z.number().min(0).nullable().optional(),
+  })).max(500),
+});
+
+router.put('/service-rates/:masterId', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const input = svcRatesSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    await client.query('BEGIN');
+    // Полная замена набора: пустые строки (ни процента, ни ставки) просто
+    // не сохраняются — для них действует общий процент схемы.
+    await client.query(
+      `DELETE FROM salary.master_service_rates WHERE company_id = $1 AND master_id = $2`,
+      [companyId, req.params.masterId],
+    );
+    const rows = input.items.filter((it) =>
+      (it.percent !== null && it.percent !== undefined) ||
+      (it.fixed_amount !== null && it.fixed_amount !== undefined));
+    for (const it of rows) {
+      await client.query(
+        `INSERT INTO salary.master_service_rates
+           (company_id, master_id, service_id, percent, fixed_amount)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [companyId, req.params.masterId, it.service_id,
+         it.percent ?? null, it.fixed_amount ?? null],
+      );
+    }
+    await client.query('COMMIT');
+    return res.json({ saved: rows.length });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => { /* мёртвое соединение */ });
+    return next(e);
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

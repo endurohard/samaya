@@ -4969,3 +4969,21 @@ html, body { overflow-x: hidden; }
 /* ФИО клиента в форме записи: три поля в ряд внутри своей ячейки */
 .bk-fio-wrap { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; grid-column: 2 / -1; }
 @media (max-width: 860px) { .bk-fio-wrap { grid-template-columns: 1fr; grid-column: auto; } }
+
+/* Таблицы пер-услуга настроек (мастер и группа) */
+.msr-head {
+  display: grid; grid-template-columns: 1fr 110px 110px; gap: 10px;
+  font-size: var(--fs-sm); color: var(--text-dim); font-weight: 600;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.msr-head--2 { grid-template-columns: 1fr 110px; }
+.msr-list { max-height: 46vh; overflow-y: auto; }
+.msr-row {
+  display: grid; grid-template-columns: 1fr 110px 110px; gap: 10px;
+  align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.msr-row--2 { grid-template-columns: 1fr 110px; }
+.msr-row:last-child { border-bottom: none; }
+.msr-name { min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; }
+.msr-name .muted { font-size: var(--fs-xs); }
+.msr-row input { text-align: right; }

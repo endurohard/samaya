@@ -6737,13 +6737,16 @@ import { trapFocus } from './modules/focus-trap.js';
       percent_goods: Number(fd.get('percent_goods')) || 0,
       apply_discount: !!fd.get('apply_discount'),
       guaranteed: Number(fd.get('guaranteed')) || 0,
+      percent_company: Number(fd.get('percent_company')) || 0,
+      percent_created: Number(fd.get('percent_created')) || 0,
       notes: String(fd.get('notes') || '') || undefined,
     };
     if (scheme_type === 'rate' && payload.rate_amount <= 0) {
       err.textContent = 'Укажите ставку больше 0'; err.hidden = false; return;
     }
-    if (scheme_type === 'percent_only' && payload.percent_services <= 0) {
-      err.textContent = 'Укажите % с продаж услуг больше 0'; err.hidden = false; return;
+    if (scheme_type === 'percent_only' && payload.percent_services <= 0
+        && payload.percent_company <= 0 && payload.percent_created <= 0) {
+      err.textContent = 'Укажите хотя бы один процент больше 0'; err.hidden = false; return;
     }
     const r = await salApi('POST', '/schemes', payload);
     if (!r.ok) {
@@ -7210,6 +7213,99 @@ import { trapFocus } from './modules/focus-trap.js';
   });
   document.getElementById('salSchemeForm')?.addEventListener('submit', salSubmitScheme);
 
+  // ── Пер-услуга вознаграждение мастера («Детальные настройки» DIKIDI) ──
+  // msrRates: Map<service_id, {percent, fixed_amount}> для выбранного мастера.
+  let msrRates = new Map();
+
+  async function openMsrModal() {
+    const masterId = document.getElementById('salSchemeMaster')?.value;
+    const err = document.getElementById('salSchemeError');
+    if (!masterId) {
+      if (err) { err.textContent = 'Сначала выберите сотрудника'; err.hidden = false; }
+      return;
+    }
+    if (!cachedServices.length) await loadServices();
+    msrRates = new Map();
+    const r = await salApi('GET', `/schemes/service-rates/${masterId}`);
+    if (r.ok) {
+      for (const it of (r.data?.items || [])) {
+        msrRates.set(it.service_id, { percent: it.percent, fixed_amount: it.fixed_amount });
+      }
+    }
+    renderMsrList('');
+    document.getElementById('msrBackdrop').hidden = false;
+    document.getElementById('msrModal').hidden = false;
+    document.getElementById('msrSearch').value = '';
+    setTimeout(() => document.getElementById('msrSearch')?.focus(), 50);
+  }
+
+  function renderMsrList(query) {
+    const host = document.getElementById('msrList');
+    if (!host) return;
+    const q = (query || '').trim().toLowerCase();
+    const items = cachedServices.filter((sv) => sv.is_active && (!q || sv.name.toLowerCase().includes(q)));
+    host.innerHTML = items.map((sv) => {
+      const r = msrRates.get(sv.id) || {};
+      return `
+        <div class="msr-row">
+          <span class="msr-name">${escapeHtml(sv.name)}
+            <span class="muted">${sv.duration_minutes} м · ${formatPrice(sv.price)}</span></span>
+          <input type="number" class="msr-pct" data-service-id="${sv.id}" min="0" max="100" step="0.1"
+                 value="${r.percent ?? ''}" placeholder="—" aria-label="Процент" />
+          <input type="number" class="msr-fix" data-service-id="${sv.id}" min="0" step="1"
+                 value="${r.fixed_amount ?? ''}" placeholder="—" aria-label="Ставка, ₽" />
+        </div>`;
+    }).join('') || '<div class="empty">Услуги не найдены</div>';
+  }
+
+  document.getElementById('salSchemeDetailBtn')?.addEventListener('click', () => void openMsrModal());
+  document.getElementById('msrSearch')?.addEventListener('input', (e) => {
+    // Перед фильтрацией фиксируем введённое: иначе значения из скрытых строк потеряются.
+    collectMsrInputs();
+    renderMsrList(e.target.value);
+  });
+
+  function collectMsrInputs() {
+    document.querySelectorAll('#msrList .msr-row').forEach((row) => {
+      const pct = row.querySelector('.msr-pct');
+      const fix = row.querySelector('.msr-fix');
+      const id = pct.dataset.serviceId;
+      const p = pct.value === '' ? null : Number(pct.value);
+      const f = fix.value === '' ? null : Number(fix.value);
+      if (p === null && f === null) msrRates.delete(id);
+      else msrRates.set(id, { percent: p, fixed_amount: f });
+    });
+  }
+
+  function closeMsrModal() {
+    document.getElementById('msrBackdrop').hidden = true;
+    document.getElementById('msrModal').hidden = true;
+  }
+  document.getElementById('msrClose')?.addEventListener('click', closeMsrModal);
+  document.getElementById('msrBackdrop')?.addEventListener('click', closeMsrModal);
+
+  document.getElementById('msrReset')?.addEventListener('click', () => {
+    if (!confirm('Сбросить все персональные ставки этого мастера?')) return;
+    msrRates = new Map();
+    renderMsrList(document.getElementById('msrSearch')?.value || '');
+  });
+
+  document.getElementById('msrSave')?.addEventListener('click', async () => {
+    collectMsrInputs();
+    const masterId = document.getElementById('salSchemeMaster')?.value;
+    if (!masterId) return;
+    const items = [...msrRates.entries()].map(([service_id, r]) => ({
+      service_id, percent: r.percent, fixed_amount: r.fixed_amount,
+    }));
+    const btn = document.getElementById('msrSave');
+    btn.disabled = true;
+    const r = await salApi('PUT', `/schemes/service-rates/${masterId}`, { items });
+    btn.disabled = false;
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
+    toast(`Сохранено персональных ставок: ${r.data?.saved ?? items.length}`);
+    closeMsrModal();
+  });
+
   // payroll modal
   document.getElementById('salPayrollModalClose')?.addEventListener('click', salClosePayrollModal);
   document.getElementById('salPayrollCancel')?.addEventListener('click', salClosePayrollModal);
@@ -7373,12 +7469,16 @@ import { trapFocus } from './modules/focus-trap.js';
           <div class="sg-col">${names.length ? escapeHtml(names.join(', ')) : '<span class="muted">нет участников</span>'}</div>
           <div class="sg-col sg-col-num">${names.length}</div>
           <div class="sg-col sg-col-action">
+            <button type="button" class="sal-row-action" data-group-rates="${g.id}" title="Проценты по услугам">%</button>
             <button type="button" class="sal-row-action" data-group-edit="${g.id}" title="Изменить">✎</button>
           </div>
         </div>`;
     }).join('');
     host.querySelectorAll('[data-group-edit]').forEach((btn) => {
       btn.addEventListener('click', () => salGroupOpenModal(btn.dataset.groupEdit));
+    });
+    host.querySelectorAll('[data-group-rates]').forEach((btn) => {
+      btn.addEventListener('click', () => void openGrpRates(btn.dataset.groupRates));
     });
   }
 
@@ -7450,6 +7550,78 @@ import { trapFocus } from './modules/focus-trap.js';
     salGroupCloseModal();
     await Promise.all([salLoadStaffGroups(), salLoadCommissions()]);
     renderStaffGroups();
+    renderSalaryCommissions();
+  });
+
+  // ── Проценты группы по услугам: «2% с одних аппаратных, 3% с других» ──
+  let grpRatesMap = new Map();
+  let grpRatesGroupId = null;
+
+  async function openGrpRates(groupId) {
+    grpRatesGroupId = groupId;
+    if (!cachedServices.length) await loadServices();
+    grpRatesMap = new Map();
+    const r = await salApi('GET', `/commissions/group/${groupId}`);
+    if (r.ok) for (const it of (r.data?.items || [])) grpRatesMap.set(it.service_id, Number(it.percent));
+    const g = cachedStaffGroups.find((x) => x.id === groupId);
+    const title = document.getElementById('grpRatesTitle');
+    if (title) title.textContent = `Проценты группы «${g ? g.name : ''}» по услугам`;
+    renderGrpRates('');
+    document.getElementById('grpRatesSearch').value = '';
+    document.getElementById('grpRatesBackdrop').hidden = false;
+    document.getElementById('grpRatesModal').hidden = false;
+    setTimeout(() => document.getElementById('grpRatesSearch')?.focus(), 50);
+  }
+
+  function renderGrpRates(query) {
+    const host = document.getElementById('grpRatesList');
+    if (!host) return;
+    const q = (query || '').trim().toLowerCase();
+    const items = cachedServices.filter((sv) => sv.is_active && (!q || sv.name.toLowerCase().includes(q)));
+    host.innerHTML = items.map((sv) => `
+      <div class="msr-row msr-row--2">
+        <span class="msr-name">${escapeHtml(sv.name)}
+          <span class="muted">${sv.duration_minutes} м · ${formatPrice(sv.price)}</span></span>
+        <input type="number" class="grp-pct" data-service-id="${sv.id}" min="0" max="100" step="0.1"
+               value="${grpRatesMap.has(sv.id) ? grpRatesMap.get(sv.id) : ''}" placeholder="—" aria-label="Процент" />
+      </div>`).join('') || '<div class="empty">Услуги не найдены</div>';
+  }
+
+  function collectGrpRates() {
+    document.querySelectorAll('#grpRatesList .grp-pct').forEach((inp) => {
+      const id = inp.dataset.serviceId;
+      if (inp.value === '' || Number(inp.value) <= 0) grpRatesMap.delete(id);
+      else grpRatesMap.set(id, Number(inp.value));
+    });
+  }
+
+  document.getElementById('grpRatesSearch')?.addEventListener('input', (e) => {
+    collectGrpRates();
+    renderGrpRates(e.target.value);
+  });
+  const closeGrpRates = () => {
+    document.getElementById('grpRatesBackdrop').hidden = true;
+    document.getElementById('grpRatesModal').hidden = true;
+  };
+  document.getElementById('grpRatesClose')?.addEventListener('click', closeGrpRates);
+  document.getElementById('grpRatesBackdrop')?.addEventListener('click', closeGrpRates);
+  document.getElementById('grpRatesReset')?.addEventListener('click', () => {
+    if (!confirm('Убрать все проценты группы по услугам?')) return;
+    grpRatesMap = new Map();
+    renderGrpRates(document.getElementById('grpRatesSearch')?.value || '');
+  });
+  document.getElementById('grpRatesSave')?.addEventListener('click', async () => {
+    collectGrpRates();
+    if (!grpRatesGroupId) return;
+    const items = [...grpRatesMap.entries()].map(([service_id, percent]) => ({ service_id, percent }));
+    const btn = document.getElementById('grpRatesSave');
+    btn.disabled = true;
+    const r = await salApi('PUT', `/commissions/group/${grpRatesGroupId}`, { items });
+    btn.disabled = false;
+    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
+    toast(`Сохранено правил: ${r.data?.saved ?? items.length}`);
+    closeGrpRates();
+    await salLoadCommissions();
     renderSalaryCommissions();
   });
 

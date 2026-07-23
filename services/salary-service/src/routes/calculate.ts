@@ -119,6 +119,17 @@ router.get('/', async (req, res, next) => {
     );
     for (const s of catRes.rows) svcCategory.set(s.id, s.category_id);
 
+    // Пер-услуга вознаграждение мастера: свой процент или фикс за услугу.
+    const svcRates = new Map<string, { percent: number | null; fixed: number | null }>();
+    const srRes = await pool.query(
+      `SELECT master_id, service_id, percent::float8 AS percent, fixed_amount::float8 AS fixed
+       FROM salary.master_service_rates WHERE company_id = $1`,
+      [companyId],
+    );
+    for (const r of srRes.rows) {
+      svcRates.set(`${r.master_id}:${r.service_id}`, { percent: r.percent, fixed: r.fixed });
+    }
+
     // Состав групп сотрудников.
     const groupMembers = new Map<string, string[]>();
     const gmRes = await pool.query(
@@ -174,6 +185,13 @@ router.get('/', async (req, res, next) => {
     // Фиксированные комиссии по менеджеру записи
     const fixedByManager = new Map<string, number>();
 
+    // Базы для процентов схемы: выручка компании, выручка «своих» услуг
+    // мастера (без пер-услуга переопределений) и заработок по переопределениям.
+    let companyRevenue = 0;
+    const createdByManager = new Map<string, number>();
+    const masterSvcBase = new Map<string, number>();
+    const masterSvcOverride = new Map<string, number>();
+
     for (const booking of bookings) {
       // Скидка задаётся на запись целиком — раскидываем её по услугам
       // пропорционально цене, иначе комиссия считалась бы с прайса.
@@ -181,6 +199,25 @@ router.get('/', async (req, res, next) => {
       const ratio = discountRatio(bookingSum, Number(booking.discount_amount || 0));
       for (const svc of (booking.services || [])) {
         const svcPrice = Number(svc.price) * (1 - ratio);
+
+        companyRevenue += svcPrice;
+        if (booking.manager_id) {
+          createdByManager.set(booking.manager_id,
+            (createdByManager.get(booking.manager_id) || 0) + svcPrice);
+        }
+        // Услуга с персональной ставкой исключается из общей базы процента —
+        // иначе мастер получил бы и общий процент, и персональный.
+        const orate = svcRates.get(`${booking.master_id}:${svc.service_id}`);
+        if (orate) {
+          const earn = orate.fixed !== null && orate.fixed !== undefined
+            ? Number(orate.fixed)
+            : svcPrice * (Number(orate.percent) / 100);
+          masterSvcOverride.set(booking.master_id,
+            (masterSvcOverride.get(booking.master_id) || 0) + earn);
+        } else {
+          masterSvcBase.set(booking.master_id,
+            (masterSvcBase.get(booking.master_id) || 0) + svcPrice);
+        }
 
         // % комиссия → в пул: общий или групповой
         const rule = findPercentRule(svc.service_id);
@@ -278,8 +315,19 @@ router.get('/', async (req, res, next) => {
       // Выручка по товарам мастера — источника продаж товаров пока нет (0).
       const goodsTotal = 0;
 
-      const { rate, pct_services, pct_goods, guaranteed, total: baseTotal } =
-        computeMasterSalary(scheme, sales, effectiveDays, monthDivisor, goodsTotal);
+      // Ставка и % товаров — из общей формулы; % услуг считаем сами:
+      // база без переопределённых услуг + персональные ставки по услугам.
+      const { rate, pct_goods, guaranteed } =
+        computeMasterSalary(scheme, 0, effectiveDays, monthDivisor, goodsTotal);
+      const svcBase = m.provides_services ? (masterSvcBase.get(m.id) || 0) : 0;
+      const svcOverride = m.provides_services ? (masterSvcOverride.get(m.id) || 0) : 0;
+      const schemePct = Number(scheme?.percent_services || 0);
+      const usesPct = scheme?.scheme_type === 'percent_only' || scheme?.scheme_type === 'rate_plus_percent';
+      const pct_services = Math.round((usesPct ? svcBase * schemePct / 100 : 0) + svcOverride);
+      const pct_company = Math.round(companyRevenue * Number(scheme?.percent_company || 0) / 100);
+      const pct_created = Math.round(
+        (createdByManager.get(m.id) || 0) * Number(scheme?.percent_created || 0) / 100);
+      const baseTotal = Math.max(rate + pct_services + pct_goods + pct_company + pct_created, guaranteed);
 
       // % пул делится методом наибольшего остатка (Σ == пулу).
       // Условие на in_commission_pool здесь не нужно: в poolShares попадают
@@ -308,7 +356,7 @@ router.get('/', async (req, res, next) => {
         commission_percent_share: percentShare,
         commission_fixed_share: fixedShare,
         commission_total: commissionTotal,
-        rate, pct_services, pct_goods, pct_salon: 0, guaranteed, total,
+        rate, pct_services, pct_goods, pct_company, pct_created, pct_salon: 0, guaranteed, total,
       };
     });
 

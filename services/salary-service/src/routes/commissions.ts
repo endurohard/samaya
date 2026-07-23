@@ -91,4 +91,67 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
   } catch (e) { return next(e); }
 });
 
+// ===== Массовая настройка: % группе с каждой услуги =====
+// Сценарий: «менеджеры получают 2% с одних аппаратных услуг и 3% с других».
+// Правила хранятся в тех же service_commissions (services → группа), расчёт
+// их уже понимает; здесь только удобная замена всего набора одним запросом.
+const groupRatesSchema = z.object({
+  items: z.array(z.object({
+    service_id: z.string().uuid(),
+    percent: z.number().min(0).max(100),
+  })).max(500),
+});
+
+router.get('/group/:groupId', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT service_id, amount::float8 AS percent
+       FROM salary.service_commissions
+       WHERE company_id = $1 AND staff_group_id = $2
+         AND service_id IS NOT NULL AND commission_type = 'percent'`,
+      [req.auth!.company_id, req.params.groupId],
+    );
+    return res.json({ items: rows });
+  } catch (e) { return next(e); }
+});
+
+router.put('/group/:groupId', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const input = groupRatesSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    await client.query('BEGIN');
+    const grp = await client.query(
+      `SELECT id FROM salary.staff_groups WHERE company_id = $1 AND id = $2`,
+      [companyId, req.params.groupId],
+    );
+    if (!grp.rows[0]) throw new HttpError(404, 'группа не найдена');
+
+    // Полная замена пер-услуга правил группы. Правила по категориям и общий
+    // catch-all группы не трогаем — они задаются отдельной формой.
+    await client.query(
+      `DELETE FROM salary.service_commissions
+       WHERE company_id = $1 AND staff_group_id = $2
+         AND service_id IS NOT NULL AND commission_type = 'percent'`,
+      [companyId, req.params.groupId],
+    );
+    const rows = input.items.filter((it) => it.percent > 0);
+    for (const it of rows) {
+      await client.query(
+        `INSERT INTO salary.service_commissions
+           (company_id, service_id, staff_group_id, commission_type, amount, effective_from, notes)
+         VALUES ($1, $2, $3, 'percent', $4, CURRENT_DATE, 'групповая настройка по услугам')`,
+        [companyId, it.service_id, req.params.groupId, it.percent],
+      );
+    }
+    await client.query('COMMIT');
+    return res.json({ saved: rows.length });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => { /* мёртвое соединение */ });
+    return next(e);
+  } finally {
+    client.release();
+  }
+});
+
 export default router;
