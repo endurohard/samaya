@@ -214,6 +214,15 @@ router.get('/', async (req, res, next) => {
           createdByManager.set(booking.manager_id,
             (createdByManager.get(booking.manager_id) || 0) + svcPrice);
         }
+        // «Либо групповое, либо личное» действует и на исполнителя: если
+        // мастер состоит в группе и услуга покрыта процентным правилом этой
+        // группы, личный процент (общий или персональный по услуге) за неё
+        // не начисляется — только доля группового пула.
+        const execCovered = !!(ruleForDedup.groupId && ruleForDedup.amount > 0
+          && memberOf.has(`${ruleForDedup.groupId}:${booking.master_id}`));
+        if (execCovered) {
+          // услуга не попадает ни в базу процента, ни в переопределения
+        } else {
         // Услуга с персональной ставкой исключается из общей базы процента —
         // иначе мастер получил бы и общий процент, и персональный.
         const orate = svcRates.get(`${booking.master_id}:${svc.service_id}`);
@@ -226,6 +235,7 @@ router.get('/', async (req, res, next) => {
         } else {
           masterSvcBase.set(booking.master_id,
             (masterSvcBase.get(booking.master_id) || 0) + svcPrice);
+        }
         }
 
         // % комиссия → в пул: общий или групповой
