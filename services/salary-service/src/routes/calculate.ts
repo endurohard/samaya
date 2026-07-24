@@ -144,6 +144,7 @@ router.get('/', async (req, res, next) => {
       list.push(row.master_id);
       groupMembers.set(row.group_id, list);
     }
+    const memberOf = new Set(gmRes.rows.map((r) => `${r.group_id}:${r.master_id}`));
 
     // Индексируем правила: percent (в пул) и fixed (оформившему).
     // Приоритет при поиске: конкретная услуга → её категория → правило «на всё».
@@ -201,7 +202,15 @@ router.get('/', async (req, res, next) => {
         const svcPrice = Number(svc.price) * (1 - ratio);
 
         companyRevenue += svcPrice;
-        if (booking.manager_id) {
+        // «Либо групповое, либо личное»: если запись оформил участник группы
+        // и услуга покрыта процентным правилом этой же группы, в личный
+        // «% от созданных записей» услуга не идёт — иначе администратор
+        // получал бы и долю пула, и личный процент за одну услугу.
+        const ruleForDedup = findPercentRule(svc.service_id);
+        const coveredByOwnGroup = !!(booking.manager_id && ruleForDedup.groupId
+          && ruleForDedup.amount > 0
+          && memberOf.has(`${ruleForDedup.groupId}:${booking.manager_id}`));
+        if (booking.manager_id && !coveredByOwnGroup) {
           createdByManager.set(booking.manager_id,
             (createdByManager.get(booking.manager_id) || 0) + svcPrice);
         }
