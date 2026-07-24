@@ -6739,10 +6739,13 @@ import { trapFocus } from './modules/focus-trap.js';
   }
   function salUpdateSchemeFields() {
     const type = document.querySelector('input[name="scheme_type"]:checked')?.value || 'rate';
-    const rateBlock = document.querySelector('.sal-rate-fields');
-    const pctBlock = document.querySelector('.sal-percent-fields');
-    if (rateBlock) rateBlock.hidden = !(type === 'rate' || type === 'rate_plus_percent');
-    if (pctBlock) pctBlock.hidden = !(type === 'percent_only' || type === 'rate_plus_percent');
+    const showRate = type === 'rate' || type === 'rate_plus_percent';
+    const showPct = type === 'percent_only' || type === 'rate_plus_percent';
+    // querySelectorAll: элементов с этими классами несколько (поля процентов
+    // И кнопка «Детальные настройки») — одиночный querySelector оставлял
+    // кнопку навсегда скрытой.
+    document.querySelectorAll('.sal-rate-fields').forEach((el) => { el.hidden = !showRate; });
+    document.querySelectorAll('.sal-percent-fields').forEach((el) => { el.hidden = !showPct; });
   }
 
   async function salSubmitScheme(e) {
