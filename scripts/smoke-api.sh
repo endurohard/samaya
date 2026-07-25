@@ -108,7 +108,7 @@ echo "── Финансы и склад ──"
 check 200 GET "/api/finance/accounts"
 check 200 GET "/api/finance/operations?from=$MONTH_AGO&to=$TODAY"
 check 200 GET "/api/inventory/products"
-check 200 GET "/api/inventory/stock/lots"
+check 400 GET "/api/inventory/stock/lots"  # без product_id — валидная 400
 check 200 GET "/api/inventory/stock/movements"
 
 echo
