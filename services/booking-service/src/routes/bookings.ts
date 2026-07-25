@@ -286,7 +286,7 @@ router.get('/retention', async (req, res, next) => {
 
     const summaryRes = await pool.query(
       `WITH combined AS (
-         SELECT MAX(client_id) AS client_id,
+         SELECT MAX(client_id::text)::uuid AS client_id,
                 MAX(client_phone) AS client_phone,
                 MAX(client_name) AS client_name,
                 COUNT(*) AS visits,
@@ -315,7 +315,7 @@ router.get('/retention', async (req, res, next) => {
 
     const atRiskRes = await pool.query(
       `WITH combined AS (
-         SELECT MAX(client_id) AS client_id,
+         SELECT MAX(client_id::text)::uuid AS client_id,
                 MAX(client_phone) AS client_phone,
                 MAX(client_name) AS client_name,
                 COUNT(*) AS visits,

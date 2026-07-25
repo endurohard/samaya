@@ -68,14 +68,15 @@ check 200 GET "/api/bookings/retention"
 check 200 GET "/api/bookings/reviews"
 # Заведомо неверные параметры должны давать 400, а не 500
 check 400 GET "/api/bookings?from=2026-13-99&to=$TODAY"
-check 400 GET "/api/bookings/blocks?from=нет-даты&to=$TODAY"
+check 400 GET "/api/bookings/blocks?from=%D0%BD%D0%B5%D1%82-%D0%B4%D0%B0%D1%82%D1%8B&to=$TODAY"  # from=нет-даты
 check 404 GET "/api/bookings/00000000-0000-0000-0000-000000000000"
 
 echo
 echo "── Клиенты ──"
 check 200 GET "/api/clients?segment=all&limit=5"
 check 200 GET "/api/clients/segments"
-check 200 GET "/api/clients?segment=all&search=демо"
+# кириллицу в query нужно кодировать — сырой UTF-8 в request-line даёт 400 до приложения
+check 200 GET "/api/clients?segment=all&search=%D0%B4%D0%B5%D0%BC%D0%BE"  # search=демо
 check 404 GET "/api/clients/00000000-0000-0000-0000-000000000000"
 
 echo
@@ -83,7 +84,14 @@ echo "── Салон ──"
 check 200 GET "/api/salons/masters"
 check 200 GET "/api/salons/services"
 check 200 GET "/api/salons/categories"
-check 200 GET "/api/salons/schedule?from=$TODAY&to=$TODAY"
+# график отдаётся по мастеру: /schedule/:masterId
+MASTER_ID=$("${CURL[@]}" -H "Authorization: Bearer $TOKEN" "$BASE/api/salons/masters" \
+  | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+if [ -n "$MASTER_ID" ]; then
+  check 200 GET "/api/salons/schedule/$MASTER_ID?from=$TODAY&to=$TODAY"
+else
+  fail=$((fail+1)); echo '  FAIL GET    /api/salons/schedule/:masterId — не нашли ни одного мастера'
+fi
 
 echo
 echo "── Зарплата ──"
@@ -100,7 +108,8 @@ echo "── Финансы и склад ──"
 check 200 GET "/api/finance/accounts"
 check 200 GET "/api/finance/operations?from=$MONTH_AGO&to=$TODAY"
 check 200 GET "/api/inventory/products"
-check 200 GET "/api/inventory/stock"
+check 200 GET "/api/inventory/stock/lots"
+check 200 GET "/api/inventory/stock/movements"
 
 echo
 echo "── Доступ без токена должен отклоняться ──"
