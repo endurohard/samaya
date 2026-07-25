@@ -542,3 +542,12 @@ Pass 5 (`/tmp/dikidi_screens5.js`) — focused click-inside-page navigation. Б�
 - **При деплое:** прогнать миграции 028–031; RBAC стал fail-closed; расчёт ЗП падает 502 при недоступном booking-service.
 - **Отложено:** L4 (минусовой баланс finance — бизнес-решение), M1 (нужен фид продаж товаров для percent_goods).
 - Затронуты страницы: [[decisions/2026-07-13-security-correctness-audit]], [[services/booking-service]], [[services/inventory-service]], [[services/salon-service]], [[services/client-service]], [[services/frontend-service]].
+
+## [2026-07-25] deploy | Проверка прода + фикс «Возвращаемости» (500 с 13 июля)
+Проверка деплоя волны 20–24 июля (зарплата DIKIDI, оплата частями, единая форма записи): прод уже был на `e4a0ecd`, контейнеры salary/frontend/booking пересобраны со свежим кодом (проверено по маркерам в dist), миграция 040 применена (`salary.master_service_rates`, `percent_company`/`percent_created` на месте), сайт отвечает 200.
+
+Смоук `scripts/smoke-api.sh` нашёл реальный баг: **`GET /api/bookings/retention` отдавал 500 с 13 июля** — регрессия аудита (5b53374): группировка перешла на `MAX(client_id)`, а `max(uuid)` в Postgres не существует (42883). Фикс `fb9d775`: каст `MAX(client_id::text)::uuid` в обоих запросах. Задеплоено (пересборка только booking-service), тесты 24 passed.
+
+Заодно вычищен дрейф смоук-скрипта (`fb9d775`, `2d02974`): кириллица в query теперь кодируется (сырой UTF-8 в request-line даёт 400 до приложения), график — `/api/salons/schedule/:masterId`, склад — `/stock/lots` (400 без product_id) и `/stock/movements`. Итог смоука: **37/37 зелёные**.
+
+Затронуто: [[services/booking-service]], `scripts/smoke-api.sh`.
