@@ -2750,6 +2750,16 @@ body.guest .auth-card { margin: 32px auto 0; }
   transition: background 0.12s, color 0.12s;
 }
 .modal-close:hover { background: var(--bg); color: var(--text); }
+/* Модалки с <form> между .modal и .modal-body (услуги, зарплатные): блочная
+   форма — flex-item .modal и по min-height:auto не сжимается, контент
+   обрезался overflow:hidden без скролла. Флекс-колонка с min-height:0
+   возвращает .modal-body его прокрутку. Формам, которые сами .modal-body,
+   правило не вредит — те же display/direction. */
+.modal > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .modal-body {
   padding: 20px 24px;
   display: flex;
@@ -3976,6 +3986,7 @@ button, a, .nav-item, .subnav-item, .period-pill, .cal-toggle-btn,
     max-height: 100dvh;
   }
   .modal-body { flex: 1; overflow-y: auto; }
+  .modal > form { flex: 1; } /* форма-обёртка тянется, иначе футер не у низа */
   .modal-foot { position: sticky; bottom: 0; background: var(--bg-soft); }
 
   /* form-grid в одну колонку */
