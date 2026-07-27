@@ -8,6 +8,7 @@ import { errorHandler, authenticate, requirePermission } from './middleware';
 import type { Request, Response, NextFunction } from 'express';
 import categoriesRoutes from './routes/categories';
 import servicesRoutes from './routes/services';
+import siteRoutes from './routes/site';
 import mastersRoutes from './routes/masters';
 import scheduleRoutes from './routes/schedule';
 import publicRoutes from './routes/public';
@@ -33,6 +34,8 @@ app.get('/health', async (_req, res) => {
 
 // Public routes — без auth (для виджета записи)
 app.use('/api/salons/public', publicRoutes);
+// SSR-страницы каталога услуг (/services, /services/:slug на фронт-домене)
+app.use('/api/salons/public/site', siteRoutes);
 
 // RBAC (фаза 2): гейт по методу — GET=viewKey, изменения=writeKeys. owner всегда.
 const gate = (viewKey: string, ...writeKeys: string[]) =>

@@ -704,6 +704,10 @@ import { trapFocus } from './modules/focus-trap.js';
             <div class="row-name">${escapeHtml(s.name)}</div>
             ${commBadge ? `<div class="row-meta">${commBadge}</div>` : ''}
           </div>
+          <button type="button" class="svc-menu-flag" data-menu-id="${s.id}"
+            title="${s.show_in_menu ? 'Отображается в меню сайта' : 'Не отображается в меню сайта'} — нажмите, чтобы переключить">
+            ${s.show_in_menu ? '✅' : '❌'}<span class="svc-menu-flag-text">в меню</span>
+          </button>
           <div class="row-stat">${formatPrice(s.price)} · ${s.duration_minutes} мин</div>
         </div>`;
     };
@@ -745,6 +749,20 @@ import { trapFocus } from './modules/focus-trap.js';
     els.servicesList.querySelectorAll('[data-svc-id]').forEach((row) => {
       row.addEventListener('click', () => openSvcEditModal(row.dataset.svcId));
     });
+    // Быстрое переключение «Отображать в меню» без открытия карточки
+    els.servicesList.querySelectorAll('.svc-menu-flag').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const s = cachedServices.find((x) => x.id === btn.dataset.menuId);
+        if (!s) return;
+        const next = !s.show_in_menu;
+        const r = await apiCall('PATCH', `/api/salons/services/${s.id}`, { show_in_menu: next });
+        if (!r.ok) { toast(r.data?.error || 'Не удалось переключить отображение в меню'); return; }
+        s.show_in_menu = next;
+        renderServices();
+        toast(next ? 'Услуга показана в меню сайта' : 'Услуга скрыта из меню сайта');
+      });
+    });
   }
 
   async function openSvcEditModal(serviceId) {
@@ -760,6 +778,8 @@ import { trapFocus } from './modules/focus-trap.js';
     document.getElementById('svcEditCommType').value = comm?.commission_type || '';
     document.getElementById('svcEditCommAmount').value = comm?.amount || '';
     document.getElementById('svcEditDesc').value = s.description || '';
+    document.getElementById('svcEditShowInMenu').checked = !!s.show_in_menu;
+    renderSvcSite(s);
     renderSvcPreview(s);
     if (s.video_status === 'processing') pollSvcPreview(s.id, 60); else stopSvcPoll();
     document.getElementById('svcEditError').hidden = true;
@@ -784,7 +804,28 @@ import { trapFocus } from './modules/focus-trap.js';
     b.addEventListener('click', () => svcSwitchTab(b.dataset.svctab));
   });
 
-  // ----- Вкладка «Превью»: описание + видео-ролик + ссылка для клиента -----
+  // ----- Вкладка «Сайт»: каталог /services (флаг меню + изображение) -----
+  function renderSvcSite(s) {
+    const cur = document.getElementById('svcImageCurrent');
+    const delBtn = document.getElementById('svcImageDelete');
+    const fileEl = document.getElementById('svcImageFile');
+    const linkWrap = document.getElementById('svcSiteLinkWrap');
+    const link = document.getElementById('svcSiteLink');
+    if (fileEl) fileEl.value = '';
+    if (cur) {
+      // ?v= — имя файла при замене не меняется, а /media/ кэшируется сутки
+      cur.innerHTML = s.image_path
+        ? `<img src="/media/${escapeHtml(s.image_path)}?v=${Date.now()}" alt="" style="max-width:180px;border-radius:8px;display:block;" />`
+        : 'Изображение не загружено — в карточке каталога будет цветная заглушка.';
+    }
+    if (delBtn) delBtn.hidden = !s.image_path;
+    if (linkWrap && link) {
+      linkWrap.hidden = !s.slug;
+      if (s.slug) link.href = `/services/${s.slug}`;
+    }
+  }
+
+  // ----- Вкладка «Сайт»: описание + видео-ролик + ссылка для клиента -----
   function svcPreviewLink(id) { return `${location.origin}/service.html?id=${id}`; }
   function renderSvcPreview(s) {
     const curEl = document.getElementById('svcPreviewCurrent');
@@ -833,7 +874,7 @@ import { trapFocus } from './modules/focus-trap.js';
     await loadServices();
     renderServices();
     const fresh = cachedServices.find((x) => x.id === id);
-    if (fresh) renderSvcPreview(fresh);
+    if (fresh) { renderSvcPreview(fresh); renderSvcSite(fresh); }
   }
   // Загрузка видео (multipart, с прогрессом) — отдельным запросом, не через сохранение услуги.
   document.getElementById('svcPreviewUpload')?.addEventListener('click', () => {
@@ -875,6 +916,38 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!confirm('Удалить видео-превью услуги?')) return;
     const r = await apiCall('DELETE', `/api/salons/services/${id}/preview-video`, null);
     if (r.ok) { toast('Видео удалено'); await reloadSvcAndPreview(id); }
+    else toast(r.data?.error || 'Ошибка удаления');
+  });
+  // Изображение карточки каталога — отдельным запросом, как видео
+  document.getElementById('svcImageUpload')?.addEventListener('click', async () => {
+    const id = document.getElementById('svcEditId').value;
+    const file = document.getElementById('svcImageFile').files[0];
+    if (!id) return;
+    if (!file) { toast('Выберите изображение'); return; }
+    const fd = new FormData(); fd.append('image', file);
+    let resp;
+    try {
+      resp = await fetch(`/api/salons/services/${id}/image`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${store.access}` },
+        body: fd,
+      });
+    } catch (_e) { toast('Сетевая ошибка'); return; }
+    if (!resp.ok) {
+      let msg = `Ошибка ${resp.status}`;
+      try { msg = (await resp.json()).error || msg; } catch (_e) { /* ignore */ }
+      toast(msg);
+      return;
+    }
+    toast('Изображение загружено');
+    await reloadSvcAndPreview(id);
+  });
+  document.getElementById('svcImageDelete')?.addEventListener('click', async () => {
+    const id = document.getElementById('svcEditId').value;
+    if (!id) return;
+    if (!confirm('Удалить изображение услуги?')) return;
+    const r = await apiCall('DELETE', `/api/salons/services/${id}/image`, null);
+    if (r.ok) { toast('Изображение удалено'); await reloadSvcAndPreview(id); }
     else toast(r.data?.error || 'Ошибка удаления');
   });
   document.getElementById('svcPreviewCopy')?.addEventListener('click', async () => {
@@ -1039,6 +1112,7 @@ import { trapFocus } from './modules/focus-trap.js';
       color: fd.get('color') || null,
       category_id: fd.get('category_id') || null,
       description: (fd.get('description') || '').trim() || null,
+      show_in_menu: document.getElementById('svcEditShowInMenu').checked,
     };
     const r1 = await apiCall('PATCH', `/api/salons/services/${serviceId}`, svcPayload);
     if (!r1.ok) {
@@ -1252,6 +1326,7 @@ import { trapFocus } from './modules/focus-trap.js';
     };
     const color = String(fd.get('color') || '').trim();
     if (color) body.color = color;
+    body.show_in_menu = document.getElementById('svcShowInMenu').checked;
     const { ok, data, status } = await apiCall('POST', '/api/salons/services', body);
     if (!ok) { toast(`Ошибка создания услуги: ${data?.error || status}`); return; }
     els.addServiceForm.reset();

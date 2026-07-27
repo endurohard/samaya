@@ -456,6 +456,10 @@
                     <input id="svcColor" name="color" type="text" pattern="^#[0-9a-fA-F]{6}$" placeholder="#a78bfa" />
                   </div>
                 </div>
+                <label class="sal-checkbox-row" style="margin-top:10px;">
+                  <input type="checkbox" id="svcShowInMenu" name="show_in_menu" />
+                  <span>Отображать в меню</span>
+                </label>
                 <div class="form-actions">
                   <button type="submit" class="btn-primary">Создать</button>
                   <button type="button" class="btn-ghost" id="addServiceCancel">Отмена</button>
@@ -479,7 +483,7 @@
                 <button type="button" class="modal-tab active" data-svctab="settings">Настройка</button>
                 <button type="button" class="modal-tab" data-svctab="masters">Сотрудники</button>
                 <button type="button" class="modal-tab" data-svctab="materials">Материалы</button>
-                <button type="button" class="modal-tab" data-svctab="preview">Превью</button>
+                <button type="button" class="modal-tab" data-svctab="preview">Сайт</button>
               </div>
               <div class="modal-body">
                 <!-- Вкладка: Настройка -->
@@ -531,8 +535,29 @@
                     </div>
                   </div>
                 </div>
-                <!-- Вкладка: Превью (страница-плеер для клиента) -->
+                <!-- Вкладка: Сайт (каталог /services + страница-плеер) -->
                 <div class="svc-tab-panel" data-svcpanel="preview" hidden>
+                  <label class="sal-checkbox-row">
+                    <input type="checkbox" id="svcEditShowInMenu" name="show_in_menu" />
+                    <span>Отображать в меню</span>
+                  </label>
+                  <div class="muted" style="font-size:var(--fs-xs);margin-top:2px;">
+                    Услуга появится в каталоге сайта <b>/services</b> и в меню услуг. Сохраняется кнопкой «Сохранить».
+                  </div>
+                  <div id="svcSiteLinkWrap" style="margin-top:8px;" hidden>
+                    <a id="svcSiteLink" href="#" target="_blank" rel="noopener" class="muted" style="font-size:var(--fs-xs);">Страница услуги на сайте ↗</a>
+                  </div>
+                  <div style="margin-top:16px;">
+                    <label>Изображение (карточка каталога)</label>
+                    <div id="svcImageCurrent" class="muted" style="font-size:var(--fs-sm);margin:6px 0;">—</div>
+                    <input id="svcImageFile" type="file" accept="image/jpeg,image/png,image/webp" style="display:block;margin:8px 0;font-size:12px;" />
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <button type="button" class="btn-primary btn-sm" id="svcImageUpload">Загрузить изображение</button>
+                      <button type="button" class="btn-ghost btn-sm" id="svcImageDelete" hidden>Удалить изображение</button>
+                    </div>
+                    <div class="muted" style="font-size:var(--fs-xs);margin-top:4px;">JPEG / PNG / WebP, до 10 МБ.</div>
+                  </div>
+                  <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
                   <div>
                     <label for="svcEditDesc">Описание услуги</label>
                     <textarea id="svcEditDesc" name="description" rows="4" placeholder="Что входит, эффект, показания…" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;resize:vertical;font-family:inherit;"></textarea>

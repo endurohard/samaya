@@ -10,6 +10,8 @@ const schema = z.object({
   // Каталог для загруженных медиа (видео-превью услуг). Тот же volume монтируется
   // read-only в nginx фронта и раздаётся как /media/*.
   MEDIA_DIR: z.string().default('/data/media'),
+  // Публичный URL сайта — для canonical-ссылок SSR-страниц каталога услуг.
+  FRONTEND_URL: z.string().default('https://клиника-самая.рф'),
 });
 
 const parsed = schema.safeParse(process.env);
