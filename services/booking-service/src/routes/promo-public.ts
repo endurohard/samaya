@@ -20,6 +20,16 @@ function fmtPrice(v: number): string {
   return `${new Intl.NumberFormat('ru-RU').format(v)} ₽`;
 }
 
+// Телефон из формы: 8XXXXXXXXXX и XXXXXXXXXX (10 цифр с 9) приводим к +7…
+function claimPhone(raw: string): string {
+  const base = normalizePhone(raw.trim());
+  const digits = base.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('8')) return `+7${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith('9')) return `+7${digits}`;
+  if (digits.length >= 10 && !base.startsWith('+')) return `+${digits}`;
+  return base;
+}
+
 function fmtDate(d: string): string {
   const [y, m, day] = d.slice(0, 10).split('-');
   return `${day}.${m}.${y}`;
@@ -266,7 +276,7 @@ router.get('/a/:ptoken', async (req, res, next) => {
         </div>
         <div>
           <label for="f-phone">Телефон</label>
-          <input id="f-phone" name="phone" type="tel" required maxlength="20" placeholder="+7 ___ ___-__-__" />
+          <input id="f-phone" name="phone" type="tel" required maxlength="20" value="+7 " inputmode="tel" placeholder="+7 ___ ___-__-__" />
         </div>
         <button type="submit">Получить скидку ${esc(discountLabel(c))}</button>
         <p class="hint">Оставьте контакты — скидка закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
@@ -286,7 +296,7 @@ router.post('/a/:ptoken/claim', urlencoded({ extended: false, limit: '5kb' }), a
       return res.redirect(303, `/promo/a/${encodeURIComponent(req.params.ptoken)}`);
     }
     const name = String(req.body?.name ?? '').trim().slice(0, 100);
-    const phone = normalizePhone(String(req.body?.phone ?? '').trim());
+    const phone = claimPhone(String(req.body?.phone ?? ''));
     if (!name || !phone || phone.replace(/\D/g, '').length < 10) {
       return res.redirect(303, `/promo/a/${encodeURIComponent(req.params.ptoken)}?err=1`);
     }
@@ -368,7 +378,7 @@ router.get('/:token', async (req, res, next) => {
         </div>
         <div>
           <label for="f-phone">Телефон</label>
-          <input id="f-phone" name="phone" type="tel" required maxlength="20" placeholder="+7 ___ ___-__-__" />
+          <input id="f-phone" name="phone" type="tel" required maxlength="20" value="+7 " inputmode="tel" placeholder="+7 ___ ___-__-__" />
         </div>
         <button type="submit">Забрать купон ${esc(discountLabel(c))}</button>
         <p class="hint">Оставьте контакты — купон закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
@@ -386,7 +396,7 @@ router.post('/:token/claim', urlencoded({ extended: false, limit: '5kb' }), asyn
     if (!c) return res.redirect(303, `/promo/${encodeURIComponent(req.params.token)}`);
     const name = String(req.body?.name ?? '').trim().slice(0, 100);
     const phoneRaw = String(req.body?.phone ?? '').trim();
-    const phone = normalizePhone(phoneRaw);
+    const phone = claimPhone(phoneRaw);
     if (!name || !phone || phone.replace(/\D/g, '').length < 10) {
       return res.redirect(303, `/promo/${encodeURIComponent(c.token)}?err=1`);
     }
