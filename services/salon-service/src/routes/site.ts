@@ -411,7 +411,6 @@ router.get('/contacts', async (req, res, next) => {
         </span>
       </a>`;
     const links = [
-      btn({ href: '/book.html', name: 'Записаться онлайн', sub: 'Выбор мастера, услуги и времени', icon: ico.cal, primary: true }),
       phoneDigits ? btn({ href: `tel:+${phoneDigits}`, name: 'Позвонить', sub: phone, icon: ico.phone }) : '',
       phoneDigits ? btn({ href: `https://wa.me/${phoneDigits}`, name: 'Написать в WhatsApp', sub: 'Ответим в рабочее время', icon: ico.wa, blank: true }) : '',
       btn({ href: '/services', name: 'Наши услуги', sub: 'Каталог процедур с ценами', icon: ico.spark }),
