@@ -107,8 +107,24 @@ function page(opts: {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/tokens.css" />
   <style>
+    /* Фирменные токены «Самая» — встроены, т.к. tokens.css фронта собирается
+       с content-hash в имени и по /tokens.css недоступен из SSR. */
+    :root {
+      --bg: #faf7f4; --bg-soft: #f4efe9; --card: #ffffff;
+      --border: #ece4de; --border-strong: #ddd0c7;
+      --text: #2a2320; --text-dim: #7a6f68; --text-muted: #a89b94;
+      --primary: #93494b; --primary-hover: #7a3b3d; --primary-soft: #f4e9e9; --primary-dark: #5e2b2d;
+      --accent-gold: #b8894e;
+      --radius-md: 10px; --radius-lg: 16px; --radius-xl: 20px; --radius-pill: 999px;
+      --shadow-sm: 0 1px 2px rgba(42, 32, 32, 0.05);
+      --shadow-md: 0 10px 30px rgba(42, 32, 32, 0.10);
+      --shadow-lg: 0 24px 60px rgba(42, 32, 32, 0.18);
+      --shadow-brand: 0 8px 20px rgba(147, 73, 75, 0.28);
+      --font-sans: 'Golos Text', system-ui, sans-serif;
+      --font-display: 'Fraunces', Georgia, serif;
+      --fs-xs: 12px; --fs-sm: 13.5px; --fs-md: 15px;
+    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: var(--font-sans, 'Golos Text', sans-serif); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
     a { color: inherit; }
