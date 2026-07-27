@@ -294,7 +294,7 @@ function page(opts: {
         <div class="footer-note">Косметологическая клиника · © ${new Date().getFullYear()}</div>
       </div>
       <div class="spacer"></div>
-      <a class="footer-cta" href="/book.html">Онлайн-запись</a>
+      <a class="footer-cta" href="/contacts">Контакты</a>
     </div>
   </footer>
 </body>
@@ -477,7 +477,6 @@ router.get('/services/:slug', async (req, res, next) => {
             ${s.description ? `<div class="desc">${esc(s.description)}</div>` : ''}
             ${video}
             <div class="cta-row">
-              <a class="cta" href="/book.html">Записаться онлайн</a>
               <a class="cta-ghost" href="/services/category/${esc(group?.slug ?? '')}">← Назад к «${esc(catName)}»</a>
             </div>
           </div>
