@@ -68,7 +68,8 @@ async function menuServices(companyId: string): Promise<MenuService[]> {
 }
 
 // Категории в порядке появления; услуги без группы — в конец под общим именем.
-function groupByCategory(items: MenuService[]): Array<{ name: string; anchor: string; items: MenuService[] }> {
+// slug раздела детерминированно выводится из названия (отдельной колонки нет).
+function groupByCategory(items: MenuService[]): Array<{ name: string; slug: string; items: MenuService[] }> {
   const map = new Map<string, MenuService[]>();
   for (const s of items) {
     const key = s.category_name || NO_CATEGORY;
@@ -76,7 +77,7 @@ function groupByCategory(items: MenuService[]): Array<{ name: string; anchor: st
     map.get(key)!.push(s);
   }
   const groups = [...map.entries()].map(([name, list]) => ({
-    name, anchor: `cat-${slugify(name) || 'other'}`, items: list,
+    name, slug: slugify(name) || 'other', items: list,
   }));
   groups.sort((a, b) => (a.name === NO_CATEGORY ? 1 : 0) - (b.name === NO_CATEGORY ? 1 : 0));
   return groups;
@@ -177,6 +178,40 @@ function page(opts: {
     .svc-card .more { margin-left: auto; font-size: var(--fs-sm); font-weight: 600; color: var(--accent-gold); white-space: nowrap; }
     .svc-card:hover .more { color: var(--primary); }
     .empty { margin: 64px 0; text-align: center; color: var(--text-dim); }
+
+    /* Обзор направлений (корень каталога) */
+    .cat-grid { margin-top: 26px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+    .cat-card { position: relative; display: flex; flex-direction: column; justify-content: flex-end; min-height: 200px; border-radius: var(--radius-xl); overflow: hidden; text-decoration: none; border: 1px solid var(--border); box-shadow: var(--shadow-sm); transition: transform 0.18s, box-shadow 0.18s; }
+    .cat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+    .cat-card .bg { position: absolute; inset: 0; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+    .cat-card .bg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cat-card .bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(46, 24, 25, 0) 30%, rgba(46, 24, 25, 0.78) 100%); }
+    .cat-card .cc-body { position: relative; padding: 20px; }
+    .cat-card .cc-name { font-family: var(--font-display, Fraunces, serif); font-weight: 600; font-size: 21px; color: #fff; line-height: 1.25; letter-spacing: -0.01em; }
+    .cat-card .cc-meta { margin-top: 6px; display: flex; align-items: center; gap: 10px; }
+    .cat-card .cc-count { font-size: var(--fs-sm); color: rgba(255, 246, 240, 0.85); }
+    .cat-card .cc-more { margin-left: auto; font-size: var(--fs-sm); font-weight: 600; color: var(--accent-gold); }
+
+    /* Страница направления — список процедур строками */
+    .svc-rows { margin-top: 22px; display: flex; flex-direction: column; gap: 14px; }
+    .svc-row { display: flex; gap: 18px; align-items: stretch; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; text-decoration: none; box-shadow: var(--shadow-sm); transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; }
+    .svc-row:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .svc-row .thumb { flex: 0 0 108px; width: 108px; height: 108px; border-radius: var(--radius-md); overflow: hidden; position: relative; }
+    .svc-row .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .svc-row .thumb .ph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+    .svc-row .thumb .ph span { font-family: var(--font-display, Fraunces, serif); font-size: 34px; color: rgba(255, 246, 240, 0.9); }
+    .svc-row .sr-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .svc-row .sr-name { font-family: var(--font-display, Fraunces, serif); font-weight: 600; font-size: 18px; line-height: 1.3; letter-spacing: -0.01em; }
+    .svc-row .sr-desc { margin-top: 5px; color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .svc-row .sr-foot { margin-top: auto; padding-top: 10px; display: flex; align-items: center; gap: 12px; }
+    .svc-row .sr-price { font-weight: 700; color: var(--primary); }
+    .svc-row .sr-dur { font-size: var(--fs-xs); color: var(--text-muted); }
+    .svc-row .sr-more { margin-left: auto; font-size: var(--fs-sm); font-weight: 600; color: var(--accent-gold); white-space: nowrap; }
+    .svc-row:hover .sr-more { color: var(--primary); }
+    @media (max-width: 520px) {
+      .svc-row .thumb { flex-basis: 84px; width: 84px; height: 84px; }
+      .svc-row .sr-desc { -webkit-line-clamp: 3; }
+    }
 
     /* Страница услуги */
     .crumbs { padding: 24px 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
@@ -285,7 +320,45 @@ function cardHtml(s: MenuService): string {
   </a>`;
 }
 
-// «Услуги» — каталог секциями по категориям, меню — якоря категорий
+function catMenu(
+  groups: Array<{ name: string; slug: string }>,
+  activeSlug?: string,
+): Array<{ label: string; href: string; active?: boolean }> {
+  return groups.map((g) => ({
+    label: g.name,
+    href: `/services/category/${g.slug}`,
+    active: g.slug === activeSlug,
+  }));
+}
+
+function declProcedures(n: number): string {
+  const d10 = n % 10; const d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return `${n} процедура`;
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return `${n} процедуры`;
+  return `${n} процедур`;
+}
+
+// Строка процедуры на странице направления (как список методик у референса)
+function rowHtml(s: MenuService): string {
+  const thumb = s.image_path
+    ? `<img src="/media/${esc(s.image_path)}" alt="${esc(s.name)}" loading="lazy" />`
+    : `<div class="ph"><span>${esc([...s.name][0] ?? '•').toUpperCase()}</span></div>`;
+  const prev = preview(s.description, 180);
+  return `<a class="svc-row" href="/services/${esc(s.slug)}">
+    <div class="thumb">${thumb}</div>
+    <div class="sr-body">
+      <div class="sr-name">${esc(s.name)}</div>
+      ${prev ? `<div class="sr-desc">${esc(prev)}</div>` : ''}
+      <div class="sr-foot">
+        <span class="sr-price">${fmtPrice(s.price)}</span>
+        <span class="sr-dur">${esc(fmtDuration(s.duration_minutes))}</span>
+        <span class="sr-more">Подробнее →</span>
+      </div>
+    </div>
+  </a>`;
+}
+
+// «Услуги» — обзор направлений: карточка на каждую категорию
 router.get('/services', async (req, res, next) => {
   try {
     const companyId = getCompanyId(req);
@@ -294,20 +367,67 @@ router.get('/services', async (req, res, next) => {
     const hero = `<div class="hero">
       <div class="overline">Косметологическая клиника</div>
       <h1>Наши услуги</h1>
-      <p>Аппаратная косметология, лазерная эпиляция и уходовые процедуры. Выберите услугу, чтобы узнать подробности и записаться онлайн.</p>
+      <p>Аппаратная косметология, лазерная эпиляция и уходовые процедуры. Выберите направление, чтобы посмотреть процедуры, цены и записаться онлайн.</p>
     </div>`;
-    const sections = groups.map((g) => `<section class="cat-section" id="${esc(g.anchor)}">
-      <div class="cat-head"><h2>${esc(g.name)}</h2><span class="count">${g.items.length}</span></div>
-      <div class="grid">${g.items.map(cardHtml).join('')}</div>
-    </section>`).join('');
+    const cards = groups.map((g) => {
+      const cover = g.items.find((s) => s.image_path)?.image_path;
+      const bg = cover ? `<img src="/media/${esc(cover)}" alt="" loading="lazy" />` : '';
+      return `<a class="cat-card" href="/services/category/${esc(g.slug)}">
+        <div class="bg">${bg}</div>
+        <div class="cc-body">
+          <div class="cc-name">${esc(g.name)}</div>
+          <div class="cc-meta">
+            <span class="cc-count">${declProcedures(g.items.length)}</span>
+            <span class="cc-more">Смотреть →</span>
+          </div>
+        </div>
+      </a>`;
+    }).join('');
     const body = items.length
-      ? hero + sections
+      ? `${hero}<div class="cat-grid">${cards}</div>`
       : `${hero}<div class="empty">Каталог услуг скоро появится.</div>`;
     const html = page({
       title: 'Услуги — Samaya',
       metaDescription: 'Каталог услуг косметологической клиники Samaya: аппаратная косметология, лазерная эпиляция, описание, цены, онлайн-запись.',
       canonicalPath: '/services',
-      menu: groups.map((g) => ({ label: g.name, href: `#${g.anchor}` })),
+      menu: catMenu(groups),
+      body,
+    });
+    return res.type('html').send(html);
+  } catch (e) { return next(e); }
+});
+
+// Страница направления — заголовок, вводная, список процедур
+router.get('/services/category/:cslug', async (req, res, next) => {
+  try {
+    const companyId = getCompanyId(req);
+    const items = await menuServices(companyId);
+    const groups = groupByCategory(items);
+    const g = groups.find((x) => x.slug === req.params.cslug);
+    if (!g) {
+      const html = page({
+        title: 'Раздел не найден — Samaya',
+        metaDescription: 'Раздел каталога не найден.',
+        canonicalPath: '/services',
+        menu: catMenu(groups),
+        body: `<div class="svc-page"><div class="empty"><h1 style="font-family:var(--font-display,Fraunces,serif);">Раздел не найден</h1><p style="margin:12px 0 20px;">Возможно, ссылка устарела.</p><a class="cta-ghost" href="/services">← Все услуги</a></div></div>`,
+      });
+      return res.status(404).type('html').send(html);
+    }
+    const prices = g.items.map((s) => s.price);
+    const minPrice = Math.min(...prices);
+    const body = `
+      <div class="crumbs"><a href="/services">Услуги</a> · ${esc(g.name)}</div>
+      <div class="hero" style="padding-top:16px;">
+        <div class="overline">${declProcedures(g.items.length)} · от ${fmtPrice(minPrice)}</div>
+        <h1>${esc(g.name)}</h1>
+      </div>
+      <div class="svc-rows">${g.items.map(rowHtml).join('')}</div>`;
+    const html = page({
+      title: `${g.name} — услуги и цены — Samaya`,
+      metaDescription: `${g.name} в клинике Samaya (Каспийск): ${declProcedures(g.items.length)}, цены от ${fmtPrice(minPrice)}. Описания процедур и онлайн-запись.`,
+      canonicalPath: `/services/category/${g.slug}`,
+      menu: catMenu(groups, g.slug),
       body,
     });
     return res.type('html').send(html);
@@ -321,11 +441,8 @@ router.get('/services/:slug', async (req, res, next) => {
     const items = await menuServices(companyId);
     const groups = groupByCategory(items);
     const s = items.find((x) => x.slug === req.params.slug);
-    const menu = groups.map((g) => ({
-      label: g.name,
-      href: `/services#${g.anchor}`,
-      active: !!s && (s.category_name || NO_CATEGORY) === g.name,
-    }));
+    const sGroup = s ? groups.find((g) => g.name === (s.category_name || NO_CATEGORY)) : undefined;
+    const menu = catMenu(groups, sGroup?.slug);
     if (!s) {
       const html = page({
         title: 'Услуга не найдена — Samaya',
@@ -337,7 +454,7 @@ router.get('/services/:slug', async (req, res, next) => {
       return res.status(404).type('html').send(html);
     }
     const catName = s.category_name || NO_CATEGORY;
-    const group = groups.find((g) => g.name === catName);
+    const group = sGroup;
     const related = (group?.items ?? []).filter((x) => x.id !== s.id).slice(0, 3);
     const hero = s.image_path
       ? `<div class="hero-img"><img src="/media/${esc(s.image_path)}" alt="${esc(s.name)}" /></div>`
@@ -346,7 +463,7 @@ router.get('/services/:slug', async (req, res, next) => {
       ? `<div class="video-wrap"><video controls playsinline preload="metadata" src="/media/${esc(s.video_path)}"></video></div>`
       : '';
     const body = `
-      <div class="crumbs"><a href="/services">Услуги</a> · <a href="/services#${esc(group?.anchor ?? '')}">${esc(catName)}</a></div>
+      <div class="crumbs"><a href="/services">Услуги</a> · <a href="/services/category/${esc(group?.slug ?? '')}">${esc(catName)}</a></div>
       <div class="svc-page">
         <article class="svc-detail">
           ${hero}
@@ -361,7 +478,7 @@ router.get('/services/:slug', async (req, res, next) => {
             ${video}
             <div class="cta-row">
               <a class="cta" href="/book.html">Записаться онлайн</a>
-              <a class="cta-ghost" href="/services">← Назад к услугам</a>
+              <a class="cta-ghost" href="/services/category/${esc(group?.slug ?? '')}">← Назад к «${esc(catName)}»</a>
             </div>
           </div>
         </article>
