@@ -2030,6 +2030,19 @@ body.guest .auth-card { margin: 32px auto 0; }
 .promo-svc-item input { width: auto; }
 .promo-svc-item span:first-of-type { flex: 1; }
 .promo-svc-price { color: var(--text-muted); font-size: var(--fs-xs); }
+.promo-analytics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+.promo-an-tile {
+  background: var(--bg-soft);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.promo-an-val { font-weight: 700; font-size: var(--fs-lg); font-variant-numeric: tabular-nums; }
+.promo-an-label { font-size: var(--fs-xs); color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+.promo-an-extra { display: block; color: var(--accent-gold); font-weight: 600; }
 .promo-coupons-gen { display: flex; gap: 8px; align-items: center; }
 .promo-coupons-gen input[type="number"] { width: 72px; }
 .promo-coupons-gen input[type="text"] { flex: 1; }

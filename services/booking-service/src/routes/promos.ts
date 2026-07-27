@@ -175,6 +175,41 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
   } catch (e) { return next(e); }
 });
 
+// ===== Аналитика по акции: воронка + продажи/выручка =====
+router.get('/:id/analytics', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.page_views,
+              COALESCE(cs.issued, 0)::int AS coupons_issued,
+              COALESCE(cs.opened, 0)::int AS coupons_opened,
+              COALESCE(cs.claimed, 0)::int AS leads,
+              COALESCE(cs.used, 0)::int AS coupons_used,
+              COALESCE(sa.cnt, 0)::int AS sales_count,
+              COALESCE(sa.revenue, 0)::float8 AS sales_revenue,
+              COALESCE(sa.discount, 0)::float8 AS sales_discount
+       FROM bookings.promotions p
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*) AS issued,
+                COUNT(*) FILTER (WHERE c.status IN ('opened','claimed','used')) AS opened,
+                COUNT(*) FILTER (WHERE c.status IN ('claimed','used')) AS claimed,
+                COUNT(*) FILTER (WHERE c.status = 'used') AS used
+         FROM bookings.promo_coupons c WHERE c.promo_id = p.id
+       ) cs ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*) AS cnt,
+                SUM(b.total_price - b.discount_amount) AS revenue,
+                SUM(b.discount_amount) AS discount
+         FROM bookings.bookings b
+         WHERE b.promo_id = p.id AND b.status = 'completed'
+       ) sa ON TRUE
+       WHERE p.company_id = $1 AND p.id = $2`,
+      [req.auth!.company_id, req.params.id],
+    );
+    if (!rows.length) return next(new HttpError(404, 'promo not found'));
+    return res.json(rows[0]);
+  } catch (e) { return next(e); }
+});
+
 // ===== Проверка кода индивидуального купона (одноразовый) =====
 // Код вида CODE-SUFF, где SUFF — первые 4 символа token в верхнем регистре.
 // Возвращает скидку акции + coupon_id для гашения после проведения продажи.

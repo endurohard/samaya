@@ -9958,6 +9958,7 @@ import { trapFocus } from './modules/focus-trap.js';
       document.getElementById('promoPageLink').value = `${location.origin}/promo/a/${p.public_token}`;
       document.getElementById('promoPageViews').textContent =
         `Переходов по ссылке: ${p.page_views || 0}`;
+      void loadPromoAnalytics(p.id);
       void loadPromoCoupons(p.id);
     } else {
       els.promoModalTitle.textContent = 'Новая акция';
@@ -10025,6 +10026,31 @@ import { trapFocus } from './modules/focus-trap.js';
       if (r2.ok) { await loadPromoCoupons(promoId); await loadPromos(); }
       else toast(r2.data?.error || 'Ошибка');
     }));
+  }
+
+  // Аналитика по конкретной акции: воронка + продажи и выручка
+  async function loadPromoAnalytics(promoId) {
+    const box = document.getElementById('promoAnalytics');
+    if (!box) return;
+    box.innerHTML = '<div class="muted" style="font-size:var(--fs-sm);">Загрузка…</div>';
+    const r = await apiCall('GET', `/api/bookings/promos/${promoId}/analytics`);
+    if (!r.ok) { box.innerHTML = '<div class="muted">Не удалось загрузить аналитику</div>'; return; }
+    const a = r.data;
+    const leadsBase = (a.page_views || 0) + (a.coupons_opened || 0);
+    const convLead = leadsBase ? Math.round((a.leads / leadsBase) * 100) : 0;
+    const convUse = a.leads ? Math.round((a.coupons_used / a.leads) * 100) : 0;
+    const tile = (val, label, extra) => `
+      <div class="promo-an-tile">
+        <div class="promo-an-val">${val}</div>
+        <div class="promo-an-label">${label}${extra ? `<span class="promo-an-extra">${extra}</span>` : ''}</div>
+      </div>`;
+    box.innerHTML = [
+      tile(a.page_views || 0, 'переходов по ссылке'),
+      tile(a.leads || 0, 'оставили телефон', leadsBase ? `${convLead}% конверсия` : ''),
+      tile(a.coupons_used || 0, 'купонов использовано', a.leads ? `${convUse}% от лидов` : ''),
+      tile(a.sales_count || 0, 'продаж по акции'),
+      tile(`${fmtMoney(a.sales_revenue || 0)} ₽`, 'выручка', a.sales_discount ? `скидок на ${fmtMoney(a.sales_discount)} ₽` : ''),
+    ].join('');
   }
 
   // QR-код ссылки акции: рендер в canvas + скачивание PNG (для печати/сторис)
