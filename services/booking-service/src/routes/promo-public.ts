@@ -28,7 +28,7 @@ function fmtDate(d: string): string {
 interface CouponRow {
   coupon_id: string; token: string; status: string;
   client_name: string | null;
-  promo_id: string; promo_name: string; code: string;
+  promo_id: string; promo_name: string; code: string; company_id: string;
   discount_pct: number | null; discount_amount: number | null;
   valid_from: string | null; valid_to: string | null; is_active: boolean;
 }
@@ -36,7 +36,7 @@ interface CouponRow {
 async function loadCoupon(token: string): Promise<CouponRow | null> {
   const { rows } = await pool.query(
     `SELECT c.id AS coupon_id, c.token, c.status, c.client_name,
-            p.id AS promo_id, p.name AS promo_name, p.code,
+            p.id AS promo_id, p.name AS promo_name, p.code, p.company_id,
             p.discount_pct::float8 AS discount_pct,
             p.discount_amount::float8 AS discount_amount,
             p.valid_from::text, p.valid_to::text, p.is_active
@@ -46,6 +46,31 @@ async function loadCoupon(token: string): Promise<CouponRow | null> {
     [token],
   );
   return rows[0] ?? null;
+}
+
+// Телефон клиники для кнопок «Связаться с менеджером»
+async function companyPhone(companyId: string): Promise<string> {
+  const { rows } = await pool.query(
+    `SELECT phone FROM salons.company_profile WHERE company_id = $1`, [companyId],
+  );
+  return rows[0]?.phone || '';
+}
+
+// Кнопки связи: WhatsApp (с готовым сообщением) + звонок
+function contactHtml(phone: string, waText: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return '';
+  const waIco = '<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.87 9.87 0 004.74 1.21c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0012.04 2zm4.52 13.99c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.25-.64.8-.78.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.13-.14.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.13-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.13.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.1-.23-.16-.48-.29z"/></svg>';
+  const telIco = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/></svg>';
+  return `<h2 style="margin-top:22px;">Связаться с менеджером</h2>
+    <div class="contact-row">
+      <a class="contact-btn wa" href="https://wa.me/${esc(digits)}?text=${encodeURIComponent(waText)}" target="_blank" rel="noopener">
+        ${waIco} Написать в WhatsApp
+      </a>
+      <a class="contact-btn" href="tel:+${esc(digits)}">
+        ${telIco} Позвонить ${esc(phone)}
+      </a>
+    </div>`;
 }
 
 function pageHtml(title: string, body: string): string {
@@ -88,9 +113,20 @@ function pageHtml(title: string, body: string): string {
     .coupon-body { padding: 24px 26px 28px; }
     h2 { font-family: Fraunces, serif; font-weight: 600; font-size: 18px; letter-spacing: -0.01em; }
     .svc-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-    .svc-item { display: flex; align-items: baseline; gap: 10px; font-size: 14px; padding: 9px 12px; background: var(--bg-soft); border-radius: 10px; }
-    .svc-item .n { flex: 1; }
-    .svc-item .p { color: var(--primary); font-weight: 600; white-space: nowrap; }
+    .svc-item { display: flex; align-items: center; gap: 12px; font-size: 14px; padding: 8px 12px 8px 8px; background: var(--bg-soft); border-radius: 12px; text-decoration: none; color: var(--text); border: 1px solid transparent; transition: border-color 0.15s, background 0.15s; }
+    a.svc-item:hover { border-color: var(--primary); background: var(--primary-soft); }
+    .svc-item .th { flex: 0 0 48px; width: 48px; height: 48px; border-radius: 9px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+    .svc-item .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .svc-item .th-ph { font-family: Fraunces, serif; font-size: 20px; color: rgba(255, 246, 240, 0.9); }
+    .svc-item .sv-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .svc-item .sv-name { font-weight: 600; line-height: 1.3; }
+    .svc-item .sv-meta { font-size: 12px; color: var(--text-dim); }
+    .svc-item .p { color: var(--primary); font-weight: 700; white-space: nowrap; }
+    .contact-row { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .contact-btn { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; border: 1px solid var(--border); border-radius: 12px; padding: 13px 16px; font-weight: 600; font-size: 15px; color: var(--text); transition: border-color 0.15s, background 0.15s; }
+    .contact-btn:hover { border-color: var(--primary); background: var(--primary-soft); }
+    .contact-btn.wa { background: #25d366; border-color: #25d366; color: #fff; }
+    .contact-btn.wa:hover { background: #1fb857; }
     .any { margin-top: 10px; color: var(--text-dim); font-size: 14.5px; line-height: 1.6; }
     .more-link { color: var(--primary); }
     form { margin-top: 22px; display: flex; flex-direction: column; gap: 12px; }
@@ -130,9 +166,17 @@ function discountLabel(c: CouponRow): string {
   return c.discount_amount != null ? `−${fmtPrice(c.discount_amount)}` : `−${c.discount_pct}%`;
 }
 
+function fmtDuration(min: number): string {
+  const h = Math.floor(min / 60); const m = min % 60;
+  return (h ? `${h} ч ` : '') + (m ? `${m} мин` : (h ? '' : `${min} мин`));
+}
+
+// Меню услуг акции — мини-карточки как в каталоге: миниатюра, название,
+// длительность, цена; кликабельны, ведут на страницу услуги.
 async function servicesListHtml(promoId: string): Promise<string> {
   const { rows } = await pool.query(
-    `SELECT s.name, s.price::float8 AS price, s.slug, s.show_in_menu
+    `SELECT s.name, s.price::float8 AS price, s.duration_minutes,
+            s.slug, s.show_in_menu, s.image_path, s.color
      FROM bookings.promotion_services ps
      JOIN salons.services s ON s.id = ps.service_id
      WHERE ps.promo_id = $1 AND s.is_active = TRUE
@@ -143,10 +187,20 @@ async function servicesListHtml(promoId: string): Promise<string> {
     return `<div class="any">Купон действует на <b>любую услугу</b> клиники — <a class="more-link" href="/services">смотреть каталог</a>.</div>`;
   }
   const items = rows.map((s) => {
-    const name = (s.show_in_menu && s.slug)
-      ? `<a class="more-link" href="/services/${esc(s.slug)}">${esc(s.name)}</a>`
-      : esc(s.name);
-    return `<div class="svc-item"><span class="n">${name}</span><span class="p">${fmtPrice(s.price)}</span></div>`;
+    const thumb = s.image_path
+      ? `<img src="/media/${esc(s.image_path)}" alt="" loading="lazy" />`
+      : `<span class="th-ph">${esc([...(s.name as string)][0] ?? '•').toUpperCase()}</span>`;
+    const linked = s.show_in_menu && s.slug;
+    const inner = `
+      <span class="th">${thumb}</span>
+      <span class="sv-body">
+        <span class="sv-name">${esc(s.name)}</span>
+        <span class="sv-meta">${esc(fmtDuration(s.duration_minutes))}${linked ? ' · подробнее →' : ''}</span>
+      </span>
+      <span class="p">${fmtPrice(s.price)}</span>`;
+    return linked
+      ? `<a class="svc-item" href="/services/${esc(s.slug)}">${inner}</a>`
+      : `<div class="svc-item">${inner}</div>`;
   }).join('');
   return `<div class="svc-list">${items}</div>`;
 }
@@ -158,14 +212,14 @@ function isExpired(c: CouponRow): boolean {
 
 // ===== Общая страница акции (одна ссылка на всех, счётчик переходов) =====
 interface PromoRow {
-  promo_id: string; promo_name: string; code: string;
+  promo_id: string; promo_name: string; code: string; company_id: string;
   discount_pct: number | null; discount_amount: number | null;
   valid_from: string | null; valid_to: string | null; is_active: boolean;
 }
 
 async function loadPromoByPublicToken(ptoken: string): Promise<PromoRow | null> {
   const { rows } = await pool.query(
-    `SELECT p.id AS promo_id, p.name AS promo_name, p.code,
+    `SELECT p.id AS promo_id, p.name AS promo_name, p.code, p.company_id,
             p.discount_pct::float8 AS discount_pct,
             p.discount_amount::float8 AS discount_amount,
             p.valid_from::text, p.valid_to::text, p.is_active
@@ -216,7 +270,8 @@ router.get('/a/:ptoken', async (req, res, next) => {
         </div>
         <button type="submit">Получить скидку ${esc(discountLabel(c))}</button>
         <p class="hint">Оставьте контакты — скидка закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
-      </form>`;
+      </form>
+      ${contactHtml(await companyPhone(p.company_id), `Здравствуйте! Хочу узнать про акцию «${p.promo_name}».`)}`;
     const body = `<div class="coupon">${top}<div class="coupon-body">${claimForm}</div></div>`;
     return res.type('html').send(pageHtml(`${p.promo_name} — ${discountLabel(c)} — Samaya`, body));
   } catch (e) { return next(e); }
@@ -244,14 +299,11 @@ router.post('/a/:ptoken/claim', urlencoded({ extended: false, limit: '5kb' }), a
       return res.redirect(303, `/promo/${encodeURIComponent(existing.rows[0].token)}`);
     }
     const token = crypto.randomBytes(8).toString('base64url');
-    const companyRow = await pool.query(
-      `SELECT company_id FROM bookings.promotions WHERE id = $1`, [p.promo_id],
-    );
     await pool.query(
       `INSERT INTO bookings.promo_coupons
          (company_id, promo_id, token, label, status, opened_at, claimed_at, client_name, client_phone)
        VALUES ($1, $2, $3, 'со страницы акции', 'claimed', NOW(), NOW(), $4, $5)`,
-      [companyRow.rows[0].company_id, p.promo_id, token, name, phone],
+      [p.company_id, p.promo_id, token, name, phone],
     );
     return res.redirect(303, `/promo/${encodeURIComponent(token)}`);
   } catch (e) { return next(e); }
@@ -282,6 +334,12 @@ router.get('/:token', async (req, res, next) => {
       );
     }
     const services = await servicesListHtml(c.promo_id);
+    const phone = await companyPhone(c.company_id);
+    const couponCode = `${c.code}-${c.token.slice(0, 4).toUpperCase()}`;
+    const contactsClaimed = contactHtml(phone,
+      `Здравствуйте! У меня купон ${couponCode} по акции «${c.promo_name}». Хочу записаться.`);
+    const contactsFresh = contactHtml(phone,
+      `Здравствуйте! Хочу узнать про акцию «${c.promo_name}».`);
     const validTo = c.valid_to ? `<span class="c-valid">Действует до ${fmtDate(c.valid_to)}</span>` : '';
     const top = `<div class="coupon-top">
       <div class="c-overline">Персональный купон</div>
@@ -293,9 +351,10 @@ router.get('/:token', async (req, res, next) => {
       <div class="ok-badge">✓ Купон закреплён за вами${c.client_name ? `, ${esc(c.client_name)}` : ''}</div>
       <div class="code-box">
         <div class="cb-label">Ваш код купона</div>
-        <div class="cb-code">${esc(c.code)}-${esc(c.token.slice(0, 4).toUpperCase())}</div>
+        <div class="cb-code">${esc(couponCode)}</div>
       </div>
-      <p class="hint" style="margin-top:14px;">Назовите этот код администратору при записи или визите — скидка будет применена. Мы свяжемся с вами, чтобы подобрать удобное время.</p>
+      <p class="hint" style="margin-top:14px;">Купон одноразовый: назовите код администратору при записи или визите — скидка будет применена один раз.</p>
+      ${contactsClaimed}
       <h2 style="margin-top:22px;">На что действует купон</h2>
       ${services}`;
     const claimForm = `
@@ -313,7 +372,8 @@ router.get('/:token', async (req, res, next) => {
         </div>
         <button type="submit">Забрать купон ${esc(discountLabel(c))}</button>
         <p class="hint">Оставьте контакты — купон закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
-      </form>`;
+      </form>
+      ${contactsFresh}`;
     const body = `<div class="coupon">${top}<div class="coupon-body">${c.status === 'claimed' ? claimedBlock : claimForm}</div></div>`;
     return res.type('html').send(pageHtml(`${c.promo_name} — купон ${discountLabel(c)} — Samaya`, body));
   } catch (e) { return next(e); }
