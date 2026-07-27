@@ -215,8 +215,8 @@ function page(opts: {
     .tap-ico { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: flex; align-items: center; justify-content: center; }
     .tap-ico svg { width: 22px; height: 22px; }
     .tap-btn-text { text-align: left; min-width: 0; }
-    .tap-btn-name { font-weight: 600; font-size: var(--fs-md); color: var(--text); }
-    .tap-btn-sub { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 1px; }
+    .tap-btn-name { display: block; font-weight: 600; font-size: var(--fs-md); color: var(--text); }
+    .tap-btn-sub { display: block; font-size: var(--fs-sm); color: var(--text-dim); margin-top: 2px; }
     .tap-desc { margin-top: 28px; color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.65; text-align: center; }
 
     footer { background: var(--primary-dark); color: rgba(255, 246, 240, 0.8); margin-top: 40px; }
