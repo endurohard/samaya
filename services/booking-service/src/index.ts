@@ -7,6 +7,7 @@ import { pool } from './db';
 import { errorHandler, authenticate, requirePermission } from './middleware';
 import bookingsRoutes from './routes/bookings';
 import promosRoutes from './routes/promos';
+import promoPublicRoutes from './routes/promo-public';
 import slotsRoutes from './routes/slots';
 import publicRoutes from './routes/public';
 import timeBlocksRoutes from './routes/time-blocks';
@@ -33,6 +34,8 @@ app.get('/health', async (_req, res) => {
 // Public (без auth)
 app.use('/api/bookings/slots', slotsRoutes);
 app.use('/api/bookings/public', publicRoutes);
+// Лендинг индивидуальных купонов (/promo/<token> на фронт-домене)
+app.use('/api/bookings/public/promo', promoPublicRoutes);
 
 // Auth-protected
 app.use('/api/bookings/promos', promosRoutes);

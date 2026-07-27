@@ -2006,6 +2006,47 @@ body.guest .auth-card { margin: 32px auto 0; }
 .svc-group-caret { transition: transform .15s; color: var(--text-muted); }
 .svc-group:not(.collapsed) .svc-group-caret { transform: rotate(90deg); }
 .svc-group-count { margin-left: auto; color: var(--text-muted); font-weight: 500; }
+/* ===== Акции: чеклист услуг + индивидуальные купоны ===== */
+.promo-services-box {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.promo-svc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.promo-svc-item:hover { background: var(--bg-soft); }
+.promo-svc-item input { width: auto; }
+.promo-svc-item span:first-of-type { flex: 1; }
+.promo-svc-price { color: var(--text-muted); font-size: var(--fs-xs); }
+.promo-coupons-gen { display: flex; gap: 8px; align-items: center; }
+.promo-coupons-gen input[type="number"] { width: 72px; }
+.promo-coupons-gen input[type="text"] { flex: 1; }
+.promo-coupons-list { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.coupon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+.coupon-token { color: var(--text-dim); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coupon-who { font-size: var(--fs-xs); color: var(--text); }
+.coupon-actions { margin-left: auto; display: flex; gap: 4px; flex: 0 0 auto; }
+
 /* Колонка «Отображается в меню» в списке услуг: ✅/❌ + быстрый toggle */
 .svc-menu-flag {
   flex: 0 0 auto;

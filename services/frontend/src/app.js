@@ -9863,13 +9863,18 @@ import { trapFocus } from './modules/focus-trap.js';
       const statusLabel = inactive ? 'выкл' : expired ? 'истёк' : notStarted ? 'не начат' : exhausted ? 'исчерпан' : 'активен';
       const period = [p.valid_from, p.valid_to].filter(Boolean).join(' — ') || 'бессрочно';
       const uses = p.max_uses != null ? `${p.used_count}/${p.max_uses}` : p.used_count;
+      const discount = p.discount_amount != null ? `${fmtMoney(p.discount_amount)} ₽` : `${p.discount_pct}%`;
+      const funnel = p.coupons_issued
+        ? ` &middot; ссылки: ${p.coupons_issued} / откр. ${p.coupons_opened} / тел. ${p.coupons_claimed} / исп. ${p.coupons_used}`
+        : '';
+      const svcScope = (p.service_ids || []).length ? ` &middot; услуг: ${p.service_ids.length}` : '';
       return `<div class="data-row promo-row" data-promo-id="${p.id}">
         <div class="promo-code-badge">${escapeHtml(p.code)}</div>
         <div class="promo-info">
           <div class="promo-name">${escapeHtml(p.name)}</div>
-          <div class="promo-meta">${period} &middot; использований: ${uses}</div>
+          <div class="promo-meta">${period} &middot; использований: ${uses}${svcScope}${funnel}</div>
         </div>
-        <div class="promo-discount">${p.discount_pct}%</div>
+        <div class="promo-discount">−${discount}</div>
         <span class="pill ${statusCls}">${statusLabel}</span>
         <button class="btn-ghost btn-sm promo-edit-btn" data-id="${p.id}">Изменить</button>
       </div>`;
@@ -9879,32 +9884,146 @@ import { trapFocus } from './modules/focus-trap.js';
     });
   }
 
+  // Тип скидки: сумма в ₽ (купон) или процент
+  function applyPromoDiscountType(type) {
+    const isAmount = type === 'amount';
+    const typeSel = document.getElementById('promoDiscountType');
+    const label = document.getElementById('promoDiscountLabel');
+    if (typeSel) typeSel.value = type;
+    if (label) label.textContent = isAmount ? 'Скидка, ₽' : 'Скидка, %';
+    els.promoDiscount.max = isAmount ? '' : '100';
+    els.promoDiscount.step = isAmount ? '1' : '0.5';
+    els.promoDiscount.placeholder = isAmount ? '1000' : '10';
+  }
+  document.getElementById('promoDiscountType')?.addEventListener('change', (e) => {
+    applyPromoDiscountType(e.target.value);
+  });
+
+  // Чеклист услуг акции (пусто = любая услуга)
+  function renderPromoServices(selectedIds) {
+    const box = document.getElementById('promoServicesBox');
+    if (!box) return;
+    const sel = new Set(selectedIds || []);
+    const active = cachedServices.filter((s) => s.is_active);
+    if (!active.length) {
+      box.innerHTML = '<div class="muted" style="font-size:var(--fs-sm);">Услуги ещё не загружены</div>';
+      return;
+    }
+    box.innerHTML = active.map((s) => `
+      <label class="promo-svc-item">
+        <input type="checkbox" class="promo-svc-check" value="${s.id}" ${sel.has(s.id) ? 'checked' : ''} />
+        <span>${escapeHtml(s.name)}</span>
+        <span class="promo-svc-price">${formatPrice(s.price)}</span>
+      </label>`).join('');
+  }
+
   function openPromoModal(id) {
     els.promoFormError.hidden = true;
     els.promoForm.reset();
+    if (!cachedServices.length) void loadServices().then(() => {
+      const p = id ? cachedPromos.find((x) => x.id === id) : null;
+      renderPromoServices(p?.service_ids);
+    });
     if (id) {
       const p = cachedPromos.find((x) => x.id === id);
       if (!p) return;
-      els.promoModalTitle.textContent = 'Редактировать промокод';
+      els.promoModalTitle.textContent = 'Редактировать акцию';
       els.promoId.value = p.id;
       els.promoCode.value = p.code;
       els.promoName.value = p.name;
-      els.promoDiscount.value = p.discount_pct;
+      applyPromoDiscountType(p.discount_amount != null ? 'amount' : 'percent');
+      els.promoDiscount.value = p.discount_amount != null ? p.discount_amount : p.discount_pct;
       els.promoFrom.value = p.valid_from || '';
       els.promoTo.value = p.valid_to || '';
       els.promoMaxUses.value = p.max_uses ?? '';
       els.promoDelete.hidden = false;
       els.promoSubmit.textContent = 'Сохранить';
+      renderPromoServices(p.service_ids);
+      document.getElementById('promoCouponsBlock').hidden = false;
+      void loadPromoCoupons(p.id);
     } else {
-      els.promoModalTitle.textContent = 'Новый промокод';
+      els.promoModalTitle.textContent = 'Новая акция';
       els.promoId.value = '';
       els.promoDelete.hidden = true;
       els.promoSubmit.textContent = 'Создать';
+      applyPromoDiscountType('amount');
+      renderPromoServices([]);
+      document.getElementById('promoCouponsBlock').hidden = true;
     }
     els.promoModalBackdrop.hidden = false;
     els.promoModal.hidden = false;
     setTimeout(() => els.promoCode.focus(), 50);
   }
+
+  // ----- Индивидуальные купоны-ссылки -----
+  const COUPON_STATUS = {
+    issued: ['выдан', 'pill-mute'],
+    opened: ['открыт', 'pill-warn'],
+    claimed: ['оставил телефон', 'pill-ok'],
+    used: ['использован', 'pill-ok'],
+  };
+  function couponLink(token) { return `${location.origin}/promo/${token}`; }
+
+  async function loadPromoCoupons(promoId) {
+    const listEl = document.getElementById('promoCouponsList');
+    const statsEl = document.getElementById('promoCouponsStats');
+    const r = await apiCall('GET', `/api/bookings/promos/${promoId}/coupons`);
+    if (!r.ok) { listEl.innerHTML = '<div class="empty">Не удалось загрузить купоны</div>'; return; }
+    const items = r.data?.items || [];
+    const cnt = (st) => items.filter((c) => c.status === st).length;
+    statsEl.textContent = items.length
+      ? `Всего ${items.length} · не открыт ${cnt('issued')} · открыт ${cnt('opened')} · оставили телефон ${cnt('claimed')} · использовано ${cnt('used')}`
+      : 'Ссылок пока нет — сгенерируйте первую партию.';
+    listEl.innerHTML = items.map((c) => {
+      const [label, cls] = COUPON_STATUS[c.status] || [c.status, 'pill-mute'];
+      const who = c.client_name || c.client_phone
+        ? `<span class="coupon-who">${escapeHtml([c.client_name, c.client_phone].filter(Boolean).join(' · '))}</span>`
+        : (c.label ? `<span class="coupon-who muted">${escapeHtml(c.label)}</span>` : '');
+      const useBtn = (c.status === 'claimed' || c.status === 'opened')
+        ? `<button type="button" class="btn-ghost btn-xs coupon-use" data-cid="${c.id}">Погасить</button>` : '';
+      const delBtn = (c.status === 'issued' || c.status === 'opened')
+        ? `<button type="button" class="btn-ghost btn-xs coupon-del" data-cid="${c.id}" title="Удалить">×</button>` : '';
+      return `<div class="coupon-row">
+        <button type="button" class="btn-ghost btn-xs coupon-copy" data-token="${escapeHtml(c.token)}" title="Скопировать ссылку">🔗</button>
+        <code class="coupon-token">…/${escapeHtml(c.token)}</code>
+        <span class="pill ${cls}">${label}</span>
+        ${who}
+        <span class="coupon-actions">${useBtn}${delBtn}</span>
+      </div>`;
+    }).join('');
+    listEl.querySelectorAll('.coupon-copy').forEach((b) => b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(couponLink(b.dataset.token)); toast('Ссылка скопирована'); }
+      catch (_e) { toast(couponLink(b.dataset.token)); }
+    }));
+    listEl.querySelectorAll('.coupon-use').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Погасить купон (клиент воспользовался скидкой)?')) return;
+      const r2 = await apiCall('POST', `/api/bookings/promos/coupons/${b.dataset.cid}/use`);
+      if (r2.ok) { toast('Купон погашен'); await loadPromoCoupons(promoId); await loadPromos(); }
+      else toast(r2.data?.error || 'Ошибка');
+    }));
+    listEl.querySelectorAll('.coupon-del').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Удалить купон-ссылку?')) return;
+      const r2 = await apiCall('DELETE', `/api/bookings/promos/coupons/${b.dataset.cid}`);
+      if (r2.ok) { await loadPromoCoupons(promoId); await loadPromos(); }
+      else toast(r2.data?.error || 'Ошибка');
+    }));
+  }
+
+  document.getElementById('promoCouponsGenerate')?.addEventListener('click', async () => {
+    const promoId = els.promoId.value.trim();
+    if (!promoId) return;
+    const count = parseInt(document.getElementById('promoCouponCount').value, 10) || 1;
+    const label = document.getElementById('promoCouponLabel').value.trim() || null;
+    const r = await apiCall('POST', `/api/bookings/promos/${promoId}/coupons`, { count, label });
+    if (!r.ok) { toast(r.data?.error || 'Ошибка генерации'); return; }
+    toast(`Создано ссылок: ${r.data.items.length}`);
+    // Одну ссылку — сразу в буфер, удобно для единичной выдачи
+    if (r.data.items.length === 1) {
+      try { await navigator.clipboard.writeText(couponLink(r.data.items[0].token)); toast('Ссылка скопирована'); } catch (_e) { /* ignore */ }
+    }
+    await loadPromoCoupons(promoId);
+    await loadPromos();
+  });
 
   function closePromoModal() {
     els.promoModalBackdrop.hidden = true;
@@ -9915,13 +10034,19 @@ import { trapFocus } from './modules/focus-trap.js';
     e.preventDefault();
     els.promoFormError.hidden = true;
     const id = els.promoId.value.trim();
+    const isAmount = document.getElementById('promoDiscountType').value === 'amount';
+    const discountVal = parseFloat(els.promoDiscount.value);
+    const serviceIds = Array.from(document.querySelectorAll('#promoServicesBox .promo-svc-check'))
+      .filter((cb) => cb.checked).map((cb) => cb.value);
     const body = {
       code: els.promoCode.value.trim().toUpperCase(),
       name: els.promoName.value.trim(),
-      discount_pct: parseFloat(els.promoDiscount.value),
+      discount_pct: isAmount ? null : discountVal,
+      discount_amount: isAmount ? discountVal : null,
       valid_from: els.promoFrom.value || null,
       valid_to: els.promoTo.value || null,
       max_uses: els.promoMaxUses.value ? parseInt(els.promoMaxUses.value, 10) : null,
+      service_ids: serviceIds,
     };
     const res = id
       ? await apiCall('PATCH', `/api/bookings/promos/${id}`, body)
@@ -9964,9 +10089,23 @@ import { trapFocus } from './modules/focus-trap.js';
         return;
       }
       const p = res.data;
-      els.saleDiscount.value = Math.max(parseFloat(els.saleDiscount.value) || 0, p.discount_pct);
-      els.salePromoMsg.style.color = 'var(--success, #16a34a)';
-      els.salePromoMsg.textContent = `✓ «${p.name}» — скидка ${p.discount_pct}% применена`;
+      if (p.discount_amount != null) {
+        // Купон суммой: переводим в % от стоимости записи в продаже
+        const total = salesCurrentBookingPrice || 0;
+        if (!total) {
+          els.salePromoMsg.style.color = 'var(--danger)';
+          els.salePromoMsg.textContent = 'Сначала выберите услуги — купон на сумму считается от итога';
+          return;
+        }
+        const pct = Math.min(100, Math.round((p.discount_amount / total) * 10000) / 100);
+        els.saleDiscount.value = Math.max(parseFloat(els.saleDiscount.value) || 0, pct);
+        els.salePromoMsg.style.color = 'var(--success, #16a34a)';
+        els.salePromoMsg.textContent = `✓ «${p.name}» — купон −${fmtMoney(p.discount_amount)} ₽ (${pct}%) применён`;
+      } else {
+        els.saleDiscount.value = Math.max(parseFloat(els.saleDiscount.value) || 0, p.discount_pct);
+        els.salePromoMsg.style.color = 'var(--success, #16a34a)';
+        els.salePromoMsg.textContent = `✓ «${p.name}» — скидка ${p.discount_pct}% применена`;
+      }
       els.saleDiscount.dispatchEvent(new Event('input'));
     });
   }
