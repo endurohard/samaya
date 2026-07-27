@@ -136,6 +136,8 @@ function page(opts: {
     .brand-name { font-family: var(--font-display, Fraunces, serif); font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
     .brand-sub { font-size: var(--fs-xs); color: var(--accent-gold); letter-spacing: 0.14em; text-transform: uppercase; display: block; margin-top: 1px; }
     .spacer { flex: 1; }
+    .header-link { text-decoration: none; font-weight: 600; font-size: var(--fs-sm); color: var(--text-dim); padding: 8px 14px; border-radius: var(--radius-pill); transition: color 0.15s, background 0.15s; }
+    .header-link:hover { color: var(--primary); background: var(--primary-soft); }
 
     nav.cat-menu { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 64px; z-index: 19; }
     .menu-inner { max-width: 1120px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
@@ -198,6 +200,25 @@ function page(opts: {
     .cta-ghost:hover { border-color: var(--primary); color: var(--primary); }
     .related { margin-top: 44px; }
 
+    /* Контакты — taplink-колонка */
+    .tap { max-width: 460px; margin: 0 auto; padding: 40px 0 8px; text-align: center; }
+    .tap-logo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; box-shadow: var(--shadow-md); border: 3px solid #fff; }
+    .tap h1 { font-family: var(--font-display, Fraunces, serif); font-weight: 600; font-size: 30px; margin-top: 16px; letter-spacing: -0.01em; }
+    .tap-sub { margin-top: 6px; color: var(--text-dim); font-size: var(--fs-md); }
+    .tap-hours { display: inline-block; margin-top: 12px; font-size: var(--fs-sm); color: var(--text-dim); background: var(--bg-soft); border-radius: var(--radius-pill); padding: 6px 16px; }
+    .tap-links { margin-top: 26px; display: flex; flex-direction: column; gap: 12px; }
+    .tap-btn { display: flex; align-items: center; gap: 14px; text-decoration: none; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 16px 20px; box-shadow: var(--shadow-sm); transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; }
+    .tap-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .tap-btn.primary { background: var(--primary); border-color: var(--primary); box-shadow: var(--shadow-brand); }
+    .tap-btn.primary .tap-btn-name, .tap-btn.primary .tap-btn-sub { color: #fff; }
+    .tap-btn.primary .tap-ico { background: rgba(255, 246, 240, 0.16); color: #fff; }
+    .tap-ico { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: flex; align-items: center; justify-content: center; }
+    .tap-ico svg { width: 22px; height: 22px; }
+    .tap-btn-text { text-align: left; min-width: 0; }
+    .tap-btn-name { font-weight: 600; font-size: var(--fs-md); color: var(--text); }
+    .tap-btn-sub { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 1px; }
+    .tap-desc { margin-top: 28px; color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.65; text-align: center; }
+
     footer { background: var(--primary-dark); color: rgba(255, 246, 240, 0.8); margin-top: 40px; }
     .footer-inner { max-width: 1120px; margin: 0 auto; padding: 32px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .footer-inner img { width: 34px; height: 34px; border-radius: 9px; object-fit: cover; }
@@ -225,6 +246,7 @@ function page(opts: {
         </span>
       </a>
       <div class="spacer"></div>
+      <a class="header-link" href="/contacts">Контакты</a>
     </div>
   </header>
   ${opts.menu.length ? `<nav class="cat-menu" aria-label="Меню услуг"><div class="menu-inner">${menuHtml}</div></nav>` : ''}
@@ -353,6 +375,61 @@ router.get('/services/:slug', async (req, res, next) => {
       metaDescription: preview(s.description, 160) || `${s.name}: цена ${fmtPrice(s.price)}, запись онлайн в клинике Samaya.`,
       canonicalPath: `/services/${s.slug}`,
       menu,
+      body,
+    });
+    return res.type('html').send(html);
+  } catch (e) { return next(e); }
+});
+
+// «Контакты» — taplink-колонка: логотип, ключевые кнопки-ссылки, описание.
+router.get('/contacts', async (req, res, next) => {
+  try {
+    const companyId = getCompanyId(req);
+    const { rows } = await pool.query(
+      `SELECT name, address, phone, email, website, description,
+              to_char(default_open, 'HH24:MI') AS open,
+              to_char(default_close, 'HH24:MI') AS close
+       FROM salons.company_profile WHERE company_id = $1`,
+      [companyId],
+    );
+    const p = rows[0] ?? {};
+    const phone: string = p.phone || '';
+    const phoneDigits = phone.replace(/\D/g, '');
+    const ico = {
+      phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/></svg>',
+      wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.87 9.87 0 004.74 1.21c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0012.04 2zm0 18.15c-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.26 8.26 0 01-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.82 2.42a8.18 8.18 0 012.41 5.83c0 4.54-3.7 8.23-8.23 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.25-.64.8-.78.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-2-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.13-.14.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.13-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.13.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.1-.23-.16-.48-.29z"/></svg>',
+      cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>',
+      spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"/></svg>',
+      pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>',
+    };
+    const btn = (opts: { href: string; name: string; sub?: string; icon: string; primary?: boolean; blank?: boolean }) =>
+      `<a class="tap-btn${opts.primary ? ' primary' : ''}" href="${esc(opts.href)}"${opts.blank ? ' target="_blank" rel="noopener"' : ''}>
+        <span class="tap-ico">${opts.icon}</span>
+        <span class="tap-btn-text">
+          <span class="tap-btn-name">${esc(opts.name)}</span>
+          ${opts.sub ? `<span class="tap-btn-sub">${esc(opts.sub)}</span>` : ''}
+        </span>
+      </a>`;
+    const links = [
+      btn({ href: '/book.html', name: 'Записаться онлайн', sub: 'Выбор мастера, услуги и времени', icon: ico.cal, primary: true }),
+      phoneDigits ? btn({ href: `tel:+${phoneDigits}`, name: 'Позвонить', sub: phone, icon: ico.phone }) : '',
+      phoneDigits ? btn({ href: `https://wa.me/${phoneDigits}`, name: 'Написать в WhatsApp', sub: 'Ответим в рабочее время', icon: ico.wa, blank: true }) : '',
+      btn({ href: '/services', name: 'Наши услуги', sub: 'Каталог процедур с ценами', icon: ico.spark }),
+      p.address ? btn({ href: `https://yandex.ru/maps/?text=${encodeURIComponent(p.address)}`, name: 'Как добраться', sub: p.address, icon: ico.pin, blank: true }) : '',
+    ].filter(Boolean).join('');
+    const body = `<div class="tap">
+      <img class="tap-logo" src="/zb-logo.jpg" alt="Samaya" />
+      <h1>${esc(p.name || 'Samaya')}</h1>
+      <div class="tap-sub">Клиника эстетической медицины · Каспийск</div>
+      ${p.open && p.close ? `<div class="tap-hours">Ежедневно ${esc(p.open)} — ${esc(p.close)}</div>` : ''}
+      <div class="tap-links">${links}</div>
+      ${p.description ? `<div class="tap-desc">${esc(preview(p.description, 320))}</div>` : ''}
+    </div>`;
+    const html = page({
+      title: `Контакты — ${p.name || 'Samaya'}`,
+      metaDescription: `Контакты клиники ${p.name || 'Samaya'}: ${[p.address, phone].filter(Boolean).join(', ')}. Онлайн-запись, WhatsApp, каталог услуг.`,
+      canonicalPath: '/contacts',
+      menu: [],
       body,
     });
     return res.type('html').send(html);
