@@ -6,6 +6,7 @@ import {
 import {
   escapeHtml, formatPrice, fmtMoney, todayLocalISO, dateToISO, addDaysISO,
 } from './modules/utils.js';
+import QRCode from 'qrcode';
 import { toast } from './modules/toast.js';
 import { trapFocus } from './modules/focus-trap.js';
 
@@ -10025,6 +10026,23 @@ import { trapFocus } from './modules/focus-trap.js';
       else toast(r2.data?.error || 'Ошибка');
     }));
   }
+
+  // QR-код ссылки акции: рендер в canvas + скачивание PNG (для печати/сторис)
+  document.getElementById('promoPageQrBtn')?.addEventListener('click', async () => {
+    const wrap = document.getElementById('promoQrWrap');
+    const link = document.getElementById('promoPageLink').value;
+    if (!link) return;
+    if (!wrap.hidden) { wrap.hidden = true; return; }
+    const canvas = document.getElementById('promoQrCanvas');
+    try {
+      await QRCode.toCanvas(canvas, link, { width: 220, margin: 1, color: { dark: '#5e2b2d', light: '#ffffff' } });
+      const dl = document.getElementById('promoQrDownload');
+      dl.href = canvas.toDataURL('image/png');
+      const p = cachedPromos.find((x) => x.id === els.promoId.value);
+      dl.download = `qr-${(p?.code || 'promo').toLowerCase()}.png`;
+      wrap.hidden = false;
+    } catch (_e) { toast('Не удалось построить QR'); }
+  });
 
   document.getElementById('promoPageLinkCopy')?.addEventListener('click', async () => {
     const link = document.getElementById('promoPageLink').value;

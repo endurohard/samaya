@@ -2326,8 +2326,15 @@
                 <div class="input-with-btn">
                   <input id="promoPageLink" type="text" readonly />
                   <button type="button" class="btn-ghost btn-xs" id="promoPageLinkCopy">Копировать</button>
+                  <button type="button" class="btn-ghost btn-xs" id="promoPageQrBtn">QR</button>
                 </div>
                 <div id="promoPageViews" class="muted" style="font-size:var(--fs-sm);margin-top:6px;"></div>
+                <div id="promoQrWrap" style="margin-top:10px;text-align:center;" hidden>
+                  <canvas id="promoQrCanvas" style="border:1px solid var(--border);border-radius:12px;padding:8px;background:#fff;"></canvas>
+                  <div style="margin-top:6px;">
+                    <a id="promoQrDownload" class="btn-ghost btn-xs" download="promo-qr.png" href="#">Скачать PNG</a>
+                  </div>
+                </div>
                 <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
                 <div style="font-weight:600;margin-bottom:4px;">Индивидуальные ссылки</div>
                 <div class="muted" style="font-size:var(--fs-xs);margin-bottom:8px;">

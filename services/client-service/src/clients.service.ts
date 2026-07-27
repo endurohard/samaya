@@ -26,7 +26,8 @@ export function normalizePhone(raw: string): string {
 }
 
 export type Segment =
-  | 'all' | 'regular' | 'sleeping' | 'missing' | 'never' | 'new' | 'blocked' | 'deleted';
+  | 'all' | 'regular' | 'sleeping' | 'missing' | 'never' | 'new' | 'blocked' | 'deleted'
+  | 'promo';   // «акционные» — пришли по ссылке/QR акции (source='promo'), поведенческим сегментам не мешает
 
 export interface ClientListItem {
   id: string;
@@ -143,7 +144,10 @@ export async function listClients(p: ListParams) {
   if (p.segment !== 'deleted' && p.segment !== 'all') {
     where.push(`c.is_deleted = FALSE`);
   }
-  if (p.segment !== 'all' && p.segment !== 'deleted') {
+  if (p.segment === 'promo') {
+    // Сегмент по источнику, а не по поведению
+    where.push(`c.source = 'promo'`);
+  } else if (p.segment !== 'all' && p.segment !== 'deleted') {
     where.push(`(${SEGMENT_EXPR}) = $${params.length + 1}`);
     params.push(p.segment);
   } else if (p.segment === 'deleted') {
@@ -224,7 +228,7 @@ export async function segmentCounts(companyId: string) {
     companyId,
   ];
 
-  const [segs, deleted, total] = await Promise.all([
+  const [segs, deleted, total, promo] = await Promise.all([
     pool.query(sql, params),
     pool.query(
       `SELECT COUNT(*)::int AS cnt FROM clients.clients WHERE company_id = $1 AND is_deleted = TRUE`,
@@ -234,12 +238,18 @@ export async function segmentCounts(companyId: string) {
       `SELECT COUNT(*)::int AS cnt FROM clients.clients WHERE company_id = $1 AND is_deleted = FALSE`,
       [companyId],
     ),
+    pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM clients.clients
+       WHERE company_id = $1 AND is_deleted = FALSE AND source = 'promo'`,
+      [companyId],
+    ),
   ]);
 
   const counts: Record<string, number> = {
     all: total.rows[0].cnt,
     regular: 0, sleeping: 0, missing: 0, never: 0, new: 0, blocked: 0,
     deleted: deleted.rows[0].cnt,
+    promo: promo.rows[0].cnt,
   };
   for (const r of segs.rows) {
     counts[r.segment as string] = r.cnt;

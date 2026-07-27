@@ -18,7 +18,7 @@ const fileUploadSchema = z.object({
 
 const router = Router();
 
-const SEGMENTS: Segment[] = ['all', 'regular', 'sleeping', 'missing', 'never', 'new', 'blocked', 'deleted'];
+const SEGMENTS: Segment[] = ['all', 'regular', 'sleeping', 'missing', 'never', 'new', 'blocked', 'deleted', 'promo'];
 
 router.use(authenticate);
 

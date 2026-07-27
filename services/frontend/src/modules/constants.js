@@ -26,6 +26,7 @@ export const CLIENT_SEGMENTS = [
   { key: 'missing', label: 'Пропавшие', hint: 'не записывались более 6 месяцев' },
   { key: 'never', label: 'Не посещали', hint: 'нет записей данных клиентов' },
   { key: 'new', label: 'Новые', hint: 'за последний период' },
+  { key: 'promo', label: 'Акционные', hint: 'пришли по ссылке или QR акции' },
   { key: 'blocked', label: 'Заблокированы', hint: 'не могут записаться онлайн' },
   { key: 'deleted', label: 'Удалены', hint: 'удалены из списка клиентов' },
 ];

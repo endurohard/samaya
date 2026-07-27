@@ -22,7 +22,7 @@ export async function findOrCreateClientId(
   companyId: string,
   phone: string | null | undefined,
   name: string | null | undefined,
-  source: 'admin' | 'public_widget',
+  source: 'admin' | 'public_widget' | 'promo',
 ): Promise<string | null> {
   if (!phone) return null;
   const norm = normalizePhone(phone);

@@ -7,7 +7,25 @@
 import { Router, urlencoded } from 'express';
 import crypto from 'node:crypto';
 import { pool } from '../db';
-import { normalizePhone } from '../client-link';
+import { normalizePhone, findOrCreateClientId } from '../client-link';
+
+// Карточка клиента для «акционной» аудитории: source='promo' → отдельный
+// сегмент «Акционные» в разделе Клиенты. Ошибка создания не должна ломать
+// клейм купона (клиент остаётся хотя бы в аудитории акции).
+async function linkPromoClient(companyId: string, phone: string, name: string): Promise<string | null> {
+  const conn = await pool.connect();
+  try {
+    await conn.query('BEGIN');
+    const id = await findOrCreateClientId(conn, companyId, phone, name, 'promo');
+    await conn.query('COMMIT');
+    return id;
+  } catch {
+    await conn.query('ROLLBACK').catch(() => {});
+    return null;
+  } finally {
+    conn.release();
+  }
+}
 
 const router = Router();
 
@@ -309,11 +327,12 @@ router.post('/a/:ptoken/claim', urlencoded({ extended: false, limit: '5kb' }), a
       return res.redirect(303, `/promo/${encodeURIComponent(existing.rows[0].token)}`);
     }
     const token = crypto.randomBytes(8).toString('base64url');
+    const clientId = await linkPromoClient(p.company_id, phone, name);
     await pool.query(
       `INSERT INTO bookings.promo_coupons
-         (company_id, promo_id, token, label, status, opened_at, claimed_at, client_name, client_phone)
-       VALUES ($1, $2, $3, 'со страницы акции', 'claimed', NOW(), NOW(), $4, $5)`,
-      [p.company_id, p.promo_id, token, name, phone],
+         (company_id, promo_id, token, label, status, opened_at, claimed_at, client_name, client_phone, client_id)
+       VALUES ($1, $2, $3, 'со страницы акции', 'claimed', NOW(), NOW(), $4, $5, $6)`,
+      [p.company_id, p.promo_id, token, name, phone, clientId],
     );
     return res.redirect(303, `/promo/${encodeURIComponent(token)}`);
   } catch (e) { return next(e); }
@@ -401,12 +420,13 @@ router.post('/:token/claim', urlencoded({ extended: false, limit: '5kb' }), asyn
       return res.redirect(303, `/promo/${encodeURIComponent(c.token)}?err=1`);
     }
     if (!isExpired(c) && (c.status === 'issued' || c.status === 'opened')) {
+      const clientId = await linkPromoClient(c.company_id, phone, name);
       await pool.query(
         `UPDATE bookings.promo_coupons
          SET status = 'claimed', claimed_at = NOW(), client_name = $2, client_phone = $3,
-             opened_at = COALESCE(opened_at, NOW())
+             client_id = $4, opened_at = COALESCE(opened_at, NOW())
          WHERE id = $1 AND status IN ('issued', 'opened')`,
-        [c.coupon_id, name, phone],
+        [c.coupon_id, name, phone, clientId],
       );
     }
     return res.redirect(303, `/promo/${encodeURIComponent(c.token)}`);
