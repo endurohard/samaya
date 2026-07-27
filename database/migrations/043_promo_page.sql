@@ -13,9 +13,9 @@ ALTER TABLE promotions
   ADD COLUMN IF NOT EXISTS public_token TEXT,
   ADD COLUMN IF NOT EXISTS page_views INT NOT NULL DEFAULT 0;
 
--- Бэкфилл токенов существующим акциям
+-- Бэкфилл токенов существующим акциям (без pgcrypto: md5 от random+id)
 UPDATE promotions
-SET public_token = encode(gen_random_bytes(9), 'hex')
+SET public_token = substr(md5(random()::text || id::text), 1, 18)
 WHERE public_token IS NULL;
 
 ALTER TABLE promotions ALTER COLUMN public_token SET NOT NULL;
