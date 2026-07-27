@@ -9580,6 +9580,8 @@ import { trapFocus } from './modules/focus-trap.js';
   }
 
   async function openSaleModal(bookingId, bookingPrice, servicesHtml, clientId, clientPhone) {
+    salesCurrentCouponId = null;
+    salesCurrentCouponPromoCode = null;
     salesCurrentBookingId = bookingId;
     salesCurrentBookingPrice = bookingPrice;
     salesCurrentClientId = clientId || null;
@@ -9634,6 +9636,9 @@ import { trapFocus } from './modules/focus-trap.js';
   let _payDue = 0;
   let _payClientBalance = 0;
   let _paySaleCtx = null;
+  // Одноразовый индивидуальный купон, активированный в этой продаже
+  let salesCurrentCouponId = null;
+  let salesCurrentCouponPromoCode = null;
 
   const PAY_METHOD_RU = {
     cash: 'Наличные', card: 'Карта', online: 'QR-код',
@@ -9644,7 +9649,9 @@ import { trapFocus } from './modules/focus-trap.js';
     e.preventDefault();
     if (!salesCurrentBookingId) return;
     const discountPct = Number(document.getElementById('saleDiscount').value) || 0;
-    const promoCode = els.salePromoCode?.value?.trim().toUpperCase() || undefined;
+    // Для купона в чек уходит код самой акции (KOD-XXXX сервер не знает)
+    const promoCode = salesCurrentCouponPromoCode
+      || els.salePromoCode?.value?.trim().toUpperCase() || undefined;
     const bonusSettings = loadBonusSettings();
     const bonusSpend = Math.round(Math.min(
       Number(els.saleBonusSpend?.value) || 0,
@@ -9796,6 +9803,12 @@ import { trapFocus } from './modules/focus-trap.js';
         booking_id: salesCurrentBookingId,
       });
     }
+    // Одноразовый купон гасится после успешного проведения продажи
+    if (salesCurrentCouponId) {
+      void apiCall('POST', `/api/bookings/promos/coupons/${salesCurrentCouponId}/use`);
+      salesCurrentCouponId = null;
+      salesCurrentCouponPromoCode = null;
+    }
     // Бонусный баланс клиента обновляет сервер в той же транзакции.
     closePayModal();
     closeSaleModal();
@@ -9867,12 +9880,13 @@ import { trapFocus } from './modules/focus-trap.js';
       const funnel = p.coupons_issued
         ? ` &middot; ссылки: ${p.coupons_issued} / откр. ${p.coupons_opened} / тел. ${p.coupons_claimed} / исп. ${p.coupons_used}`
         : '';
+      const views = p.page_views ? ` &middot; переходов: ${p.page_views}` : '';
       const svcScope = (p.service_ids || []).length ? ` &middot; услуг: ${p.service_ids.length}` : '';
       return `<div class="data-row promo-row" data-promo-id="${p.id}">
         <div class="promo-code-badge">${escapeHtml(p.code)}</div>
         <div class="promo-info">
           <div class="promo-name">${escapeHtml(p.name)}</div>
-          <div class="promo-meta">${period} &middot; использований: ${uses}${svcScope}${funnel}</div>
+          <div class="promo-meta">${period} &middot; использований: ${uses}${svcScope}${views}${funnel}</div>
         </div>
         <div class="promo-discount">−${discount}</div>
         <span class="pill ${statusCls}">${statusLabel}</span>
@@ -9940,6 +9954,9 @@ import { trapFocus } from './modules/focus-trap.js';
       els.promoSubmit.textContent = 'Сохранить';
       renderPromoServices(p.service_ids);
       document.getElementById('promoCouponsBlock').hidden = false;
+      document.getElementById('promoPageLink').value = `${location.origin}/promo/a/${p.public_token}`;
+      document.getElementById('promoPageViews').textContent =
+        `Переходов по ссылке: ${p.page_views || 0}`;
       void loadPromoCoupons(p.id);
     } else {
       els.promoModalTitle.textContent = 'Новая акция';
@@ -10009,6 +10026,13 @@ import { trapFocus } from './modules/focus-trap.js';
     }));
   }
 
+  document.getElementById('promoPageLinkCopy')?.addEventListener('click', async () => {
+    const link = document.getElementById('promoPageLink').value;
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); toast('Ссылка акции скопирована'); }
+    catch (_e) { document.getElementById('promoPageLink').select(); toast('Скопируйте вручную'); }
+  });
+
   document.getElementById('promoCouponsGenerate')?.addEventListener('click', async () => {
     const promoId = els.promoId.value.trim();
     if (!promoId) return;
@@ -10076,6 +10100,46 @@ import { trapFocus } from './modules/focus-trap.js';
     els.salePromoApply.addEventListener('click', async () => {
       const code = els.salePromoCode.value.trim().toUpperCase();
       if (!code) return;
+      // Код с суффиксом (KOD-XXXX) — одноразовый индивидуальный купон
+      if (/-[A-Z0-9_-]{4}$/i.test(code)) {
+        const rc = await apiCall('GET', `/api/bookings/promos/coupon-check?code=${encodeURIComponent(code)}`);
+        if (rc.ok) {
+          const p = rc.data;
+          salesCurrentCouponId = p.coupon_id;
+          salesCurrentCouponPromoCode = p.code;
+          const total = salesCurrentBookingPrice || 0;
+          let pct;
+          if (p.discount_amount != null) {
+            if (!total) {
+              els.salePromoMsg.style.color = 'var(--danger)';
+              els.salePromoMsg.textContent = 'Сначала выберите услуги — купон на сумму считается от итога';
+              salesCurrentCouponId = null; salesCurrentCouponPromoCode = null;
+              return;
+            }
+            pct = Math.min(100, Math.round((p.discount_amount / total) * 10000) / 100);
+          } else {
+            pct = p.discount_pct;
+          }
+          els.saleDiscount.value = Math.max(parseFloat(els.saleDiscount.value) || 0, pct);
+          els.salePromoMsg.style.color = 'var(--success, #16a34a)';
+          els.salePromoMsg.textContent = `✓ Купон «${p.name}» активирован (одноразовый) — ${p.discount_amount != null ? `−${fmtMoney(p.discount_amount)} ₽` : `${p.discount_pct}%`}`;
+          els.saleDiscount.dispatchEvent(new Event('input'));
+          return;
+        }
+        const cmsg = rc.data?.code === 'COUPON_USED' ? 'Купон уже использован'
+                   : rc.data?.code === 'COUPON_NOT_FOUND' ? 'Купон не найден'
+                   : rc.data?.code === 'PROMO_EXPIRED' ? 'Срок купона истёк'
+                   : rc.data?.code === 'PROMO_INACTIVE' ? 'Акция выключена'
+                   : null;
+        if (cmsg) {
+          els.salePromoMsg.style.color = 'var(--danger)';
+          els.salePromoMsg.textContent = cmsg;
+          return;
+        }
+        // формат не купонный — пробуем как обычный промокод ниже
+      }
+      salesCurrentCouponId = null;
+      salesCurrentCouponPromoCode = null;
       const res = await apiCall('GET', `/api/bookings/promos/check?code=${encodeURIComponent(code)}`);
       if (!res.ok) {
         const msg = res.data?.code === 'PROMO_NOT_FOUND' ? 'Промокод не найден'

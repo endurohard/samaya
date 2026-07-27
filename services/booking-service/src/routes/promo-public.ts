@@ -5,6 +5,7 @@
 // переводит купон в claimed и редиректит обратно (PRG).
 
 import { Router, urlencoded } from 'express';
+import crypto from 'node:crypto';
 import { pool } from '../db';
 import { normalizePhone } from '../client-link';
 
@@ -154,6 +155,107 @@ function isExpired(c: CouponRow): boolean {
   const today = new Date().toISOString().slice(0, 10);
   return !c.is_active || (!!c.valid_to && c.valid_to.slice(0, 10) < today);
 }
+
+// ===== Общая страница акции (одна ссылка на всех, счётчик переходов) =====
+interface PromoRow {
+  promo_id: string; promo_name: string; code: string;
+  discount_pct: number | null; discount_amount: number | null;
+  valid_from: string | null; valid_to: string | null; is_active: boolean;
+}
+
+async function loadPromoByPublicToken(ptoken: string): Promise<PromoRow | null> {
+  const { rows } = await pool.query(
+    `SELECT p.id AS promo_id, p.name AS promo_name, p.code,
+            p.discount_pct::float8 AS discount_pct,
+            p.discount_amount::float8 AS discount_amount,
+            p.valid_from::text, p.valid_to::text, p.is_active
+     FROM bookings.promotions p WHERE p.public_token = $1`,
+    [ptoken],
+  );
+  return rows[0] ?? null;
+}
+
+function promoAsCoupon(p: PromoRow): CouponRow {
+  return { ...p, coupon_id: '', token: '', status: 'issued', client_name: null };
+}
+
+// GET /a/:ptoken — страница акции; каждый переход считается
+router.get('/a/:ptoken', async (req, res, next) => {
+  try {
+    const p = await loadPromoByPublicToken(req.params.ptoken);
+    if (!p) {
+      return res.status(404).type('html').send(pageHtml('Акция не найдена — Samaya',
+        `<div class="dead"><h1>Акция не найдена</h1><p>Проверьте ссылку — возможно, она скопирована не полностью.</p></div>`));
+    }
+    if (isExpired(promoAsCoupon(p))) {
+      return res.status(410).type('html').send(pageHtml('Акция завершена — Samaya',
+        `<div class="dead"><h1>Акция завершена</h1><p>«${esc(p.promo_name)}» уже закончилась. Загляните в <a class="more-link" href="/services">каталог услуг</a>.</p></div>`));
+    }
+    await pool.query(`UPDATE bookings.promotions SET page_views = page_views + 1 WHERE id = $1`, [p.promo_id]);
+    const c = promoAsCoupon(p);
+    const services = await servicesListHtml(p.promo_id);
+    const validTo = p.valid_to ? `<span class="c-valid">Действует до ${fmtDate(p.valid_to)}</span>` : '';
+    const top = `<div class="coupon-top">
+      <div class="c-overline">Акция</div>
+      <div class="c-amount">${esc(discountLabel(c))}</div>
+      <div class="c-name">${esc(p.promo_name)}</div>
+      ${validTo}
+    </div>`;
+    const claimForm = `
+      <h2>На что действует скидка</h2>
+      ${services}
+      <form method="POST" action="/promo/a/${esc(req.params.ptoken)}/claim">
+        ${req.query.err ? `<div class="err">Укажите имя и корректный телефон</div>` : ''}
+        <div>
+          <label for="f-name">Ваше имя</label>
+          <input id="f-name" name="name" required maxlength="100" placeholder="Как к вам обращаться" />
+        </div>
+        <div>
+          <label for="f-phone">Телефон</label>
+          <input id="f-phone" name="phone" type="tel" required maxlength="20" placeholder="+7 ___ ___-__-__" />
+        </div>
+        <button type="submit">Получить скидку ${esc(discountLabel(c))}</button>
+        <p class="hint">Оставьте контакты — скидка закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
+      </form>`;
+    const body = `<div class="coupon">${top}<div class="coupon-body">${claimForm}</div></div>`;
+    return res.type('html').send(pageHtml(`${p.promo_name} — ${discountLabel(c)} — Samaya`, body));
+  } catch (e) { return next(e); }
+});
+
+// POST /a/:ptoken/claim — посетитель страницы акции оставил контакты:
+// создаётся (или переиспользуется по телефону) личный купон → редирект на него.
+router.post('/a/:ptoken/claim', urlencoded({ extended: false, limit: '5kb' }), async (req, res, next) => {
+  try {
+    const p = await loadPromoByPublicToken(req.params.ptoken);
+    if (!p || isExpired(promoAsCoupon(p))) {
+      return res.redirect(303, `/promo/a/${encodeURIComponent(req.params.ptoken)}`);
+    }
+    const name = String(req.body?.name ?? '').trim().slice(0, 100);
+    const phone = normalizePhone(String(req.body?.phone ?? '').trim());
+    if (!name || !phone || phone.replace(/\D/g, '').length < 10) {
+      return res.redirect(303, `/promo/a/${encodeURIComponent(req.params.ptoken)}?err=1`);
+    }
+    // Один телефон — один купон на акцию (повторная отправка не задваивает аудиторию)
+    const existing = await pool.query(
+      `SELECT token FROM bookings.promo_coupons WHERE promo_id = $1 AND client_phone = $2 LIMIT 1`,
+      [p.promo_id, phone],
+    );
+    if (existing.rows.length) {
+      return res.redirect(303, `/promo/${encodeURIComponent(existing.rows[0].token)}`);
+    }
+    const token = crypto.randomBytes(8).toString('base64url');
+    const companyRow = await pool.query(
+      `SELECT company_id FROM bookings.promotions WHERE id = $1`, [p.promo_id],
+    );
+    await pool.query(
+      `INSERT INTO bookings.promo_coupons
+         (company_id, promo_id, token, label, status, opened_at, claimed_at, client_name, client_phone)
+       VALUES ($1, $2, $3, 'со страницы акции', 'claimed', NOW(), NOW(), $4, $5)`,
+      [companyRow.rows[0].company_id, p.promo_id, token, name, phone],
+    );
+    return res.redirect(303, `/promo/${encodeURIComponent(token)}`);
+  } catch (e) { return next(e); }
+});
 
 // GET /:token — лендинг купона
 router.get('/:token', async (req, res, next) => {

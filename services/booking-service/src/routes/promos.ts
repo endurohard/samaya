@@ -15,7 +15,8 @@ router.use(authenticate);
 
 const PROMO_FIELDS = `p.id, p.code, p.name, p.discount_pct::float8 AS discount_pct,
        p.discount_amount::float8 AS discount_amount,
-       p.valid_from, p.valid_to, p.max_uses, p.used_count, p.is_active, p.created_at`;
+       p.valid_from, p.valid_to, p.max_uses, p.used_count, p.is_active, p.created_at,
+       p.public_token, p.page_views`;
 
 async function promoWithExtras(companyId: string, promoId?: string) {
   const { rows } = await pool.query(
@@ -106,11 +107,12 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
     const input = createSchema.parse(req.body);
     const { rows } = await pool.query(
       `INSERT INTO bookings.promotions
-         (company_id, code, name, discount_pct, discount_amount, valid_from, valid_to, max_uses)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+         (company_id, code, name, discount_pct, discount_amount, valid_from, valid_to, max_uses, public_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
       [req.auth!.company_id, input.code, input.name,
        input.discount_pct ?? null, input.discount_amount ?? null,
-       input.valid_from ?? null, input.valid_to ?? null, input.max_uses ?? null],
+       input.valid_from ?? null, input.valid_to ?? null, input.max_uses ?? null,
+       crypto.randomBytes(9).toString('hex')],
     );
     if (input.service_ids?.length) await replacePromoServices(rows[0].id, input.service_ids);
     const [promo] = await promoWithExtras(req.auth!.company_id, rows[0].id);
@@ -173,6 +175,32 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
   } catch (e) { return next(e); }
 });
 
+// ===== Проверка кода индивидуального купона (одноразовый) =====
+// Код вида CODE-SUFF, где SUFF — первые 4 символа token в верхнем регистре.
+// Возвращает скидку акции + coupon_id для гашения после проведения продажи.
+router.get('/coupon-check', async (req, res, next) => {
+  try {
+    const raw = String(req.query.code ?? '').trim().toUpperCase();
+    const m = raw.match(/^(.+)-([A-Z0-9_-]{4})$/);
+    if (!m) return next(new HttpError(400, 'coupon code format: CODE-XXXX', 'COUPON_BAD_FORMAT'));
+    const [, promoCode, suff] = m;
+    const today = new Date().toISOString().slice(0, 10);
+    const { rows } = await pool.query(
+      `SELECT ${PROMO_FIELDS}, c.id AS coupon_id, c.status AS coupon_status
+       FROM bookings.promotions p
+       JOIN bookings.promo_coupons c ON c.promo_id = p.id
+       WHERE p.company_id = $1 AND p.code = $2 AND upper(left(c.token, 4)) = $3`,
+      [req.auth!.company_id, promoCode, suff],
+    );
+    if (!rows.length) return next(new HttpError(404, 'coupon not found', 'COUPON_NOT_FOUND'));
+    const p = rows[0];
+    if (p.coupon_status === 'used') return next(new HttpError(400, 'coupon already used', 'COUPON_USED'));
+    if (!p.is_active) return next(new HttpError(400, 'promo is inactive', 'PROMO_INACTIVE'));
+    if (p.valid_to && p.valid_to < today) return next(new HttpError(400, 'promo expired', 'PROMO_EXPIRED'));
+    return res.json(p);
+  } catch (e) { return next(e); }
+});
+
 // ===== Индивидуальные купоны-ссылки =====
 const couponsCreateSchema = z.object({
   count: z.number().int().min(1).max(200),
@@ -214,8 +242,9 @@ router.get('/:id/coupons', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-// POST /coupons/:couponId/use — погасить купон (при визите клиента)
-router.post('/coupons/:couponId/use', requireRole(['owner', 'admin']), async (req, res, next) => {
+// POST /coupons/:couponId/use — погасить купон (одноразовый; гасится при
+// проведении продажи любым сотрудником или вручную из карточки акции)
+router.post('/coupons/:couponId/use', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `UPDATE bookings.promo_coupons
