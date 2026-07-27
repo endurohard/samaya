@@ -136,8 +136,6 @@ function page(opts: {
     .brand-name { font-family: var(--font-display, Fraunces, serif); font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
     .brand-sub { font-size: var(--fs-xs); color: var(--accent-gold); letter-spacing: 0.14em; text-transform: uppercase; display: block; margin-top: 1px; }
     .spacer { flex: 1; }
-    .header-cta { text-decoration: none; background: var(--primary); color: #fff; font-weight: 600; font-size: var(--fs-sm); padding: 10px 20px; border-radius: var(--radius-pill); box-shadow: var(--shadow-brand); transition: background 0.15s, transform 0.15s; }
-    .header-cta:hover { background: var(--primary-hover); transform: translateY(-1px); }
 
     nav.cat-menu { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 64px; z-index: 19; }
     .menu-inner { max-width: 1120px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
@@ -227,7 +225,6 @@ function page(opts: {
         </span>
       </a>
       <div class="spacer"></div>
-      <a class="header-cta" href="/book.html">Записаться</a>
     </div>
   </header>
   ${opts.menu.length ? `<nav class="cat-menu" aria-label="Меню услуг"><div class="menu-inner">${menuHtml}</div></nav>` : ''}
