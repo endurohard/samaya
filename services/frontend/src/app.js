@@ -657,6 +657,7 @@ import { trapFocus } from './modules/focus-trap.js';
     finance: 'finance.view',
     inventory: 'inventory.view',
     settings: 'settings.manage',
+    promotion: 'promotions.view',
   };
   function hasPerm(perms, key) {
     // owner проверяется отдельно; fail-open если в токене нет прав (старый токен)

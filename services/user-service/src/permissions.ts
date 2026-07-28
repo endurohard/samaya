@@ -48,6 +48,11 @@ export const PERMISSION_MODULES: PermModule[] = [
     { key: 'manage', label: 'Изменение настроек' },
     { key: 'access', label: 'Управление доступом' },
   ] },
+  // Акции ведёт маркетинг/SMM — им нужен доступ к промо без финансов и зарплат
+  { key: 'promotions', label: 'Акции', actions: [
+    { key: 'view', label: 'Просмотр' },
+    { key: 'manage', label: 'Создание и редактирование' },
+  ] },
 ];
 
 export type Permissions = Record<string, boolean>;

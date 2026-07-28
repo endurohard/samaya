@@ -3,7 +3,7 @@ import { z } from 'zod';
 import crypto from 'node:crypto';
 import { isoDate } from '../validators';
 import { pool } from '../db';
-import { authenticate, requireRole, HttpError } from '../middleware';
+import { authenticate, requirePermission, HttpError } from '../middleware';
 
 const router = Router();
 router.use(authenticate);
@@ -46,7 +46,11 @@ async function promoWithExtras(companyId: string, promoId?: string) {
 }
 
 // ===== List =====
-router.get('/', async (req, res, next) => {
+// Просмотр — по праву promotions.view; /check и гашение купонов остаются
+// доступны любому сотруднику: они нужны при проведении продажи.
+const canViewPromos = requirePermission('promotions.view', 'promotions.manage');
+
+router.get('/', canViewPromos, async (req, res, next) => {
   try {
     return res.json({ items: await promoWithExtras(req.auth!.company_id) });
   } catch (e) { return next(e); }
@@ -102,7 +106,7 @@ async function replacePromoServices(promoId: string, serviceIds: string[]): Prom
   }
 }
 
-router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/', requirePermission('promotions.manage'), async (req, res, next) => {
   try {
     const input = createSchema.parse(req.body);
     const { rows } = await pool.query(
@@ -135,7 +139,7 @@ const updateSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.patch('/:id', requirePermission('promotions.manage'), async (req, res, next) => {
   try {
     const input = updateSchema.parse(req.body);
     const { service_ids, ...cols } = input;
@@ -164,7 +168,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
 });
 
 // ===== Delete =====
-router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id', requirePermission('promotions.manage'), async (req, res, next) => {
   try {
     const { rowCount } = await pool.query(
       `DELETE FROM bookings.promotions WHERE company_id = $1 AND id = $2`,
@@ -176,7 +180,7 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
 });
 
 // ===== Аналитика по акции: воронка + продажи/выручка =====
-router.get('/:id/analytics', async (req, res, next) => {
+router.get('/:id/analytics', canViewPromos, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT p.page_views,
@@ -243,7 +247,7 @@ const couponsCreateSchema = z.object({
 });
 
 // POST /:id/coupons — сгенерировать N ссылок
-router.post('/:id/coupons', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/:id/coupons', requirePermission('promotions.manage'), async (req, res, next) => {
   try {
     const { count, label } = couponsCreateSchema.parse(req.body);
     const promo = await pool.query(
@@ -263,7 +267,7 @@ router.post('/:id/coupons', requireRole(['owner', 'admin']), async (req, res, ne
 });
 
 // GET /:id/coupons — список купонов акции (воронка + аудитория)
-router.get('/:id/coupons', async (req, res, next) => {
+router.get('/:id/coupons', canViewPromos, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, token, label, status, opened_at, claimed_at, used_at,
@@ -294,7 +298,7 @@ router.post('/coupons/:couponId/use', async (req, res, next) => {
 });
 
 // DELETE /coupons/:couponId — удалить невостребованный купон
-router.delete('/coupons/:couponId', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/coupons/:couponId', requirePermission('promotions.manage'), async (req, res, next) => {
   try {
     const { rowCount } = await pool.query(
       `DELETE FROM bookings.promo_coupons
