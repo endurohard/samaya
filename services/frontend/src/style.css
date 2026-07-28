@@ -2006,6 +2006,9 @@ body.guest .auth-card { margin: 32px auto 0; }
 .svc-group-caret { transition: transform .15s; color: var(--text-muted); }
 .svc-group:not(.collapsed) .svc-group-caret { transform: rotate(90deg); }
 .svc-group-count { margin-left: auto; color: var(--text-muted); font-weight: 500; }
+/* Счётчик услуг в строке сотрудника (вместо простыни из названий) */
+.row-svc-count { color: var(--text-muted); }
+
 /* ===== Акции: чеклист услуг + индивидуальные купоны ===== */
 .promo-services-box {
   max-height: 200px;

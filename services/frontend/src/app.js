@@ -685,6 +685,13 @@ import { trapFocus } from './modules/focus-trap.js';
     renderMasters();
   }
 
+  function declServices(n) {
+    const d10 = n % 10; const d100 = n % 100;
+    if (d10 === 1 && d100 !== 11) return 'услуга';
+    if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return 'услуги';
+    return 'услуг';
+  }
+
   const svcCollapsedGroups = new Set();
   function renderServices() {
     if (!els.servicesCounter) return;
@@ -1197,12 +1204,13 @@ import { trapFocus } from './modules/focus-trap.js';
       els.mastersList.innerHTML = '<div class="empty">Сотрудников пока нет.</div>';
       return;
     }
-    const svcMap = new Map(cachedServices.map((s) => [s.id, s.name]));
     els.mastersList.innerHTML = cachedMasters.map((m) => {
       const name = m.display_name || '—';
-      const services = (m.service_ids || []).map((id) => svcMap.get(id) || '?');
-      const badges = services.length
-        ? `<div class="badges">${services.map((s) => `<span class="badge">${escapeHtml(s)}</span>`).join('')}</div>`
+      // Названия услуг в строке не показываем: у врачей их десятки и список
+      // превращается в простыню. Только счётчик; состав — в карточке.
+      const svcCount = (m.service_ids || []).length;
+      const badges = svcCount
+        ? `<span class="row-svc-count">${svcCount} ${declServices(svcCount)}</span>`
         : '';
       const role = m.position || m.specialization || '';
       const avatar = m.avatar_url
@@ -1213,8 +1221,7 @@ import { trapFocus } from './modules/focus-trap.js';
           ${avatar}
           <div class="row-main">
             <div class="row-name">${escapeHtml(name)}</div>
-            <div class="row-meta">${escapeHtml(role)}</div>
-            ${badges}
+            <div class="row-meta">${escapeHtml(role)}${role && badges ? ' · ' : ''}${badges}</div>
           </div>
         </div>
       `;
