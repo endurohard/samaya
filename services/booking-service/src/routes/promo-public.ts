@@ -273,7 +273,17 @@ router.get('/a/:ptoken', async (req, res, next) => {
       return res.status(410).type('html').send(pageHtml('Акция завершена — Samaya',
         `<div class="dead"><h1>Акция завершена</h1><p>«${esc(p.promo_name)}» уже закончилась. Загляните в <a class="more-link" href="/services">каталог услуг</a>.</p></div>`));
     }
-    await pool.query(`UPDATE bookings.promotions SET page_views = page_views + 1 WHERE id = $1`, [p.promo_id]);
+    // Переход = уникальный браузер (cookie на год), а не каждая перезагрузка.
+    // Боты и предпросмотры ссылок в мессенджерах (WhatsApp/Telegram дёргают
+    // страницу при вставке ссылки в чат) не считаются.
+    const ua = String(req.headers['user-agent'] ?? '');
+    const isBot = /bot|crawl|spider|preview|whatsapp|telegram|facebookexternalhit|vkshare|curl|wget/i.test(ua);
+    const seenCookie = `pv_${p.promo_id.slice(0, 8)}`;
+    const alreadySeen = (req.headers.cookie ?? '').includes(`${seenCookie}=1`);
+    if (!isBot && !alreadySeen) {
+      await pool.query(`UPDATE bookings.promotions SET page_views = page_views + 1 WHERE id = $1`, [p.promo_id]);
+      res.setHeader('Set-Cookie', `${seenCookie}=1; Max-Age=31536000; Path=/promo; SameSite=Lax`);
+    }
     const c = promoAsCoupon(p);
     const services = await servicesListHtml(p.promo_id);
     const validTo = p.valid_to ? `<span class="c-valid">Действует до ${fmtDate(p.valid_to)}</span>` : '';
