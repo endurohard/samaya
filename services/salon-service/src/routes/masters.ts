@@ -116,6 +116,41 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
   }
 });
 
+// Привязка учётной записи к сотруднику. Отдельным роутом, а не через PATCH:
+// смена user_id — это выдача доступа, её нельзя допускать «заодно» с правкой
+// профиля. Аккаунт создаётся в user-service (POST /api/auth/register), здесь
+// только связывание: проверяем, что он той же компании и не занят другим.
+const linkUserSchema = z.object({ user_id: z.string().uuid().nullable() });
+
+router.put('/:id/account', requireRole(['owner', 'admin']), async (req, res, next) => {
+  try {
+    const { user_id } = linkUserSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    if (user_id) {
+      const u = await pool.query(
+        `SELECT 1 FROM users.users WHERE id = $1 AND company_id = $2`,
+        [user_id, companyId],
+      );
+      if (!u.rows.length) return next(new HttpError(400, 'user not found in company', 'USER_NOT_FOUND'));
+      const busy = await pool.query(
+        `SELECT display_name FROM salons.masters
+         WHERE company_id = $1 AND user_id = $2 AND id <> $3`,
+        [companyId, user_id, req.params.id],
+      );
+      if (busy.rows.length) {
+        return next(new HttpError(409, `учётка уже привязана к «${busy.rows[0].display_name}»`, 'USER_ALREADY_LINKED'));
+      }
+    }
+    const { rows } = await pool.query(
+      `UPDATE salons.masters SET user_id = $3, updated_at = NOW()
+       WHERE company_id = $1 AND id = $2 RETURNING id, user_id`,
+      [companyId, req.params.id, user_id],
+    );
+    if (!rows[0]) return next(new HttpError(404, 'master not found'));
+    return res.json(rows[0]);
+  } catch (e) { return next(e); }
+});
+
 const updateSchema = createSchema.innerType().partial().omit({ user_id: true }).extend({
   is_active: z.boolean().optional(),
   dismissed_at: z.string().datetime().nullable().optional(),

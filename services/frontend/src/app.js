@@ -8393,16 +8393,87 @@ import { trapFocus } from './modules/focus-trap.js';
     if (tab === 'access') void mcLoadAccess();
   }
 
+  // Создание учётной записи сотруднику: аккаунт в user-service + привязка к карточке.
+  // Пока аккаунта нет, сотрудник не может войти и не виден в «Доступе к проекту».
+  function mcRenderCreateAccount(el) {
+    const m = mcCurrentMaster;
+    const phone = m.phone || '';
+    el.innerHTML = `
+      <div class="muted" style="font-size:var(--fs-sm);margin-bottom:12px;">
+        У сотрудника нет учётной записи — он не может войти в систему.
+        Создайте логин и пароль, затем настройте права.
+      </div>
+      <div class="form-grid" style="max-width:520px;">
+        <div>
+          <label for="mcAccPhone">Телефон для входа</label>
+          <input id="mcAccPhone" type="tel" value="${escapeHtml(phone)}" placeholder="+7 999 000-00-00" />
+        </div>
+        <div>
+          <label for="mcAccEmail">Или email</label>
+          <input id="mcAccEmail" type="email" value="${escapeHtml(m.email || '')}" placeholder="не обязательно" />
+        </div>
+        <div>
+          <label for="mcAccPassword">Пароль</label>
+          <input id="mcAccPassword" type="text" autocomplete="new-password" minlength="8" placeholder="минимум 8 символов" />
+        </div>
+        <div>
+          <label for="mcAccRole">Роль</label>
+          <select id="mcAccRole">
+            <option value="master">Сотрудник</option>
+            <option value="admin">Администратор</option>
+          </select>
+        </div>
+      </div>
+      <div class="error" id="mcAccError" hidden></div>
+      <div class="mc-actions"><button type="button" class="btn-primary" id="mcAccCreate">Создать доступ</button></div>`;
+
+    document.getElementById('mcAccCreate').addEventListener('click', async () => {
+      const errEl = document.getElementById('mcAccError');
+      errEl.hidden = true;
+      const btn = document.getElementById('mcAccCreate');
+      const body = {
+        password: document.getElementById('mcAccPassword').value.trim(),
+        role: document.getElementById('mcAccRole').value,
+        full_name: m.display_name,
+      };
+      const ph = document.getElementById('mcAccPhone').value.trim();
+      const em = document.getElementById('mcAccEmail').value.trim();
+      if (ph) body.phone = ph;
+      if (em) body.email = em;
+      if (!ph && !em) { errEl.textContent = 'Нужен телефон или email для входа'; errEl.hidden = false; return; }
+      if (body.password.length < 8) { errEl.textContent = 'Пароль — минимум 8 символов'; errEl.hidden = false; return; }
+
+      btn.disabled = true; btn.textContent = 'Создаём…';
+      const r = await apiCall('POST', '/api/auth/register', body);
+      if (!r.ok) {
+        btn.disabled = false; btn.textContent = 'Создать доступ';
+        errEl.textContent = r.data?.code === 'USER_EXISTS' || r.status === 409
+          ? 'Пользователь с таким телефоном/email уже есть'
+          : (r.data?.error || 'Не удалось создать учётную запись');
+        errEl.hidden = false;
+        return;
+      }
+      const newUserId = r.data?.user?.id || r.data?.id;
+      const link = await apiCall('PUT', `/api/salons/masters/${m.id}/account`, { user_id: newUserId });
+      btn.disabled = false; btn.textContent = 'Создать доступ';
+      if (!link.ok) {
+        errEl.textContent = link.data?.error || 'Учётка создана, но не привязалась к сотруднику';
+        errEl.hidden = false;
+        return;
+      }
+      mcCurrentMaster.user_id = newUserId;
+      toast('Доступ создан — сотрудник может войти');
+      await loadMasters({ force: true });
+      void mcLoadAccess();
+    });
+  }
+
   // ===== Карточка мастера: вкладка «Доступ» (роль + права связанного аккаунта) =====
   async function mcLoadAccess() {
     const el = document.getElementById('mcAccessContent');
     if (!el || !mcCurrentMaster) return;
     const userId = mcCurrentMaster.user_id;
-    if (!userId) {
-      el.innerHTML = `<div class="empty">У сотрудника нет учётной записи для входа.<br>
-        Создайте её (логин/пароль) — тогда здесь появятся роль и права.</div>`;
-      return;
-    }
+    if (!userId) { mcRenderCreateAccount(el); return; }
     el.innerHTML = '<div class="empty">Загрузка…</div>';
     if (!accessCatalog) {
       const c = await apiCall('GET', '/api/auth/permissions-catalog');
