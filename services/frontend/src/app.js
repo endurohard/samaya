@@ -8428,6 +8428,7 @@ import { trapFocus } from './modules/focus-trap.js';
           <select id="mcAccRole">
             <option value="master">Сотрудник</option>
             <option value="admin">Администратор</option>
+            ${jwt.role === 'owner' ? '<option value="owner">Владелец</option>' : ''}
           </select>
         </div>
       </div>
