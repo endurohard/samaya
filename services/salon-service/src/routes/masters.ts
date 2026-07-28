@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../db';
-import { authenticate, requireRole, HttpError } from '../middleware';
+import { authenticate, requireRole, requirePermission, HttpError } from '../middleware';
 
 const router = Router();
 router.use(authenticate);
@@ -122,7 +122,7 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
 // только связывание: проверяем, что он той же компании и не занят другим.
 const linkUserSchema = z.object({ user_id: z.string().uuid().nullable() });
 
-router.put('/:id/account', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.put('/:id/account', requirePermission('settings.access'), async (req, res, next) => {
   try {
     const { user_id } = linkUserSchema.parse(req.body);
     const companyId = req.auth!.company_id;

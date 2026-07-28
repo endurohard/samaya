@@ -8398,6 +8398,13 @@ import { trapFocus } from './modules/focus-trap.js';
   function mcRenderCreateAccount(el) {
     const m = mcCurrentMaster;
     const phone = m.phone || '';
+    // Заводить учётки может владелец и тот, кому он выдал «Управление доступом»
+    const jwt = decodeJwt(store.access) || {};
+    if (jwt.role !== 'owner' && jwt.permissions?.['settings.access'] !== true) {
+      el.innerHTML = `<div class="empty">У сотрудника нет учётной записи для входа.<br>
+        Создать её может владелец или сотрудник с правом «Настройки → Управление доступом».</div>`;
+      return;
+    }
     el.innerHTML = `
       <div class="muted" style="font-size:var(--fs-sm);margin-bottom:12px;">
         У сотрудника нет учётной записи — он не может войти в систему.

@@ -20,9 +20,16 @@ async function getAuth(req: { headers: { authorization?: string } }): Promise<Ac
     throw new AuthError(401, 'invalid token', 'INVALID_TOKEN');
   }
 }
+// Управлять доступом может владелец (супер-админ) и тот, кому владелец выдал
+// право «Настройки → Управление доступом» (settings.access). Fail-closed:
+// без claim permissions в токене проходит только owner.
+function canManageAccess(p: AccessPayload): boolean {
+  return p.role === 'owner' || p.permissions?.['settings.access'] === true;
+}
+
 async function requireAccessAdmin(req: { headers: { authorization?: string } }): Promise<AccessPayload> {
   const p = await getAuth(req);
-  if (!['owner', 'admin'].includes(p.role)) throw new AuthError(403, 'forbidden', 'FORBIDDEN');
+  if (!canManageAccess(p)) throw new AuthError(403, 'forbidden', 'FORBIDDEN');
   return p;
 }
 
@@ -77,9 +84,15 @@ router.patch('/users/:id', async (req, res, next) => {
       [me.company_id, req.params.id],
     );
     if (!target.rows[0]) throw new AuthError(404, 'user not found', 'NOT_FOUND');
-    // admin не может управлять owner'ами и выдавать роль owner
-    if (me.role === 'admin' && (target.rows[0].role === 'owner' || input.role === 'owner')) {
+    // Только владелец управляет владельцами и выдаёт роль owner.
+    if (me.role !== 'owner' && (target.rows[0].role === 'owner' || input.role === 'owner')) {
       throw new AuthError(403, 'only owner can manage owners', 'FORBIDDEN');
+    }
+    // Право «управление доступом» раздаёт только владелец: делегат не может
+    // наплодить себе равных или снять право у другого.
+    if (me.role !== 'owner' && input.permissions
+        && Object.prototype.hasOwnProperty.call(input.permissions, 'settings.access')) {
+      throw new AuthError(403, 'only owner can grant access management', 'FORBIDDEN');
     }
     const fields: string[] = [];
     const vals: unknown[] = [me.company_id, req.params.id];
@@ -134,12 +147,13 @@ router.patch('/users/:id/password', async (req, res, next) => {
       const ok = await bcrypt.compare(input.current_password, target.rows[0].password_hash);
       if (!ok) throw new AuthError(403, 'текущий пароль неверен', 'BAD_CURRENT_PASSWORD');
     } else {
-      // Чужой пароль задаёт только owner/admin, и admin не трогает owner'ов —
-      // иначе админ повышает себя до владельца, перехватив его аккаунт.
-      if (!['owner', 'admin'].includes(me.role)) {
+      // Чужой пароль задаёт владелец или обладатель права управления доступом,
+      // и только владелец — владельцам: иначе делегат повышает себя, перехватив
+      // аккаунт владельца.
+      if (!canManageAccess(me)) {
         throw new AuthError(403, 'forbidden', 'FORBIDDEN');
       }
-      if (me.role === 'admin' && target.rows[0].role === 'owner') {
+      if (me.role !== 'owner' && target.rows[0].role === 'owner') {
         throw new AuthError(403, 'only owner can manage owners', 'FORBIDDEN');
       }
     }
@@ -178,22 +192,28 @@ router.post('/register', async (req, res, next) => {
     if (!company_id) {
       return res.status(400).json({ error: 'company_id required (no default configured)' });
     }
-    // Публичная регистрация — только client. Роли персонала (owner/admin/master)
-    // может выдать лишь авторизованный owner/admin этой же компании.
+    // Публичная регистрация — только client. Роли персонала заводит владелец
+    // или тот, кому он делегировал право settings.access; роль owner — только
+    // сам владелец.
     let role: typeof input.role = 'client';
     if (input.role && input.role !== 'client') {
       const h = req.headers.authorization;
       let allowed = false;
+      let isOwner = false;
       if (h?.startsWith('Bearer ')) {
         try {
           const p = await verifyAccess(h.slice(7));
-          allowed = ['owner', 'admin'].includes(p.role) && p.company_id === company_id;
+          isOwner = p.role === 'owner';
+          allowed = canManageAccess(p) && p.company_id === company_id;
         } catch {
           // невалидный токен → forbidden ниже
         }
       }
       if (!allowed) {
-        return res.status(403).json({ error: 'staff registration requires admin token', code: 'STAFF_REGISTER_FORBIDDEN' });
+        return res.status(403).json({ error: 'staff registration requires access-management rights', code: 'STAFF_REGISTER_FORBIDDEN' });
+      }
+      if (input.role === 'owner' && !isOwner) {
+        return res.status(403).json({ error: 'only owner can create owners', code: 'OWNER_CREATE_FORBIDDEN' });
       }
       role = input.role;
     }
