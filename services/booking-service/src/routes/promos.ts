@@ -16,7 +16,7 @@ router.use(authenticate);
 const PROMO_FIELDS = `p.id, p.code, p.name, p.discount_pct::float8 AS discount_pct,
        p.discount_amount::float8 AS discount_amount,
        p.valid_from, p.valid_to, p.max_uses, p.used_count, p.is_active, p.created_at,
-       p.public_token, p.page_views`;
+       p.public_token, p.page_views, p.page_opens`;
 
 async function promoWithExtras(companyId: string, promoId?: string) {
   const { rows } = await pool.query(
@@ -183,7 +183,7 @@ router.delete('/:id', requirePermission('promotions.manage'), async (req, res, n
 router.get('/:id/analytics', canViewPromos, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.page_views,
+      `SELECT p.page_views, p.page_opens,
               COALESCE(cs.issued, 0)::int AS coupons_issued,
               COALESCE(cs.opened, 0)::int AS coupons_opened,
               COALESCE(cs.claimed, 0)::int AS leads,

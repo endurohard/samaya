@@ -9782,7 +9782,9 @@ import {
       const funnel = p.coupons_issued
         ? ` &middot; ссылки: ${p.coupons_issued} / откр. ${p.coupons_opened} / тел. ${p.coupons_claimed} / исп. ${p.coupons_used}`
         : '';
-      const views = p.page_views ? ` &middot; переходов: ${p.page_views}` : '';
+      const views = p.page_opens
+        ? ` &middot; открытий: ${p.page_opens} (${p.page_views} чел.)`
+        : '';
       const svcScope = (p.service_ids || []).length ? ` &middot; услуг: ${p.service_ids.length}` : '';
       return `<div class="data-row promo-row" data-promo-id="${p.id}">
         <div class="promo-code-badge">${escapeHtml(p.code)}</div>
@@ -9857,8 +9859,10 @@ import {
       renderPromoServices(p.service_ids);
       document.getElementById('promoCouponsBlock').hidden = false;
       document.getElementById('promoPageLink').value = `${location.origin}/promo/a/${p.public_token}`;
+      const opens = p.page_opens || 0; const uniq = p.page_views || 0;
       document.getElementById('promoPageViews').textContent =
-        `Переходов по ссылке: ${p.page_views || 0}`;
+        `Открытий: ${opens} · уникальных посетителей: ${uniq}`
+        + (opens > uniq ? ` (ссылку пересматривали ${opens - uniq} раз)` : '');
       void loadPromoAnalytics(p.id);
       void loadPromoCoupons(p.id);
     } else {
@@ -9946,7 +9950,7 @@ import {
         <div class="promo-an-label">${label}${extra ? `<span class="promo-an-extra">${extra}</span>` : ''}</div>
       </div>`;
     box.innerHTML = [
-      tile(a.page_views || 0, 'переходов по ссылке'),
+      tile(a.page_opens || 0, 'открытий страницы', `${a.page_views || 0} уникальных`),
       tile(a.leads || 0, 'оставили телефон', leadsBase ? `${convLead}% конверсия` : ''),
       tile(a.coupons_used || 0, 'купонов использовано', a.leads ? `${convUse}% от лидов` : ''),
       tile(a.sales_count || 0, 'продаж по акции'),
