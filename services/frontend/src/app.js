@@ -9,6 +9,14 @@ import {
 import QRCode from 'qrcode';
 import { toast } from './modules/toast.js';
 import { trapFocus } from './modules/focus-trap.js';
+import {
+  stringToColor, decodeJwt, clientInitial, formatRuDate, formatDateShort,
+  isWeekend, formatPhonePretty, formatFileSize, plural,
+} from './modules/format.js';
+import { parseCsv, detectColumnMap } from './modules/csv.js';
+import {
+  rollingRange, calendarRange, daysInRange, monthRange,
+} from './modules/periods.js';
 
 (() => {
   'use strict';
@@ -470,19 +478,7 @@ import { trapFocus } from './modules/focus-trap.js';
     return { ok: res.ok, status: res.status, data };
   }
 
-  function decodeJwt(token) {
-    try {
-      const [, payload] = token.split('.');
-      const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-      return JSON.parse(decodeURIComponent(escape(json)));
-    } catch { return null; }
-  }
 
-  function stringToColor(s) {
-    let h = 0;
-    for (let i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    return `hsl(${h % 360} 60% 55%)`;
-  }
 
   // ===== View switching =====
   function setView(view) {
@@ -685,12 +681,6 @@ import { trapFocus } from './modules/focus-trap.js';
     renderMasters();
   }
 
-  function declServices(n) {
-    const d10 = n % 10; const d100 = n % 100;
-    if (d10 === 1 && d100 !== 11) return 'услуга';
-    if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return 'услуги';
-    return 'услуг';
-  }
 
   const svcCollapsedGroups = new Set();
   function renderServices() {
@@ -1210,7 +1200,7 @@ import { trapFocus } from './modules/focus-trap.js';
       // превращается в простыню. Только счётчик; состав — в карточке.
       const svcCount = (m.service_ids || []).length;
       const badges = svcCount
-        ? `<span class="row-svc-count">${svcCount} ${declServices(svcCount)}</span>`
+        ? `<span class="row-svc-count">${svcCount} ${plural(svcCount, ['услуга', 'услуги', 'услуг'])}</span>`
         : '';
       const role = m.position || m.specialization || '';
       const avatar = m.avatar_url
@@ -3621,29 +3611,12 @@ import { trapFocus } from './modules/focus-trap.js';
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
-  function formatDateShort(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    return `${day}.${month} (${WEEKDAYS_SHORT[d.getDay()]})`;
-  }
 
-  function isWeekend(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
-    return d.getDay() === 0 || d.getDay() === 6;
-  }
 
   // ===== Schedule (DIKIDI-style horizontal grid) =====
   // Структура: scheduleByMaster: Map<masterId, Map<work_date, {start,end,off,dirty,saved}>>
   let scheduleByMaster = new Map();
 
-  function getMonthRange(monthAnchor) {
-    const [y, m] = monthAnchor.split('-').map(Number);
-    const from = `${y}-${String(m).padStart(2, '0')}-01`;
-    const last = new Date(y, m, 0).getDate();
-    const to = `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
-    return { from, to, y, m, days: last };
-  }
 
   async function initScheduleView() {
     if (!cachedMasters.length) await loadMasters();
@@ -3669,7 +3642,7 @@ import { trapFocus } from './modules/focus-trap.js';
 
   async function loadAllSchedules() {
     const masters = cachedMasters.filter((m) => m.is_active);
-    const { from, to } = getMonthRange(scheduleMonth);
+    const { from, to } = monthRange(scheduleMonth);
     scheduleByMaster = new Map();
     for (const m of masters) {
       const { ok, data } = await call(
@@ -3702,7 +3675,7 @@ import { trapFocus } from './modules/focus-trap.js';
       els.schGrid.innerHTML = '<div class="empty">Нет активных сотрудников.</div>';
       return;
     }
-    const { y, m, days } = getMonthRange(scheduleMonth);
+    const { y, m, days } = monthRange(scheduleMonth);
     const today = todayLocalISO();
 
     const dayCellW = 76;
@@ -3883,7 +3856,7 @@ import { trapFocus } from './modules/focus-trap.js';
   }
 
   function applyTemplate() {
-    const { y, m, days } = getMonthRange(scheduleMonth);
+    const { y, m, days } = monthRange(scheduleMonth);
     let touched = 0;
     cachedMasters.filter((x) => x.is_active).forEach((mst) => {
       const dayMap = scheduleByMaster.get(mst.id) || new Map();
@@ -4546,36 +4519,8 @@ import { trapFocus } from './modules/focus-trap.js';
     searchTimer: null,
   };
 
-  function clientInitial(name) {
-    const s = String(name || '').trim();
-    if (!s) return '?';
-    const ch = s[0];
-    return ch.toUpperCase();
-  }
 
-  function formatRuDate(iso) {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '—';
-    const day = String(d.getDate()).padStart(2, '0');
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const y = d.getFullYear();
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${day}.${m}.${y} в ${hh}:${mm}`;
-  }
 
-  function formatPhonePretty(p) {
-    const raw = String(p || '');
-    const d = raw.replace(/\D/g, '');
-    if (raw.startsWith('+7') && d.length === 11) {
-      return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9, 11)}`;
-    }
-    if (d.length === 11 && d[0] === '7') {
-      return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9, 11)}`;
-    }
-    return raw;
-  }
 
   function priceOrZero(v) {
     const n = Number(v) || 0;
@@ -4823,11 +4768,6 @@ import { trapFocus } from './modules/focus-trap.js';
 
   // ===== Client files (analyzes) =====
 
-  function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' Б';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' КБ';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
-  }
 
   async function loadClientFiles() {
     if (!_clCurrentId || !els.clFilesList) return;
@@ -5114,48 +5054,7 @@ import { trapFocus } from './modules/focus-trap.js';
   let importParsedRows = [];
   let importColumnMap = {}; // { phone, full_name, email, gender, birthday, comment } → column index
 
-  function parseCsv(text) {
-    // Remove BOM if present
-    const raw = text.replace(/^﻿/, '');
-    // Detect delimiter: comma, semicolon, or tab
-    const first = raw.split('\n')[0] || '';
-    const delim = first.includes(';') ? ';' : first.includes('\t') ? '\t' : ',';
-    const rows = [];
-    let inQ = false, cur = '', row = [];
-    for (let i = 0; i < raw.length; i++) {
-      const ch = raw[i];
-      if (ch === '"') { inQ = !inQ; }
-      else if (!inQ && ch === delim) { row.push(cur.trim()); cur = ''; }
-      else if (!inQ && (ch === '\n' || (ch === '\r' && raw[i + 1] === '\n'))) {
-        if (ch === '\r') i++;
-        row.push(cur.trim()); rows.push(row); row = []; cur = '';
-      } else { cur += ch; }
-    }
-    if (cur || row.length) { row.push(cur.trim()); if (row.some(Boolean)) rows.push(row); }
-    return rows;
-  }
 
-  function detectColumnMap(headers) {
-    const map = {};
-    const norm = (s) => s.toLowerCase().replace(/[^а-яёa-z0-9]/gi, '');
-    const MATCHES = {
-      phone: ['телефон', 'phone', 'тел', 'tel', 'mobile'],
-      full_name: ['имя', 'name', 'fullname', 'полноеимя', 'фио', 'клиент'],
-      email: ['email', 'почта', 'mail', 'емейл'],
-      gender: ['пол', 'gender', 'sex'],
-      birthday: ['деньрождения', 'датарождения', 'birthday', 'born', 'dob'],
-      comment: ['комментарий', 'примечание', 'comment', 'note', 'notes', 'заметка'],
-    };
-    headers.forEach((h, idx) => {
-      const n = norm(h);
-      for (const [field, candidates] of Object.entries(MATCHES)) {
-        if (!(field in map) && candidates.some((c) => n.includes(c))) {
-          map[field] = idx;
-        }
-      }
-    });
-    return map;
-  }
 
   function openImportModal() {
     importParsedRows = [];
@@ -5563,36 +5462,6 @@ import { trapFocus } from './modules/focus-trap.js';
   const finFilters = { account_id: '', category_id: '', kind: '', payment_method: '' };
 
   // Возвращает {from, to, label} для текущего period.
-  function finPeriodRange(period) {
-    const today = todayLocalISO();
-    if (period === 'today') return { from: today, to: today, label: 'сегодня' };
-    if (period === 'yesterday') {
-      const y = addDaysISO(today, -1);
-      return { from: y, to: y, label: 'вчера' };
-    }
-    if (period === 'week') {
-      // Понедельник-воскресенье текущей недели
-      const [yr, mo, d] = today.split('-').map(Number);
-      const dt = new Date(yr, mo - 1, d);
-      const dow = dt.getDay(); // 0=вс
-      const offset = dow === 0 ? -6 : 1 - dow;
-      const from = addDaysISO(today, offset);
-      const to = addDaysISO(from, 6);
-      return { from, to, label: 'эта неделя' };
-    }
-    if (period === 'month') {
-      const monthStart = today.slice(0, 7) + '-01';
-      const [y, m] = today.split('-').map(Number);
-      const lastDay = new Date(y, m, 0).getDate();
-      const monthEnd = `${today.slice(0, 7)}-${String(lastDay).padStart(2, '0')}`;
-      return { from: monthStart, to: monthEnd, label: 'этот месяц' };
-    }
-    if (period === 'year') {
-      const y = today.slice(0, 4);
-      return { from: `${y}-01-01`, to: `${y}-12-31`, label: 'этот год' };
-    }
-    return { from: today, to: today, label: 'сегодня' };
-  }
 
   async function finApi(method, path, body) {
     return apiCall(method, '/api/finance' + path, body);
@@ -5675,7 +5544,7 @@ import { trapFocus } from './modules/focus-trap.js';
 
   async function loadFinanceData() {
     if (!store.access) return;
-    const range = finPeriodRange(finPeriod);
+    const range = calendarRange(finPeriod);
     // Build operations query with filters
     let opsQuery = `from=${range.from}&to=${range.to}&limit=200`;
     if (finFilters.account_id) opsQuery += `&account_id=${finFilters.account_id}`;
@@ -5802,7 +5671,7 @@ import { trapFocus } from './modules/focus-trap.js';
     // Period label
     const labelEl = document.getElementById('finPeriodLabel');
     if (labelEl) {
-      const range = finPeriodRange(finPeriod);
+      const range = calendarRange(finPeriod);
       labelEl.textContent = `${range.label} · ${range.from === range.to ? range.from : range.from + ' – ' + range.to}`;
     }
 
@@ -6444,28 +6313,6 @@ import { trapFocus } from './modules/focus-trap.js';
   }
   function salSaveSchemes() { /* no-op: persist через API */ }
 
-  function salPeriodRange(period) {
-    const now = new Date();
-    const today = todayLocalISO();
-    if (period === 'today') return { from: today, to: today, days: 1 };
-    if (period === 'yesterday') {
-      const y = new Date(now); y.setDate(y.getDate() - 1);
-      const iso = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-      return { from: iso, to: iso, days: 1 };
-    }
-    if (period === 'week') {
-      const start = new Date(now); start.setDate(start.getDate() - 6);
-      const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      return { from: iso(start), to: today, days: 7 };
-    }
-    if (period === 'month') {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const days = now.getDate();
-      return { from: iso(start), to: today, days };
-    }
-    return { from: today, to: today, days: 1 };
-  }
 
   // Активная схема для мастера на дату (берём ту, у которой effective_from ≤ date и она самая свежая)
   function salActiveScheme(masterId, dateIso) {
@@ -6582,7 +6429,7 @@ import { trapFocus } from './modules/focus-trap.js';
       // выпадающий список групп услуг оказался бы пустым.
       loadServiceCategories(),
     ]);
-    await salLoadCalc(salPeriodRange(salPeriod));
+    await salLoadCalc(salRange(salPeriod));
     await migrateLocalStorageSalary();
     salPopulateMasterSelects();
     renderSalary();
@@ -6625,7 +6472,7 @@ import { trapFocus } from './modules/focus-trap.js';
     const list = document.getElementById('salPayrollList');
     if (!list) return;
     const filter = document.getElementById('salPayrollMaster')?.value || '';
-    const range = salPeriodRange(salPeriod);
+    const range = salRange(salPeriod);
     let masters = cachedMasters.filter((m) => m.is_active);
     if (filter) masters = masters.filter((m) => m.id === filter);
 
@@ -6771,14 +6618,14 @@ import { trapFocus } from './modules/focus-trap.js';
           });
           if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
           await salLoadSchemes();
-          await salLoadCalc(salPeriodRange(salPeriod));
+          await salLoadCalc(salRange(salPeriod));
           renderSalarySchemes();
         } else if (act === 'del') {
           if (!confirm('Удалить схему?')) return;
           const r = await salApi('DELETE', `/schemes/${id}`);
           if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
           await salLoadSchemes();
-          await salLoadCalc(salPeriodRange(salPeriod));
+          await salLoadCalc(salRange(salPeriod));
           renderSalarySchemes();
         }
       });
@@ -6869,13 +6716,13 @@ import { trapFocus } from './modules/focus-trap.js';
     }
     salCloseSchemeModal();
     await salLoadSchemes();
-    await salLoadCalc(salPeriodRange(salPeriod));
+    await salLoadCalc(salRange(salPeriod));
     salSwitchTab('schemes');
   }
 
   // ----- Modal: payroll_run -----
   function salOpenPayrollModal() {
-    const range = salPeriodRange(salPeriod);
+    const range = salRange(salPeriod);
     const fromI = document.getElementById('salPayrollFrom');
     const toI = document.getElementById('salPayrollTo');
     if (fromI) fromI.value = range.from;
@@ -7299,7 +7146,7 @@ import { trapFocus } from './modules/focus-trap.js';
       document.querySelectorAll('#salPayrollPeriod .period-pill').forEach((x) => {
         x.classList.toggle('active', x.dataset.period === salPeriod);
       });
-      await salLoadCalc(salPeriodRange(salPeriod));
+      await salLoadCalc(salRange(salPeriod));
       renderSalaryPayroll();
     });
   });
@@ -7463,6 +7310,12 @@ import { trapFocus } from './modules/focus-trap.js';
     if (!document.getElementById('salAccrualModalBackdrop')?.hidden) salCloseAccrualModal();
     if (!document.getElementById('salCommModalBackdrop')?.hidden) salCommCloseModal();
   });
+
+  // Зарплатный период = скользящий диапазон + число дней (база дневных ставок)
+  function salRange(period) {
+    const r = rollingRange(period);
+    return { ...r, days: daysInRange(r.from, r.to) };
+  }
 
   // ===== Commission rules (менеджерские комиссии по услугам) =====
   let cachedCommissions = [];
@@ -9013,27 +8866,6 @@ import { trapFocus } from './modules/focus-trap.js';
 
   let analyticsPeriod = 'month';
 
-  function getAnalyticsRange(period) {
-    const today = todayLocalISO();
-    if (period === 'today')  return { from: today, to: today };
-    if (period === 'yesterday') {
-      const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 1);
-      const y = d.toISOString().slice(0, 10);
-      return { from: y, to: y };
-    }
-    if (period === 'week')  {
-      const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - 6);
-      return { from: d.toISOString().slice(0, 10), to: today };
-    }
-    if (period === 'month') {
-      const d = new Date(today + 'T00:00:00');
-      return { from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, to: today };
-    }
-    if (period === 'year') {
-      return { from: `${new Date(today + 'T00:00:00').getFullYear()}-01-01`, to: today };
-    }
-    return { from: today, to: today };
-  }
 
   // ===== Today Dashboard =====
   let todayClockTimer = null;
@@ -9158,7 +8990,7 @@ import { trapFocus } from './modules/focus-trap.js';
   let analyticsTab = 'overview';
 
   async function loadAnalytics() {
-    const { from, to } = getAnalyticsRange(analyticsPeriod);
+    const { from, to } = rollingRange(analyticsPeriod);
     if (analyticsTab === 'overview') {
       const [main, retention, reviews] = await Promise.all([
         apiCall('GET', `/api/bookings/analytics?from=${from}&to=${to}`),
@@ -9581,31 +9413,13 @@ import { trapFocus } from './modules/focus-trap.js';
   let salesCurrentClientPhone = null;
   let salesCurrentBonusBalance = 0;
 
-  function getSalesRange(period) {
-    const today = todayLocalISO();
-    if (period === 'today')  return { from: today, to: today };
-    if (period === 'week') {
-      const d = new Date(today + 'T00:00:00');
-      d.setDate(d.getDate() - 6);
-      return { from: d.toISOString().slice(0, 10), to: today };
-    }
-    if (period === 'month') {
-      const d = new Date(today + 'T00:00:00');
-      return { from: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, to: today };
-    }
-    if (period === 'year') {
-      const d = new Date(today + 'T00:00:00');
-      return { from: `${d.getFullYear()}-01-01`, to: today };
-    }
-    return { from: today, to: today };
-  }
 
   async function activateSalesView() {
     await loadSales();
   }
 
   async function loadSales() {
-    const { from, to } = getSalesRange(salesPeriod);
+    const { from, to } = rollingRange(salesPeriod);
     const { ok, data } = await apiCall('GET', `/api/bookings/sales?from=${from}&to=${to}`);
     if (!ok) return;
     renderSalesKpi(data.totals, data.items);

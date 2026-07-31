@@ -28,9 +28,11 @@ jobs:
       run:
         working-directory: services/${{ matrix.service }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
+          # Совпадает с node:20-alpine в Dockerfile сервисов: CI должен
+          # проверять код на той же версии, что и прод.
           node-version: 20
           cache: npm
           cache-dependency-path: services/${{ matrix.service }}/package-lock.json
@@ -42,7 +44,7 @@ jobs:
     name: docker compose build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build all images
         env:
           # Заглушки только для интерполяции compose-файла при сборке
@@ -58,8 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
       - name: Start stack
@@ -95,7 +97,7 @@ jobs:
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
           npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: playwright-report
