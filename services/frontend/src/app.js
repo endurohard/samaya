@@ -10038,7 +10038,7 @@ import {
   async function deletePromo() {
     const id = els.promoId.value.trim();
     if (!id) return;
-    if (!confirm('Удалить промокод?')) return;
+    if (!confirm('Удалить акцию вместе со всеми её ссылками и купонами?')) return;
     await apiCall('DELETE', `/api/bookings/promos/${id}`);
     closePromoModal();
     await loadPromos();
