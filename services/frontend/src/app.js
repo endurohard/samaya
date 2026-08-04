@@ -3616,6 +3616,11 @@ import {
   // ===== Schedule (DIKIDI-style horizontal grid) =====
   // Структура: scheduleByMaster: Map<masterId, Map<work_date, {start,end,off,dirty,saved}>>
   let scheduleByMaster = new Map();
+  // Выделенные ячейки графика: ключ `${masterId}|${iso}`. Правка идёт пачкой
+  // через правую панель — как в DIKIDI, вместо системных prompt() по клику.
+  const schSelected = new Set();
+  let schLastPick = null;   // для ⇧+клика: продолжение диапазона в той же строке
+  const schKey = (mid, iso) => `${mid}|${iso}`;
 
 
   async function initScheduleView() {
@@ -3705,6 +3710,16 @@ import {
       head.style.gridRow = '1';
       head.style.gridColumn = String(d + 1);
       head.innerHTML = `<div class="sch-day-num">${d}</div><div class="sch-day-dow">${WEEKDAYS_RU[dow].toLowerCase()}</div>`;
+      head.title = 'Выделить весь день у всех сотрудников';
+      head.addEventListener('click', () => {
+        const rows = cachedMasters.filter((mm) => mm.is_active);
+        const allOn = rows.every((mm) => schSelected.has(schKey(mm.id, iso)));
+        rows.forEach((mm) => {
+          if (allOn) schSelected.delete(schKey(mm.id, iso));
+          else schSelected.add(schKey(mm.id, iso));
+        });
+        renderSchedule();
+      });
       grid.appendChild(head);
     }
 
@@ -3719,7 +3734,18 @@ import {
       mc.innerHTML = mst.avatar_url
         ? `<div class="sch-master-avatar" style="background-image:url('${mst.avatar_url}');background-size:cover;background-position:center"></div>`
         : `<div class="sch-master-avatar" style="background:${stringToColor(mst.id)}">${escapeHtml(initials || '?')}</div>`;
-      mc.title = mst.display_name || '';
+      mc.title = `${mst.display_name || ''} — выделить весь месяц сотрудника`;
+      mc.addEventListener('click', () => {
+        const { days: dCount } = monthRange(scheduleMonth);
+        const isoOf = (dd) => `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+        let allOn = true;
+        for (let dd = 1; dd <= dCount; dd++) if (!schSelected.has(schKey(mst.id, isoOf(dd)))) { allOn = false; break; }
+        for (let dd = 1; dd <= dCount; dd++) {
+          if (allOn) schSelected.delete(schKey(mst.id, isoOf(dd)));
+          else schSelected.add(schKey(mst.id, isoOf(dd)));
+        }
+        renderSchedule();
+      });
       grid.appendChild(mc);
 
       const dayMap = scheduleByMaster.get(mst.id) || new Map();
@@ -3743,6 +3769,7 @@ import {
         cell.className = cls.join(' ');
         cell.style.gridRow = String(rowIdx + 2);
         cell.style.gridColumn = String(d + 1);
+        if (schSelected.has(schKey(mst.id, iso))) cell.classList.add('is-selected');
 
         if (it && it.is_day_off) {
           // У DIKIDI выходная ячейка пустая, без текста — только подсветка через .is-off + .weekend
@@ -3754,36 +3781,19 @@ import {
         }
 
         cell.addEventListener('click', (e) => {
-          if (e.shiftKey) {
-            // toggle day-off
-            const cur = scheduleByMaster.get(mst.id) || new Map();
-            const exist = cur.get(iso) || { work_date: iso, start_time: '', end_time: '', is_day_off: false, saved: false, dirty: false };
-            exist.is_day_off = !exist.is_day_off;
-            if (exist.is_day_off) { exist.start_time = ''; exist.end_time = ''; }
-            exist.dirty = true;
-            cur.set(iso, exist);
-            scheduleByMaster.set(mst.id, cur);
-            renderSchedule();
-            return;
+          const key = schKey(mst.id, iso);
+          if (e.shiftKey && schLastPick && schLastPick.mid === mst.id) {
+            // диапазон дней внутри строки сотрудника
+            const [a, b] = [schLastPick.day, d].sort((x, y) => x - y);
+            for (let dd = a; dd <= b; dd++) {
+              schSelected.add(schKey(mst.id, `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`));
+            }
+          } else if (schSelected.has(key)) {
+            schSelected.delete(key);
+          } else {
+            schSelected.add(key);
           }
-          const startStr = prompt('Время начала (например 10:00):', (it && it.start_time) || '10:00');
-          if (startStr == null) return;
-          const endStr = prompt('Время конца (например 20:00):', (it && it.end_time) || '20:00');
-          if (endStr == null) return;
-          if (!/^\d{1,2}:\d{2}$/.test(startStr) || !/^\d{1,2}:\d{2}$/.test(endStr)) {
-            toast('Формат времени HH:MM');
-            return;
-          }
-          const cur = scheduleByMaster.get(mst.id) || new Map();
-          cur.set(iso, {
-            work_date: iso,
-            start_time: startStr,
-            end_time: endStr,
-            is_day_off: false,
-            saved: it ? it.saved : false,
-            dirty: true,
-          });
-          scheduleByMaster.set(mst.id, cur);
+          schLastPick = { mid: mst.id, day: d };
           renderSchedule();
         });
 
@@ -3794,6 +3804,7 @@ import {
     els.schGrid.innerHTML = '';
     els.schGrid.appendChild(grid);
     updateSaveBtn();
+    renderSchEditPanel();
     renderSchedulePreview();
   }
 
@@ -3899,6 +3910,49 @@ import {
     }
     if (savedAny) await loadAllSchedules();
   }
+
+  // Панель правки выделенных дней (правый столбец раздела)
+  function renderSchEditPanel() {
+    const panel = document.getElementById('schEditPanel');
+    const hint = document.getElementById('schHint');
+    const cnt = document.getElementById('schSelCount');
+    if (!panel || !hint) return;
+    const n = schSelected.size;
+    panel.hidden = n === 0;
+    hint.hidden = n > 0;
+    if (cnt) cnt.textContent = String(n);
+  }
+
+  // Применить к выделенным дням: либо рабочее время, либо выходной.
+  function schApplyToSelection(patch) {
+    if (!schSelected.size) return;
+    schSelected.forEach((key) => {
+      const [mid, iso] = key.split('|');
+      const dayMap = scheduleByMaster.get(mid) || new Map();
+      const prev = dayMap.get(iso) || { work_date: iso, saved: false };
+      dayMap.set(iso, { ...prev, work_date: iso, ...patch, dirty: true });
+      scheduleByMaster.set(mid, dayMap);
+    });
+    const n = schSelected.size;
+    schSelected.clear();
+    schLastPick = null;
+    renderSchedule();
+    toast(`Изменено дней: ${n}. Не забудьте «Сохранить».`);
+  }
+
+  document.getElementById('schSelClear')?.addEventListener('click', () => {
+    schSelected.clear(); schLastPick = null; renderSchedule();
+  });
+  document.getElementById('schApplyTime')?.addEventListener('click', () => {
+    const from = document.getElementById('schTimeFrom').value;
+    const to = document.getElementById('schTimeTo').value;
+    if (!from || !to) { toast('Укажите время начала и конца'); return; }
+    if (from >= to) { toast('Время конца должно быть позже начала'); return; }
+    schApplyToSelection({ start_time: from, end_time: to, is_day_off: false });
+  });
+  document.getElementById('schMarkOff')?.addEventListener('click', () => {
+    schApplyToSelection({ start_time: '', end_time: '', is_day_off: true });
+  });
 
   els.schApplyTemplate?.addEventListener('click', applyTemplate);
   els.schSave?.addEventListener('click', saveSchedule);

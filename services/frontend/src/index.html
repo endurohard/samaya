@@ -1038,9 +1038,25 @@
               <input type="date" id="schTo" class="visually-hidden" aria-hidden="true" />
             </div>
             <aside class="schedule-aside">
-              <div class="schedule-hint">
+              <div class="schedule-hint" id="schHint">
                 <p>Выделите в графике один или несколько дней для настройки расписания.</p>
-                <p class="hint">Клик по ячейке — задать время; ⇧+клик — выходной.</p>
+                <p class="hint">Клик — выделить день, ⇧+клик — диапазон.<br>
+                  Клик по числу в шапке выделит весь столбец, по сотруднику слева — всю строку.</p>
+              </div>
+              <div class="sch-edit" id="schEditPanel" hidden>
+                <div class="sch-edit-head">
+                  <span>Выбрано: <b id="schSelCount">0</b></span>
+                  <button type="button" class="btn-link" id="schSelClear">Сбросить выбор</button>
+                </div>
+                <label class="sch-edit-label" for="schTimeFrom">Рабочее время</label>
+                <div class="sch-edit-times">
+                  <input type="time" id="schTimeFrom" step="300" value="10:00" />
+                  <span class="sch-edit-dash">—</span>
+                  <input type="time" id="schTimeTo" step="300" value="20:00" />
+                </div>
+                <button type="button" class="btn-primary" id="schApplyTime">Применить изменения</button>
+                <div class="sch-edit-or">или</div>
+                <button type="button" class="btn-outline" id="schMarkOff">Сделать дни нерабочими</button>
               </div>
               <div id="schPreview" class="sch-preview"></div>
               <label class="sch-preview-toggle" title="Phase 1 — пометки записей в превью">
