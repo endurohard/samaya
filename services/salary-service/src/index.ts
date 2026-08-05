@@ -4,6 +4,7 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import { config } from './config';
 import { pool } from './db';
+import { processPaidBookings } from './instant-accruals';
 import { errorHandler, authenticate, requirePermission } from './middleware';
 import schemesRoutes from './routes/schemes';
 import calculateRoutes from './routes/calculate';
@@ -65,3 +66,20 @@ const shutdown = (signal: string) => {
 };
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Воркер мгновенных начислений: доля исполнителя и менеджера уходит в
+// зарплату сразу после оплаты записи, а не в конце месяца. Опрос базы, а не
+// событие: так обработка догоняет пропущенное после простоя и не зависит от
+// доставки события. Пул процентных комиссий остаётся на расчёт периода.
+if (config.INSTANT_ACCRUALS_ENABLED) {
+  const tick = async () => {
+    try {
+      const n = await processPaidBookings(config.INSTANT_ACCRUALS_BATCH);
+      if (n > 0) log.info({ processed: n }, 'instant accruals');
+    } catch (e) {
+      log.error({ err: e }, 'instant accruals failed');
+    }
+  };
+  setInterval(() => { void tick(); }, config.INSTANT_ACCRUALS_INTERVAL_MS).unref();
+  void tick();
+}

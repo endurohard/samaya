@@ -6383,6 +6383,7 @@ import {
     const empty = {
       rate: 0, percent_services: 0, percent_salon: 0, guaranteed: 0, total: 0,
       commission_total: 0, worked_days: null, is_cleaner: false, is_manager: false,
+      accrued_instant: 0, to_accrue: 0,
     };
     if (!cachedSalCalc || cachedSalCalc.from?.slice(0, 10) !== range.from || cachedSalCalc.to?.slice(0, 10) !== range.to) return empty;
     const item = cachedSalCalc.items?.find((x) => x.master_id === master.id);
@@ -6397,6 +6398,10 @@ import {
       is_cleaner: !!item.is_cleaner,
       is_manager: !!item.is_manager,
       total: item.total || 0,
+      // Часть зарплаты уже начислена сразу после оплаты записей — в конце
+      // месяца доначисляем только остаток, иначе деньги уйдут дважды.
+      accrued_instant: item.accrued_instant || 0,
+      to_accrue: item.to_accrue != null ? item.to_accrue : (item.total || 0),
     };
   }
 
@@ -6799,13 +6804,18 @@ import {
     const masters = cachedMasters.filter((m) => m.is_active);
     const rows = masters.map((m) => ({ master: m, calc: salCalcRow(m, range) }));
     let total = 0;
+    // Начисляем остаток: доля за услуги и за оформление уже ушла сотруднику
+    // сразу после оплаты записи, здесь добираем пул, ставку и проценты периода.
     const html = rows.map(({ master, calc }) => {
-      total += calc.total;
+      total += calc.to_accrue;
+      const already = calc.accrued_instant > 0
+        ? `<div class="sal-pp-already">уже начислено сразу: ${fmtMoney(calc.accrued_instant)} ₽ из ${fmtMoney(calc.total)} ₽</div>`
+        : '';
       return `
         <div class="sal-payroll-pp-row">
-          <input type="checkbox" data-master-id="${master.id}" ${calc.total > 0 ? 'checked' : ''} />
-          <div>${escapeHtml(master.display_name || '—')}</div>
-          <div class="sal-pp-amount">${fmtMoney(calc.total)} ₽</div>
+          <input type="checkbox" data-master-id="${master.id}" ${calc.to_accrue > 0 ? 'checked' : ''} />
+          <div>${escapeHtml(master.display_name || '—')}${already}</div>
+          <div class="sal-pp-amount">${fmtMoney(calc.to_accrue)} ₽</div>
         </div>
       `;
     }).join('');
@@ -6850,10 +6860,11 @@ import {
         const m = cachedMasters.find((x) => x.id === masterId);
         if (!m) return null;
         const calc = salCalcRow(m, { ...range, days: Math.max(1, Math.round((new Date(range.to) - new Date(range.from)) / 86400000) + 1) });
-        if (!calc.total || calc.total <= 0) return null;
+        const amount = calc.to_accrue;
+        if (!amount || amount <= 0) return null;
         return {
           master_id: masterId,
-          amount: calc.total,
+          amount,
           source_kind: 'auto_calc',
           source: `Расчёт ЗП ${range.from} — ${range.to}`,
           period_from: range.from,

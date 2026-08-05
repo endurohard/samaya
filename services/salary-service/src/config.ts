@@ -11,6 +11,10 @@ const schema = z.object({
   BOOKING_SERVICE_URL: z.string().url().default('http://booking-service:3003'),
   FINANCE_SERVICE_URL: z.string().url().default('http://finance-service:3006'),
   LOG_LEVEL: z.string().default('info'),
+  // Мгновенные начисления по оплаченным записям (см. instant-accruals.ts)
+  INSTANT_ACCRUALS_ENABLED: z.coerce.boolean().default(true),
+  INSTANT_ACCRUALS_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  INSTANT_ACCRUALS_BATCH: z.coerce.number().int().positive().max(500).default(50),
 });
 
 const parsed = schema.safeParse(process.env);

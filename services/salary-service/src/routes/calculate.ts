@@ -285,6 +285,21 @@ router.get('/', async (req, res, next) => {
       for (const row of wdRes.rows) workedDaysMap.set(row.master_id, row.worked_days);
     }
 
+    // Уже начисленное мгновенно по оплаченным записям периода. Расчёт
+    // показывает полную картину за период, а начислять в конце месяца надо
+    // только остаток — иначе доля исполнителя и менеджера уйдёт дважды.
+    const instantAccrued = new Map<string, number>();
+    const instRes = await pool.query(
+      `SELECT master_id, SUM(amount)::float8 AS amount
+       FROM salary.accruals
+       WHERE company_id = $1
+         AND source IN ('booking_executor', 'booking_manager')
+         AND period_from >= $2::date AND period_from <= $3::date
+       GROUP BY master_id`,
+      [companyId, q.from, q.to],
+    );
+    for (const r of instRes.rows) instantAccrued.set(r.master_id, Number(r.amount));
+
     // Участники % пула — только с in_commission_pool=true
     const poolMembers = masters.rows.filter((m) => m.in_commission_pool);
     const managerCount = poolMembers.length;
@@ -359,6 +374,9 @@ router.get('/', async (req, res, next) => {
       const fixedShare = Math.round(fixedByManager.get(m.id) || 0);
       const commissionTotal = percentShare + fixedShare;
       const total = baseTotal + commissionTotal;
+      // Мгновенно начисленное по записям периода и остаток к начислению.
+      const accruedInstant = Math.round(instantAccrued.get(m.id) || 0);
+      const toAccrue = Math.max(0, total - accruedInstant);
 
       return {
         master_id: m.id,
@@ -376,6 +394,8 @@ router.get('/', async (req, res, next) => {
         commission_fixed_share: fixedShare,
         commission_total: commissionTotal,
         rate, pct_services, pct_goods, pct_company, pct_created, pct_salon: 0, guaranteed, total,
+        accrued_instant: accruedInstant,
+        to_accrue: toAccrue,
       };
     });
 
