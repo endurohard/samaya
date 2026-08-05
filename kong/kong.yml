@@ -17,18 +17,25 @@ services:
           - /api/auth
         strip_path: false
         methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
-      # Отдельный маршрут (длинный префикс выигрывает) — жёсткий лимит против брутфорса
+      # Отдельный маршрут (длинный префикс выигрывает) — жёсткий лимит против брутфорса.
+      # Только POST: CORS-предзапрос OPTIONS уходит на общий маршрут «auth» и
+      # не съедает лимит — иначе каждая попытка входа стоила бы двух запросов.
       - name: auth-login
         paths:
           - /api/auth/login
           - /api/auth/register
         strip_path: false
-        methods: [POST, OPTIONS]
+        methods: [POST]
         plugins:
           - name: rate-limiting
             config:
-              minute: 10
+              minute: 20
               policy: local
+              # Считаем по адресу клиента, а не «на всех сразу». Реальный адрес
+              # Kong берёт из X-Forwarded-For (KONG_REAL_IP_* в compose): без
+              # этого все запросы приходят с адреса nginx-контейнера, и лимит
+              # делился на весь салон — сотрудники блокировали друг друга.
+              limit_by: ip
 
   - name: salon-service
     url: http://salon-service:3002
