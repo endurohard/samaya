@@ -34,6 +34,19 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Бот или живой человек. Раньше отбрасывали по названию мессенджера в
+// user-agent, и вместе с ботом-превью терялся реальный посетитель: люди
+// открывают ссылку прямо из WhatsApp, и его встроенный браузер тоже пишет
+// «WhatsApp» в user-agent. Теперь считаем наоборот — засчитываем только то,
+// что выглядит настоящим браузером; превью и краулеры полноценным браузером
+// не притворяются.
+export function looksLikeBot(ua: string): boolean {
+  const browserLike = /Mozilla\/5\.0/i.test(ua)
+    && /(Chrome|CriOS|Firefox|FxiOS|YaBrowser|Edg|Version\/[\d.]+ (Mobile\/\S+ )?Safari)\//i.test(ua);
+  const crawler = /(^|[^a-z])bot([^a-z]|$)|crawler|crawl|spider|preview|facebookexternalhit|vkshare|curl|wget|python-requests|okhttp|headless/i.test(ua);
+  return crawler || !browserLike;
+}
+
 function fmtPrice(v: number): string {
   return `${new Intl.NumberFormat('ru-RU').format(v)} ₽`;
 }
@@ -278,7 +291,7 @@ router.get('/a/:ptoken', async (req, res, next) => {
     // Боты и предпросмотры ссылок в мессенджерах не считаются вовсе:
     // WhatsApp/Telegram дёргают страницу при вставке ссылки в чат.
     const ua = String(req.headers['user-agent'] ?? '');
-    const isBot = /bot|crawl|spider|preview|whatsapp|telegram|facebookexternalhit|vkshare|curl|wget/i.test(ua);
+    const isBot = looksLikeBot(ua);
     if (!isBot) {
       const seenCookie = `pv_${p.promo_id.slice(0, 8)}`;
       const isFirstVisit = !(req.headers.cookie ?? '').includes(`${seenCookie}=1`);
