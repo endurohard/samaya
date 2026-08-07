@@ -6771,7 +6771,16 @@ import {
     }
     if (scheme_type === 'percent_only' && payload.percent_services <= 0
         && payload.percent_company <= 0 && payload.percent_created <= 0) {
-      err.textContent = 'Укажите хотя бы один процент больше 0'; err.hidden = false; return;
+      // Нули в этом окне законны, если процент задан поштучно в «Детальных
+      // настройках»: там и живёт схема «20% с одной услуги, 3% с другой».
+      // Спрашиваем сервер, а не msrRates — тот заполняется только при открытии
+      // детальной модалки, а ставки могли быть сохранены раньше.
+      const rr = await salApi('GET', `/schemes/service-rates/${master_id}`);
+      const hasPerService = !!(rr.ok && (rr.data?.items || []).length);
+      if (!hasPerService) {
+        err.textContent = 'Укажите процент — общий здесь или по услугам в «Детальных настройках»';
+        err.hidden = false; return;
+      }
     }
     const r = await salApi('POST', '/schemes', payload);
     if (!r.ok) {
