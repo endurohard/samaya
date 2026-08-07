@@ -71,12 +71,24 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
     const input = createSchema.parse(req.body);
     await client.query('BEGIN');
 
+    // Правка схемы в тот же день, с которого она действует, — это не новый
+    // период, а исправление: старую строку заменяем. Иначе auto-close ниже
+    // поставил бы ей effective_to на день раньше её же начала и упёрся в
+    // schemes_check (effective_to >= effective_from) — 500 на «Сохранить».
+    await client.query(
+      `DELETE FROM salary.schemes
+       WHERE company_id = $1 AND master_id = $2
+         AND effective_from = $3::date
+         AND effective_to IS NULL`,
+      [req.auth!.company_id, input.master_id, input.effective_from],
+    );
+
     // Auto-close предыдущей открытой схемы для этого мастера, если перекрывается.
     await client.query(
       `UPDATE salary.schemes
        SET effective_to = ($3::date - INTERVAL '1 day')::date
        WHERE company_id = $1 AND master_id = $2
-         AND effective_from <= $3::date
+         AND effective_from < $3::date
          AND effective_to IS NULL`,
       [req.auth!.company_id, input.master_id, input.effective_from],
     );
