@@ -923,6 +923,12 @@ import {
     const file = document.getElementById('svcImageFile').files[0];
     if (!id) return;
     if (!file) { toast('Выберите изображение'); return; }
+    // Ловим перебор по размеру до отправки: иначе 30 МБ уезжают на сервер впустую
+    // и возвращается голый 413, по которому непонятно, что делать.
+    if (file.size > 30 * 1024 * 1024) {
+      toast(`Изображение ${formatFileSize(file.size)} — максимум 30 МБ`);
+      return;
+    }
     const fd = new FormData(); fd.append('image', file);
     let resp;
     try {

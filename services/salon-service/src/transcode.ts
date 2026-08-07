@@ -72,12 +72,15 @@ function runFfmpeg(input: string, output: string): Promise<void> {
   });
 }
 
-// Удаляем все файлы услуги, кроме keepFile (чистим оригинал/старые расширения/tmp).
+// Удаляем видеофайлы услуги, кроме keepFile (чистим оригинал/старые расширения/tmp).
+// Картинка карточки лежит рядом как `<id>.img.<ext>` и под тот же префикс попадает —
+// её надо пропустить, иначе фото услуги молча исчезает с диска после перекодировки,
+// а image_path в БД остаётся и на сайте получается битая картинка.
 function cleanupServiceMedia(dir: string, serviceId: string, keepFile: string): void {
   let files: string[] = [];
   try { files = fs.readdirSync(dir); } catch { return; }
   for (const f of files) {
-    if (f.startsWith(`${serviceId}.`) && f !== keepFile) {
+    if (f.startsWith(`${serviceId}.`) && f !== keepFile && !f.startsWith(`${serviceId}.img.`)) {
       fs.unlink(path.join(dir, f), () => {});
     }
   }

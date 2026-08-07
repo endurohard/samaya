@@ -7,6 +7,7 @@ import { pool } from '../db';
 import { config } from '../config';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { transcodeServiceVideo } from '../transcode';
+import { shrinkImage } from '../image';
 import { slugify, uniqueSlug } from '../slug';
 
 const router = Router();
@@ -32,7 +33,9 @@ const IMAGE_EXT: Record<string, string> = {
   'image/png': 'png',
   'image/webp': 'webp',
 };
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 МБ
+// Телефоны отдают снимки на 12–20 МБ, и на 10 МБ загрузка упиралась в 413.
+// Принимаем крупный исходник, а на диск кладём ужатую копию (см. shrinkImage).
+const MAX_IMAGE_BYTES = 30 * 1024 * 1024; // 30 МБ
 
 const uploadImage = multer({
   storage: multer.diskStorage({
@@ -209,10 +212,13 @@ router.delete('/:id/preview-video', requireRole(['owner', 'admin']), async (req,
       [req.auth!.company_id, req.params.id],
     );
     if (!svc.rows[0]) return next(new HttpError(404, 'service not found'));
-    // Удаляем все файлы услуги (mp4/оригинал/tmp), а не только текущий video_path.
+    // Удаляем все видеофайлы услуги (mp4/оригинал/tmp), а не только текущий video_path.
+    // Картинку карточки (`<id>.img.<ext>`) не трогаем — она живёт своей жизнью.
     try {
       for (const f of fs.readdirSync(MEDIA_SERVICES_DIR)) {
-        if (f.startsWith(`${req.params.id}.`)) fs.unlink(path.join(MEDIA_SERVICES_DIR, f), () => {});
+        if (f.startsWith(`${req.params.id}.`) && !f.startsWith(`${req.params.id}.img.`)) {
+          fs.unlink(path.join(MEDIA_SERVICES_DIR, f), () => {});
+        }
       }
     } catch { /* каталога может не быть */ }
     await pool.query(
@@ -232,13 +238,15 @@ router.post('/:id/image', requireRole(['owner', 'admin']), (req, res, next) => {
   uploadImage(req, res, (err: unknown) => {
     if (err) {
       const e = err as { message?: string; code?: string };
-      if (e.message === 'UNSUPPORTED_TYPE') return next(new HttpError(400, 'unsupported image type (jpeg/png/webp)', 'UNSUPPORTED_TYPE'));
-      if (e.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'image too large', 'FILE_TOO_LARGE'));
+      if (e.message === 'UNSUPPORTED_TYPE') return next(new HttpError(400, 'Формат не поддерживается — нужен JPEG, PNG или WebP', 'UNSUPPORTED_TYPE'));
+      if (e.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'Изображение больше 30 МБ', 'FILE_TOO_LARGE'));
       return next(err);
     }
     (async () => {
       const file = req.file;
       if (!file) throw new HttpError(400, 'no file (field "image")');
+      // Ужимаем до записи пути в БД — карточке каталога не нужен исходник с телефона.
+      await shrinkImage(file.path);
       const rel = `services/${file.filename}`;
       const { rows } = await pool.query(
         `UPDATE salons.services SET image_path = $3, updated_at = NOW()
