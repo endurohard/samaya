@@ -433,6 +433,7 @@
               <h2 class="card-title">Услуги</h2>
               <span class="counter" id="servicesCounter">0</span>
               <div class="data-head-spacer"></div>
+              <button class="btn-ghost btn-sm" id="svcGroupsBtn" type="button">Группы услуг</button>
               <button class="btn-primary btn-sm" id="addServiceToggle" type="button">+ Добавить услугу</button>
             </div>
             <details class="add-block" id="addServiceBlock">
@@ -454,6 +455,10 @@
                   <div>
                     <label for="svcColor">Цвет (hex)</label>
                     <input id="svcColor" name="color" type="text" pattern="^#[0-9a-fA-F]{6}$" placeholder="#a78bfa" />
+                  </div>
+                  <div>
+                    <label for="svcCategory">Группа услуг</label>
+                    <select id="svcCategory" name="category_id"><option value="">— без группы —</option></select>
                   </div>
                 </div>
                 <label class="sal-checkbox-row" style="margin-top:10px;">
@@ -604,6 +609,8 @@
                 <div class="error" id="svcEditError" hidden></div>
               </div>
               <div class="modal-foot">
+                <button type="button" class="btn-danger btn-sm" id="svcEditDelete" style="margin-right:auto;">Удалить услугу</button>
+                <button type="button" class="btn-ghost btn-sm" id="svcEditRestore" style="margin-right:auto;" hidden>Вернуть в работу</button>
                 <button type="submit" class="btn-primary">Сохранить</button>
                 <button type="button" class="btn-ghost" id="svcEditCancel">Отмена</button>
               </div>

@@ -701,7 +701,9 @@ import {
           <div class="dot-color" style="background: ${escapeHtml(s.color || '#7c3aed')}"></div>
           <div class="row-main">
             <div class="row-name">${escapeHtml(s.name)}</div>
-            ${commBadge ? `<div class="row-meta">${commBadge}</div>` : ''}
+            ${!s.is_active || commBadge
+    ? `<div class="row-meta">${s.is_active ? '' : '<span class="badge">удалена</span> '}${commBadge}</div>`
+    : ''}
           </div>
           <button type="button" class="svc-menu-flag" data-menu-id="${s.id}"
             title="${s.show_in_menu ? 'Отображается в меню сайта' : 'Не отображается в меню сайта'} — нажмите, чтобы переключить">
@@ -782,6 +784,9 @@ import {
     renderSvcPreview(s);
     if (s.video_status === 'processing') pollSvcPreview(s.id, 60); else stopSvcPoll();
     document.getElementById('svcEditError').hidden = true;
+    // У погашенной услуги вместо «Удалить» показываем возврат в работу.
+    document.getElementById('svcEditDelete').hidden = !s.is_active;
+    document.getElementById('svcEditRestore').hidden = !!s.is_active;
     updateSvcCommLabel();
     svcSwitchTab('settings');
     toggleSvcCatAdd(false);
@@ -982,6 +987,17 @@ import {
       + cachedServiceCategories.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
     sel.value = selectedId || '';
   }
+  // Тот же список групп для формы быстрого добавления услуги в разделе «Услуги».
+  async function populateAddSvcCategories() {
+    const sel = document.getElementById('svcCategory');
+    if (!sel) return;
+    const cats = await loadServiceCategories();
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— без группы —</option>'
+      + cats.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+    sel.value = prev;
+  }
+
   function toggleSvcCatAdd(show) {
     const inl = document.getElementById('svcEditCatAddInline');
     if (!inl) return;
@@ -1102,6 +1118,31 @@ import {
   });
   document.getElementById('svcEditBackdrop')?.addEventListener('click', (e) => {
     if (e.target.id === 'svcEditBackdrop') { stopSvcPoll(); document.getElementById('svcEditBackdrop').hidden = true; }
+  });
+
+  // Удаление услуги — мягкое: записи хранят ссылку на услугу и её историческую
+  // цену, поэтому строка остаётся, гасится только is_active. Отсюда и обратная
+  // кнопка «Вернуть в работу» — иначе погашенную услугу было бы не поднять.
+  document.getElementById('svcEditDelete')?.addEventListener('click', async () => {
+    const id = document.getElementById('svcEditId').value;
+    const s = cachedServices.find((x) => x.id === id);
+    if (!s) return;
+    if (!confirm(`Удалить услугу «${s.name}»?\nОна пропадёт из записи и с сайта. Прошлые записи и их суммы сохранятся, услугу можно вернуть.`)) return;
+    const r = await apiCall('DELETE', `/api/salons/services/${id}`, null);
+    if (!r.ok) { toast(r.data?.error || 'Не удалось удалить услугу'); return; }
+    stopSvcPoll();
+    document.getElementById('svcEditBackdrop').hidden = true;
+    await loadServices();
+    toast('Услуга удалена');
+  });
+  document.getElementById('svcEditRestore')?.addEventListener('click', async () => {
+    const id = document.getElementById('svcEditId').value;
+    const r = await apiCall('PATCH', `/api/salons/services/${id}`, { is_active: true });
+    if (!r.ok) { toast(r.data?.error || 'Не удалось вернуть услугу'); return; }
+    stopSvcPoll();
+    document.getElementById('svcEditBackdrop').hidden = true;
+    await loadServices();
+    toast('Услуга снова в работе');
   });
   document.getElementById('svcEditForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1314,8 +1355,15 @@ import {
   });
 
   // ===== Add service =====
+  // Группы живут в «Настройки → Услуги»; из раздела услуг ведём туда, а не
+  // заводим второй экран управления с теми же кнопками.
+  document.getElementById('svcGroupsBtn')?.addEventListener('click', () => {
+    setView('settings');
+    setSwitchTab('services');
+  });
   els.addServiceToggle.addEventListener('click', () => {
     els.addServiceBlock.open = !els.addServiceBlock.open;
+    if (els.addServiceBlock.open) void populateAddSvcCategories();
   });
   els.addServiceCancel.addEventListener('click', () => {
     els.addServiceBlock.open = false;
@@ -1331,6 +1379,8 @@ import {
     };
     const color = String(fd.get('color') || '').trim();
     if (color) body.color = color;
+    const categoryId = String(fd.get('category_id') || '').trim();
+    if (categoryId) body.category_id = categoryId;
     body.show_in_menu = document.getElementById('svcShowInMenu').checked;
     const { ok, data, status } = await apiCall('POST', '/api/salons/services', body);
     if (!ok) { toast(`Ошибка создания услуги: ${data?.error || status}`); return; }
@@ -7824,6 +7874,72 @@ import {
   }
 
   // ===== Управление группами услуг (Настройки → Услуги) =====
+  // Раскрытая группа, у которой показан подбор услуг (null — ни одна).
+  let svcGrpPickId = null;
+
+  // Состав группы: чекбоксы по всем активным услугам, отмечены входящие в неё.
+  // Услуга принадлежит ровно одной группе, поэтому отметка = перенос из прежней.
+  function svcGrpPickHtml(cat) {
+    const items = cachedServices.filter((s) => s.is_active);
+    return `
+      <div class="svc-grp-pick">
+        <div class="svc-grp-pick-list">
+          ${items.map((s) => `
+            <label class="svc-grp-pick-row">
+              <input type="checkbox" class="svc-grp-svc" data-svc="${escapeHtml(s.id)}"
+                     ${s.category_id === cat.id ? 'checked' : ''} />
+              <span>${escapeHtml(s.name)}</span>
+              <span class="muted">${s.category_name && s.category_id !== cat.id ? escapeHtml(s.category_name) : ''}</span>
+            </label>`).join('')}
+        </div>
+        <div class="svc-grp-pick-foot">
+          <button type="button" class="btn-primary btn-xs svc-grp-pick-save">Сохранить состав</button>
+          <button type="button" class="btn-ghost btn-xs svc-grp-pick-cancel">Отмена</button>
+        </div>
+      </div>`;
+  }
+
+  function bindSvcGrpPick(listEl, groups) {
+    listEl.querySelectorAll('[data-grp-pick]').forEach((b) => {
+      b.addEventListener('click', () => {
+        svcGrpPickId = svcGrpPickId === b.dataset.grpPick ? null : b.dataset.grpPick;
+        void loadSvcGroups();
+      });
+    });
+    const pick = listEl.querySelector('.svc-grp-pick');
+    if (!pick) return;
+    const cat = groups.find((g) => g.id === svcGrpPickId);
+    pick.querySelector('.svc-grp-pick-cancel').addEventListener('click', () => {
+      svcGrpPickId = null;
+      void loadSvcGroups();
+    });
+    pick.querySelector('.svc-grp-pick-save').addEventListener('click', async () => {
+      // Шлём только изменившееся: PATCH на каждую из 90 услуг — лишняя нагрузка.
+      const changes = [];
+      pick.querySelectorAll('.svc-grp-svc').forEach((cb) => {
+        const s = cachedServices.find((x) => x.id === cb.dataset.svc);
+        if (!s) return;
+        const was = s.category_id === cat.id;
+        if (cb.checked && !was) changes.push({ id: s.id, category_id: cat.id });
+        else if (!cb.checked && was) changes.push({ id: s.id, category_id: null });
+      });
+      if (!changes.length) { svcGrpPickId = null; void loadSvcGroups(); return; }
+      const btn = pick.querySelector('.svc-grp-pick-save');
+      btn.disabled = true;
+      let failed = 0;
+      for (const ch of changes) {
+        const r = await apiCall('PATCH', `/api/salons/services/${ch.id}`, { category_id: ch.category_id });
+        if (!r.ok) failed++;
+      }
+      svcGrpPickId = null;
+      await loadServices();
+      await loadSvcGroups();
+      toast(failed
+        ? `Перенесено ${changes.length - failed} из ${changes.length}, ошибок: ${failed}`
+        : `Услуг перенесено: ${changes.length}`);
+    });
+  }
+
   async function loadSvcGroups() {
     const listEl = document.getElementById('svcGroupsList');
     if (listEl) listEl.innerHTML = '<div class="empty">Загрузка…</div>';
@@ -7834,12 +7950,26 @@ import {
     if (cnt) cnt.textContent = String(groups.length);
     if (!listEl) return;
     if (!groups.length) { listEl.innerHTML = '<div class="empty">Групп пока нет. Добавьте первую выше.</div>'; return; }
-    listEl.innerHTML = groups.map((g) => `
-      <div class="row-item">
+    // Состав группы набирается из списка услуг — он нужен и для счётчиков.
+    if (!cachedServices.length) await loadServices();
+    const countBy = new Map();
+    for (const s of cachedServices) {
+      if (!s.is_active || !s.category_id) continue;
+      countBy.set(s.category_id, (countBy.get(s.category_id) || 0) + 1);
+    }
+    listEl.innerHTML = groups.map((g) => {
+      const n = countBy.get(g.id) || 0;
+      return `
+      <div class="row-item svc-grp-item">
         <div class="row-main"><div class="row-name">${escapeHtml(g.name)}</div></div>
+        <span class="svc-grp-count">${n} ${plural(n, ['услуга', 'услуги', 'услуг'])}</span>
+        <button type="button" class="btn-ghost btn-xs" data-grp-pick="${escapeHtml(g.id)}">Состав</button>
         <button type="button" class="btn-ghost btn-xs" data-grp-rename="${escapeHtml(g.id)}" data-grp-name="${escapeHtml(g.name)}">Переименовать</button>
         <button type="button" class="btn-ghost btn-xs" data-grp-del="${escapeHtml(g.id)}">Удалить</button>
-      </div>`).join('');
+        ${svcGrpPickId === g.id ? svcGrpPickHtml(g) : ''}
+      </div>`;
+    }).join('');
+    bindSvcGrpPick(listEl, groups);
     listEl.querySelectorAll('[data-grp-rename]').forEach((b) => {
       b.addEventListener('click', async () => {
         const name = prompt('Новое название группы:', b.dataset.grpName || '');
@@ -7850,16 +7980,23 @@ import {
         if (!r2.ok) { toast(r2.status === 409 ? 'Группа с таким названием уже есть' : `Ошибка: ${r2.data?.error || r2.status}`); return; }
         cachedServiceCategories = [];
         toast('Группа переименована');
+        await loadServices(); // подписи групп в списке услуг приходят тем же запросом
         await loadSvcGroups();
       });
     });
     listEl.querySelectorAll('[data-grp-del]').forEach((b) => {
       b.addEventListener('click', async () => {
-        if (!confirm('Удалить группу? Услуги останутся, но без группы.')) return;
+        const n = cachedServices.filter((s) => s.is_active && s.category_id === b.dataset.grpDel).length;
+        const tail = n
+          ? ` ${n} ${plural(n, ['услуга останется', 'услуги останутся', 'услуг останутся'])} без группы.`
+          : ' Услуг в ней нет.';
+        if (!confirm(`Удалить группу? Сами услуги не удаляются.${tail}`)) return;
         const r2 = await setApi('DELETE', `/categories/${b.dataset.grpDel}`);
         if (!r2.ok) { toast(`Ошибка: ${r2.data?.error || r2.status}`); return; }
         cachedServiceCategories = [];
+        svcGrpPickId = null;
         toast('Группа удалена');
+        await loadServices(); // у услуг снялась группа — перерисовываем список
         await loadSvcGroups();
       });
     });

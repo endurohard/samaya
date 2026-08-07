@@ -5124,3 +5124,20 @@ html, body { overflow-x: hidden; }
 /* Схемы ЗП: строка открывается на правку */
 .sal-link { color: #2f6fd6; text-decoration: none; }
 .sal-link:hover { text-decoration: underline; }
+
+/* ===== Группы услуг: список групп с переименованием, удалением и подбором услуг ===== */
+.svc-grp-count { font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; }
+/* Раскрывается внутри .row-item (flex) — поэтому строка-контейнер переносится,
+   а панель занимает всю ширину следующей строки. */
+.svc-grp-item { flex-wrap: wrap; }
+.svc-grp-pick {
+  flex-basis: 100%; margin: 4px 0 0;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px;
+}
+.svc-grp-pick-list { max-height: 34vh; overflow-y: auto; }
+.svc-grp-pick-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0; font-size: var(--fs-sm);
+}
+.svc-grp-pick-row .muted { margin-left: auto; font-size: var(--fs-xs); white-space: nowrap; }
+.svc-grp-pick-foot { display: flex; gap: 8px; margin-top: 8px; }
