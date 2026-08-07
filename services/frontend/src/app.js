@@ -6717,6 +6717,7 @@ import {
 
   // ----- Modal: salary_scheme_create -----
   function salOpenSchemeModal() {
+    msrResetStaged();
     salPopulateMasterSelects();
     const today = todayLocalISO();
     const dateInp = document.getElementById('salSchemeStart');
@@ -6732,6 +6733,9 @@ import {
     if (back) back.hidden = true;
     const f = document.getElementById('salSchemeForm');
     if (f) f.reset();
+    // Закрыли окно — набранные ставки по услугам уходят вместе с ним:
+    // при «Отмене» их не должно остаться, после сохранения они уже записаны.
+    msrResetStaged();
   }
   function salUpdateSchemeFields() {
     const type = document.querySelector('input[name="scheme_type"]:checked')?.value || 'rate';
@@ -6769,14 +6773,20 @@ import {
     if (scheme_type === 'rate' && payload.rate_amount <= 0) {
       err.textContent = 'Укажите ставку больше 0'; err.hidden = false; return;
     }
+    // Ставки по услугам, набранные в «Детальных настройках» этого же окна.
+    const staged = msrTouched && msrMasterId === master_id;
+
     if (scheme_type === 'percent_only' && payload.percent_services <= 0
         && payload.percent_company <= 0 && payload.percent_created <= 0) {
       // Нули в этом окне законны, если процент задан поштучно в «Детальных
       // настройках»: там и живёт схема «20% с одной услуги, 3% с другой».
-      // Спрашиваем сервер, а не msrRates — тот заполняется только при открытии
-      // детальной модалки, а ставки могли быть сохранены раньше.
-      const rr = await salApi('GET', `/schemes/service-rates/${master_id}`);
-      const hasPerService = !!(rr.ok && (rr.data?.items || []).length);
+      // Набранное в этой сессии считаем как есть; иначе спрашиваем сервер —
+      // ставки могли быть сохранены раньше, а детальную модалку не открывали.
+      let hasPerService = staged && msrRates.size > 0;
+      if (!hasPerService && !staged) {
+        const rr = await salApi('GET', `/schemes/service-rates/${master_id}`);
+        hasPerService = !!(rr.ok && (rr.data?.items || []).length);
+      }
       if (!hasPerService) {
         err.textContent = 'Укажите процент — общий здесь или по услугам в «Детальных настройках»';
         err.hidden = false; return;
@@ -6787,6 +6797,21 @@ import {
       err.textContent = 'Ошибка: ' + (r.data?.error || r.status);
       err.hidden = false;
       return;
+    }
+    // Схема записана — только теперь фиксируем ставки по услугам. Если их не
+    // трогали, PUT не шлём: он полностью заменяет набор и стёр бы прежние.
+    if (staged) {
+      const items = [...msrRates.entries()].map(([service_id, mr]) => ({
+        service_id, percent: mr.percent, fixed_amount: mr.fixed_amount,
+      }));
+      const rr = await salApi('PUT', `/schemes/service-rates/${master_id}`, { items });
+      if (!rr.ok) {
+        // Схема уже сохранена, поэтому не откатываем — говорим, что именно не доехало.
+        err.textContent = 'Схема сохранена, но ставки по услугам не записались: '
+          + (rr.data?.error || rr.status);
+        err.hidden = false;
+        return;
+      }
     }
     salCloseSchemeModal();
     await salLoadSchemes();
@@ -7255,7 +7280,19 @@ import {
 
   // ── Пер-услуга вознаграждение мастера («Детальные настройки» DIKIDI) ──
   // msrRates: Map<service_id, {percent, fixed_amount}> для выбранного мастера.
+  // Ставки не пишутся на сервер сразу: детальная модалка только копит правки,
+  // а записывает их сохранение схемы. Иначе «Отмена» в схеме оставляла бы уже
+  // изменённые ставки — сущность формально отдельная, но пользователь видит
+  // одно окно настройки и ждёт, что отмена отменяет всё.
   let msrRates = new Map();
+  let msrMasterId = null;   // для какого мастера набраны ставки
+  let msrTouched = false;   // пользователь нажал «Применить» или «Сбросить все»
+
+  function msrResetStaged() {
+    msrRates = new Map();
+    msrMasterId = null;
+    msrTouched = false;
+  }
 
   async function openMsrModal() {
     const masterId = document.getElementById('salSchemeMaster')?.value;
@@ -7265,12 +7302,17 @@ import {
       return;
     }
     if (!cachedServices.length) await loadServices();
-    msrRates = new Map();
-    const r = await salApi('GET', `/schemes/service-rates/${masterId}`);
-    if (r.ok) {
-      for (const it of (r.data?.items || [])) {
-        msrRates.set(it.service_id, { percent: it.percent, fixed_amount: it.fixed_amount });
+    // Уже набранные правки этого же мастера не затираем сервером — иначе
+    // повторное открытие окна теряло бы всё, что человек только что ввёл.
+    if (!(msrTouched && msrMasterId === masterId)) {
+      msrRates = new Map();
+      const r = await salApi('GET', `/schemes/service-rates/${masterId}`);
+      if (r.ok) {
+        for (const it of (r.data?.items || [])) {
+          msrRates.set(it.service_id, { percent: it.percent, fixed_amount: it.fixed_amount });
+        }
       }
+      msrMasterId = masterId;
     }
     renderMsrList('');
     document.getElementById('msrBackdrop').hidden = false;
@@ -7327,22 +7369,21 @@ import {
   document.getElementById('msrReset')?.addEventListener('click', () => {
     if (!confirm('Сбросить все персональные ставки этого мастера?')) return;
     msrRates = new Map();
+    msrMasterId = document.getElementById('salSchemeMaster')?.value || msrMasterId;
+    msrTouched = true;
     renderMsrList(document.getElementById('msrSearch')?.value || '');
   });
 
-  document.getElementById('msrSave')?.addEventListener('click', async () => {
+  // «Применить» — только запоминает набранное. На сервер уйдёт при сохранении схемы.
+  document.getElementById('msrSave')?.addEventListener('click', () => {
     collectMsrInputs();
     const masterId = document.getElementById('salSchemeMaster')?.value;
     if (!masterId) return;
-    const items = [...msrRates.entries()].map(([service_id, r]) => ({
-      service_id, percent: r.percent, fixed_amount: r.fixed_amount,
-    }));
-    const btn = document.getElementById('msrSave');
-    btn.disabled = true;
-    const r = await salApi('PUT', `/schemes/service-rates/${masterId}`, { items });
-    btn.disabled = false;
-    if (!r.ok) { toast('Ошибка: ' + (r.data?.error || r.status)); return; }
-    toast(`Сохранено персональных ставок: ${r.data?.saved ?? items.length}`);
+    msrMasterId = masterId;
+    msrTouched = true;
+    toast(msrRates.size
+      ? `Ставок по услугам: ${msrRates.size} — запишутся при сохранении схемы`
+      : 'Персональные ставки очищены — применится при сохранении схемы');
     closeMsrModal();
   });
 
