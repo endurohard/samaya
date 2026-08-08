@@ -72,7 +72,8 @@ router.get('/', async (req, res, next) => {
                     'service_id', bs.service_id,
                     'service_name', bs.service_name,
                     'price', bs.price::float8,
-                    'duration_minutes', bs.duration_minutes
+                    'duration_minutes', bs.duration_minutes,
+                    'manager_id', bs.manager_id
                   ) ORDER BY bs.sort_order, bs.service_name)
                   FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
                 '[]'::json
@@ -639,7 +640,8 @@ router.get('/:id', async (req, res, next) => {
                     'service_id', bs.service_id,
                     'service_name', bs.service_name,
                     'price', bs.price::float8,
-                    'duration_minutes', bs.duration_minutes
+                    'duration_minutes', bs.duration_minutes,
+                    'manager_id', bs.manager_id
                   ) ORDER BY bs.sort_order)
                   FROM bookings.booking_services bs WHERE bs.booking_id = b.id),
                 '[]'::json
@@ -669,6 +671,9 @@ const createSchema = z.object({
   // Длительность позиции: администратор укорачивает или удлиняет процедуру
   // под конкретного клиента. Без этого запись занимала бы прайсовое время.
   duration_overrides: z.record(z.string().uuid(), z.number().int().min(5).max(1440)).optional(),
+  // Менеджер на позицию: в одной записи разные процедуры могут быть оформлены
+  // разными менеджерами. Ключ — service_id, null — «как у записи».
+  service_managers: z.record(z.string().uuid(), z.string().uuid().nullable()).optional(),
   // Скидка на всю запись. Пишем в те же поля, что использует «оформить продажу»,
   // — выручка и зарплата уже считают revenue как total_price - discount_amount.
   discount_pct: z.number().min(0).max(100).optional(),
@@ -697,6 +702,7 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
         ...s,
         price: price === undefined ? s.price : price,
         duration_minutes: duration === undefined ? s.duration_minutes : duration,
+        manager_id: input.service_managers?.[s.id] ?? null,
       };
     });
     const totalDuration = services.reduce((acc, s) => acc + s.duration_minutes, 0);
@@ -750,13 +756,13 @@ router.post('/', requireRole(['owner', 'admin', 'master']), async (req, res, nex
     const svcValues: string[] = [];
     const svcParams: unknown[] = [];
     services.forEach((s, i) => {
-      const base = i * 5;
-      svcValues.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
-      svcParams.push(booking.id, s.id, s.name, s.price, s.duration_minutes);
+      const base = i * 6;
+      svcValues.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`);
+      svcParams.push(booking.id, s.id, s.name, s.price, s.duration_minutes, s.manager_id);
     });
     await client.query(
       `INSERT INTO bookings.booking_services
-         (booking_id, service_id, service_name, price, duration_minutes)
+         (booking_id, service_id, service_name, price, duration_minutes, manager_id)
        VALUES ${svcValues.join(', ')}`,
       svcParams,
     );
@@ -819,6 +825,9 @@ const patchSchema = z.object({
   // Длительность позиции: администратор укорачивает или удлиняет процедуру
   // под конкретного клиента. Без этого запись занимала бы прайсовое время.
   duration_overrides: z.record(z.string().uuid(), z.number().int().min(5).max(1440)).optional(),
+  // Менеджер на позицию: в одной записи разные процедуры могут быть оформлены
+  // разными менеджерами. Ключ — service_id, null — «как у записи».
+  service_managers: z.record(z.string().uuid(), z.string().uuid().nullable()).optional(),
   discount_pct: z.number().min(0).max(100).optional(),
   discount_amount: z.number().min(0).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
@@ -853,7 +862,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
     if (input.master_id) await assertMaster(client, companyId, masterId);
 
     // Услуги и цены пересобираем целиком, если состав прислали.
-    let services: { id: string; name: string; price: number; duration_minutes: number }[] | null = null;
+    let services: { id: string; name: string; price: number; duration_minutes: number; manager_id: string | null }[] | null = null;
     let totalPrice = Number(before.total_price);
     let totalDuration = Math.round(
       (new Date(before.ends_at).getTime() - new Date(before.starts_at).getTime()) / 60_000,
@@ -867,6 +876,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
           ...s,
           price: price === undefined ? s.price : price,
           duration_minutes: duration === undefined ? s.duration_minutes : duration,
+          manager_id: input.service_managers?.[s.id] ?? null,
         };
       });
       totalPrice = round2(services.reduce((acc, s) => acc + Number(s.price), 0));
@@ -934,13 +944,13 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
       const vals: string[] = [];
       const params: unknown[] = [];
       services.forEach((s, i) => {
-        const b = i * 5;
-        vals.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5})`);
-        params.push(req.params.id, s.id, s.name, s.price, s.duration_minutes);
+        const b = i * 6;
+        vals.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`);
+        params.push(req.params.id, s.id, s.name, s.price, s.duration_minutes, s.manager_id);
       });
       await client.query(
         `INSERT INTO bookings.booking_services
-           (booking_id, service_id, service_name, price, duration_minutes)
+           (booking_id, service_id, service_name, price, duration_minutes, manager_id)
          VALUES ${vals.join(', ')}`,
         params,
       );

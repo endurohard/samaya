@@ -2355,6 +2355,7 @@ import {
         price: Number(s.price),
         discountPct: 0,
         duration: s.duration_minutes,
+        manager_id: s.manager_id || '',
       }));
       renderServiceRows();
       selectedBookingColor = b.color || null;
@@ -2789,6 +2790,7 @@ import {
         price: Number(s.price),
         discountPct: 0,
         duration: s.duration_minutes,
+        manager_id: s.manager_id || '',
       }));
       renderServiceRows();
     }, 30);
@@ -2810,11 +2812,21 @@ import {
       if (m.provides_services === false) return true;
       return managerPositions.some((p) => pos.includes(p));
     });
+    cachedBookingManagers = managers;
     if (els.bManager) {
       els.bManager.innerHTML = '<option value="">— без менеджера —</option>' +
         managers.map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}${m.position ? ' · ' + m.position : ''}</option>`).join('');
     }
     renderServiceRows();
+  }
+
+  // Тот же список менеджеров нужен и в строке услуги — держим его рядом,
+  // чтобы селект позиции не пересобирал фильтры по должностям заново.
+  let cachedBookingManagers = [];
+  function svcManagerOptions(selected) {
+    return '<option value="">— как у записи —</option>' + cachedBookingManagers
+      .map((m) => `<option value="${m.id}"${m.id === selected ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`)
+      .join('');
   }
 
   // ===== Услуги записи: строка на позицию =====
@@ -2849,6 +2861,9 @@ import {
       price: svc ? Number(svc.price) : 0,
       discountPct: 0,
       duration: svc ? svc.duration_minutes : 0,
+      // Пусто — комиссию получит менеджер записи. Заполняют, когда процедуры
+      // в одной записи привели разные люди.
+      manager_id: '',
     });
     renderServiceRows();
   }
@@ -2874,6 +2889,9 @@ import {
             <input type="text" class="bk-combo-search" placeholder="Поиск услуги" autocomplete="off" spellcheck="false" />
             <div class="bk-combo-list"></div>
           </div>
+          <select class="bk-svc-manager" data-idx="${idx}" aria-label="Менеджер, оформивший услугу">
+            ${svcManagerOptions(row.manager_id || '')}
+          </select>
         </div>
         <div class="bk-svc-cell"><input class="bk-svc-duration" data-idx="${idx}" type="number" min="5" step="5" value="${row.duration}" aria-label="Длительность, мин" /></div>
         <div class="bk-svc-cell bk-price-wrap">
@@ -3042,6 +3060,15 @@ import {
     renderServiceRows();
   });
 
+
+  // Менеджер позиции — select, поэтому отдельным change: перерисовывать строки
+  // не нужно, значение просто оседает в модели.
+  document.getElementById('bSvcGrid')?.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t.classList.contains('bk-svc-manager')) return;
+    const row = svcRows[Number(t.dataset.idx)];
+    if (row) row.manager_id = t.value || '';
+  });
 
   document.getElementById('bSvcGrid')?.addEventListener('input', (e) => {
     const t = e.target;
@@ -3637,6 +3664,14 @@ import {
       }
     });
     if (Object.keys(durations).length) body.duration_overrides = durations;
+    // Менеджер позиции. При правке шлём и снятые (null), иначе прежний выбор
+    // остался бы в базе — сервер пересобирает состав услуг целиком.
+    const svcManagers = {};
+    svcRows.forEach((r) => {
+      if (r.manager_id) svcManagers[r.service_id] = r.manager_id;
+      else if (editingBookingId) svcManagers[r.service_id] = null;
+    });
+    if (Object.keys(svcManagers).length) body.service_managers = svcManagers;
     // Скидки заданы построчно — на запись уходит их сумма: в bookings скидка
     // хранится одним полем, и именно её вычитают выручка и зарплата.
     const discountAmount = Math.round(bookingDiscountSum());

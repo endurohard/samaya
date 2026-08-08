@@ -15,6 +15,8 @@ router.use(authenticate);
 interface BookingService {
   service_id: string;
   price: number;
+  // Менеджер этой позиции. NULL — оформившим считается менеджер всей записи.
+  manager_id?: string | null;
 }
 
 interface BookingRow {
@@ -206,13 +208,16 @@ router.get('/', async (req, res, next) => {
         // и услуга покрыта процентным правилом этой же группы, в личный
         // «% от созданных записей» услуга не идёт — иначе администратор
         // получал бы и долю пула, и личный процент за одну услугу.
+        // Оформивший именно эту позицию: в одной записи процедуры могут быть
+        // от разных менеджеров (липосакция). Пусто — значит менеджер записи.
+        const svcManager = svc.manager_id ?? booking.manager_id ?? null;
         const ruleForDedup = findPercentRule(svc.service_id);
-        const coveredByOwnGroup = !!(booking.manager_id && ruleForDedup.groupId
+        const coveredByOwnGroup = !!(svcManager && ruleForDedup.groupId
           && ruleForDedup.amount > 0
-          && memberOf.has(`${ruleForDedup.groupId}:${booking.manager_id}`));
-        if (booking.manager_id && !coveredByOwnGroup) {
-          createdByManager.set(booking.manager_id,
-            (createdByManager.get(booking.manager_id) || 0) + svcPrice);
+          && memberOf.has(`${ruleForDedup.groupId}:${svcManager}`));
+        if (svcManager && !coveredByOwnGroup) {
+          createdByManager.set(svcManager,
+            (createdByManager.get(svcManager) || 0) + svcPrice);
         }
         // «Либо групповое, либо личное» действует и на исполнителя: если
         // мастер состоит в группе и услуга покрыта процентным правилом этой
@@ -250,13 +255,13 @@ router.get('/', async (req, res, next) => {
           }
         }
 
-        // Фиксированная → тому менеджеру, кто оформил запись
-        if (booking.manager_id) {
+        // Фиксированная → тому, кто оформил эту позицию
+        if (svcManager) {
           const fixed = fixedRules.get(svc.service_id) ?? fixedCatchall;
           if (fixed > 0) {
             fixedByManager.set(
-              booking.manager_id,
-              (fixedByManager.get(booking.manager_id) || 0) + fixed,
+              svcManager,
+              (fixedByManager.get(svcManager) || 0) + fixed,
             );
           }
         }

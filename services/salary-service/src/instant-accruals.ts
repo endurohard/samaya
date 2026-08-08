@@ -54,7 +54,7 @@ interface BookingForAccrual {
   manager_id: string | null;
   discount_amount: number;
   work_date: string;
-  services: Array<{ service_id: string; price: number }>;
+  services: Array<{ service_id: string; price: number; manager_id: string | null }>;
 }
 
 // Правила компании на дату. Грузим один раз на пачку записей.
@@ -149,8 +149,10 @@ export async function computeBookingAccruals(
 
   let execBase = 0;      // услуги под общий процент схемы
   let execOverride = 0;  // услуги с персональной ставкой
-  let managerFixed = 0;
-  let managerCreatedBase = 0;
+  // Базы менеджеров держим по каждому: позиции одной записи могут быть
+  // оформлены разными людьми, и каждому причитается своё.
+  const managerFixed = new Map<string, number>();
+  const managerCreatedBase = new Map<string, number>();
 
   for (const svc of b.services) {
     const svcPrice = Number(svc.price) * (1 - ratio);
@@ -172,11 +174,16 @@ export async function computeBookingAccruals(
       }
     }
 
-    if (b.manager_id) {
-      managerFixed += rules.fixedRules.get(svc.service_id) ?? rules.fixedCatchall;
+    // Оформивший эту позицию; пусто — менеджер всей записи.
+    const svcManager = svc.manager_id ?? b.manager_id ?? null;
+    if (svcManager) {
+      const fixed = rules.fixedRules.get(svc.service_id) ?? rules.fixedCatchall;
+      managerFixed.set(svcManager, (managerFixed.get(svcManager) || 0) + fixed);
       const coveredByOwnGroup = !!(rule.groupId && rule.amount > 0
-        && rules.memberOf.has(`${rule.groupId}:${b.manager_id}`));
-      if (!coveredByOwnGroup) managerCreatedBase += svcPrice;
+        && rules.memberOf.has(`${rule.groupId}:${svcManager}`));
+      if (!coveredByOwnGroup) {
+        managerCreatedBase.set(svcManager, (managerCreatedBase.get(svcManager) || 0) + svcPrice);
+      }
     }
   }
 
@@ -190,14 +197,16 @@ export async function computeBookingAccruals(
   );
   if (execAmount > 0) out.push({ master_id: b.master_id, amount: execAmount, source: SOURCE_EXECUTOR });
 
-  if (b.manager_id) {
-    const mgrScheme = await schemeFor(client, b.company_id, b.manager_id, b.work_date);
-    const created = Math.round(managerCreatedBase * Number(mgrScheme?.percent_created || 0) / 100);
-    const mgrAmount = Math.round(managerFixed) + created;
+  for (const managerId of new Set([...managerFixed.keys(), ...managerCreatedBase.keys()])) {
+    const mgrScheme = await schemeFor(client, b.company_id, managerId, b.work_date);
+    const created = Math.round(
+      (managerCreatedBase.get(managerId) || 0) * Number(mgrScheme?.percent_created || 0) / 100,
+    );
+    const mgrAmount = Math.round(managerFixed.get(managerId) || 0) + created;
     // Исполнитель, оформивший запись сам себе, получает обе строки — это
     // разные основания (за работу и за оформление), и так же считает
     // расчёт периода.
-    if (mgrAmount > 0) out.push({ master_id: b.manager_id, amount: mgrAmount, source: SOURCE_MANAGER });
+    if (mgrAmount > 0) out.push({ master_id: managerId, amount: mgrAmount, source: SOURCE_MANAGER });
   }
 
   return out;
@@ -242,7 +251,8 @@ export async function processPaidBookings(limit = 50): Promise<number> {
                 b.discount_amount::float8 AS discount_amount,
                 (b.paid_at AT TIME ZONE 'UTC')::date::text AS work_date,
                 COALESCE(json_agg(json_build_object(
-                  'service_id', bs.service_id, 'price', bs.price::float8
+                  'service_id', bs.service_id, 'price', bs.price::float8,
+                  'manager_id', bs.manager_id
                 )) FILTER (WHERE bs.service_id IS NOT NULL), '[]'::json) AS services
          FROM bookings.bookings b
          LEFT JOIN bookings.booking_services bs ON bs.booking_id = b.id
