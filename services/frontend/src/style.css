@@ -5143,9 +5143,16 @@ html, body { overflow-x: hidden; }
 .svc-grp-pick-foot { display: flex; gap: 8px; margin-top: 8px; }
 
 /* Менеджер, оформивший позицию записи: живёт под названием услуги, чтобы не
-   добавлять восьмую колонку в и без того плотную сетку услуг. */
-.bk-svc-manager {
-  width: 100%; margin-top: 4px;
+   добавлять восьмую колонку в и без того плотную сетку услуг. Без подписи
+   селект читался как второй выбор услуги — поэтому «Оформил» слева.
+   Селектор с двумя классами: `.form select` перебивает одиночный класс по
+   специфичности и возвращал полю рост основного поля ввода. */
+.bk-svc-mgr { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.bk-svc-mgr-label {
+  flex: 0 0 auto; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap;
+}
+.form .bk-svc-manager {
+  flex: 1 1 auto; min-width: 0; width: auto;
   font-size: var(--fs-xs); color: var(--text-dim);
-  padding: 3px 6px; height: auto;
+  padding: 4px 8px; height: 28px; border-radius: var(--radius-sm);
 }

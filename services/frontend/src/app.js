@@ -2824,7 +2824,7 @@ import {
   // чтобы селект позиции не пересобирал фильтры по должностям заново.
   let cachedBookingManagers = [];
   function svcManagerOptions(selected) {
-    return '<option value="">— как у записи —</option>' + cachedBookingManagers
+    return '<option value="">как у записи</option>' + cachedBookingManagers
       .map((m) => `<option value="${m.id}"${m.id === selected ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`)
       .join('');
   }
@@ -2889,9 +2889,12 @@ import {
             <input type="text" class="bk-combo-search" placeholder="Поиск услуги" autocomplete="off" spellcheck="false" />
             <div class="bk-combo-list"></div>
           </div>
-          <select class="bk-svc-manager" data-idx="${idx}" aria-label="Менеджер, оформивший услугу">
-            ${svcManagerOptions(row.manager_id || '')}
-          </select>
+          <div class="bk-svc-mgr">
+            <span class="bk-svc-mgr-label">Оформил</span>
+            <select class="bk-svc-manager" data-idx="${idx}" aria-label="Менеджер, оформивший услугу">
+              ${svcManagerOptions(row.manager_id || '')}
+            </select>
+          </div>
         </div>
         <div class="bk-svc-cell"><input class="bk-svc-duration" data-idx="${idx}" type="number" min="5" step="5" value="${row.duration}" aria-label="Длительность, мин" /></div>
         <div class="bk-svc-cell bk-price-wrap">
