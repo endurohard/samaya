@@ -6864,8 +6864,18 @@ import {
     // Ставки по услугам, набранные в «Детальных настройках» этого же окна.
     const staged = msrTouched && msrMasterId === master_id;
 
-    if (scheme_type === 'percent_only' && payload.percent_services <= 0
-        && payload.percent_company <= 0 && payload.percent_created <= 0) {
+    // «Ставка + %» с нулями во всех полях сохранялась молча — проверок на этот
+    // тип не было вовсе. Так в базе и появились пустые схемы: человек значится
+    // на «выход + %», а и ставка, и процент нули, поэтому расчёт даёт ноль и
+    // «за выход» будто не начисляется.
+    const allPercentsZero = payload.percent_services <= 0
+      && payload.percent_company <= 0 && payload.percent_created <= 0;
+    if (scheme_type === 'rate_plus_percent' && payload.rate_amount <= 0 && allPercentsZero) {
+      err.textContent = 'Пустая схема: укажите ставку за выход или хотя бы один процент';
+      err.hidden = false; return;
+    }
+
+    if (scheme_type === 'percent_only' && allPercentsZero) {
       // Нули в этом окне законны, если процент задан поштучно в «Детальных
       // настройках»: там и живёт схема «20% с одной услуги, 3% с другой».
       // Набранное в этой сессии считаем как есть; иначе спрашиваем сервер —
