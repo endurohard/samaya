@@ -3785,7 +3785,7 @@ import {
     const masterCellW = 64;
 
     const grid = document.createElement('div');
-    grid.className = 'schedule-hgrid';
+    grid.className = 'sch-hgrid';
     grid.style.gridTemplateColumns = `${masterCellW}px repeat(${days}, ${dayCellW}px)`;
     grid.style.gridTemplateRows = `56px repeat(${masters.length}, 64px)`;
 
@@ -3899,8 +3899,18 @@ import {
       }
     });
 
+    // Перерисовка идёт на каждый клик по ячейке, и сетка при этом создаётся
+    // заново — вместе с ней терялась прокрутка: при выборе 13–14 числа экран
+    // отбрасывало к началу месяца. Снимаем позицию со старой сетки и ставим
+    // на новую. Прокрутка живёт на самой сетке, а не на обёртке, потому что от
+    // неё же считаются sticky у шапки и у колонки сотрудников.
+    const prevGrid = els.schGrid.querySelector('.sch-hgrid');
+    const keepLeft = prevGrid ? prevGrid.scrollLeft : 0;
+    const keepTop = prevGrid ? prevGrid.scrollTop : 0;
     els.schGrid.innerHTML = '';
     els.schGrid.appendChild(grid);
+    grid.scrollLeft = keepLeft;
+    grid.scrollTop = keepTop;
     updateSaveBtn();
     renderSchEditPanel();
     renderSchedulePreview();

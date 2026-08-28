@@ -1456,12 +1456,17 @@ body.guest .auth-card { margin: 32px auto 0; }
 .schedule-hint p + p { margin-top: 8px; }
 
 /* horizontal grid */
-.schedule-hgrid {
+/* .schedule-hgrid — внешний #schGrid из разметки, просто обёртка. Раньше он
+   нёс тот же класс, что и сетка внутри, и overflow с max-height применялись к
+   обоим: два вложенных скролл-контейнера.
+   Скроллит .sch-hgrid — сама сетка. Прокрутка по обеим осям внутри неё, а не
+   страницей: иначе при 10+ сотрудниках шапка с числами уезжает вверх и не
+   видно, в какую дату ставишь смену. Шапка липнет к верху сетки (top: 0),
+   колонка сотрудников — к левому краю (left: 0); оба sticky считаются от неё
+   же, поэтому скролл живёт именно здесь. */
+.schedule-hgrid { min-width: 0; }
+.sch-hgrid {
   display: grid;
-  /* Прокрутка обеих осей — внутри сетки, а не страницей. Иначе при 10+
-     сотрудниках шапка с числами уезжает вверх, и на нижних строках уже не
-     видно, в какую дату ставишь смену. Со своей высотой сетки шапка липнет
-     к её верху (top: 0), как колонка сотрудников липнет к левому краю. */
   overflow: auto;
   max-height: calc(100vh - 200px);   /* топбар 56 + заголовок + тулбар + отступы */
   min-height: 320px;
@@ -4238,7 +4243,7 @@ button, a, .nav-item, .subnav-item, .period-pill, .cal-toggle-btn,
   .cal-grid { font-size: var(--fs-xs); }
 
   /* schedule grid — поуже */
-  .schedule-hgrid { max-height: calc(100vh - 150px); }
+  .sch-hgrid { max-height: calc(100vh - 150px); }
   .sch-corner-cell, .sch-day-head { height: 48px; padding: 6px 2px; }
   .sch-day-num { font-size: var(--fs-md); }
   .sch-day-dow { font-size: var(--fs-xs); }
