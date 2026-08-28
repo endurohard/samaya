@@ -3743,14 +3743,15 @@ import {
     const masters = cachedMasters.filter((m) => m.is_active);
     const { from, to } = monthRange(scheduleMonth);
     scheduleByMaster = new Map();
+    // apiCall, а не call: у call нет прозрачного refresh. С протухшим
+    // access-токеном каждый запрос падал в 401, ошибка глоталась молча, и
+    // график рисовался пустым — со стороны неотличимо от «расписание не
+    // сохранилось», хотя в базе оно есть.
+    const failed = [];
     for (const m of masters) {
-      const { ok, data } = await call(
-        'GET',
-        `/api/salons/schedule/${m.id}?from=${from}&to=${to}`,
-        null,
-        store.access,
-      );
+      const { ok, data } = await apiCall('GET', `/api/salons/schedule/${m.id}?from=${from}&to=${to}`);
       const dayMap = new Map();
+      if (!ok) failed.push(m.display_name || m.id);
       if (ok && data?.items) {
         data.items.forEach((it) => {
           dayMap.set(it.work_date, {
@@ -3764,6 +3765,9 @@ import {
         });
       }
       scheduleByMaster.set(m.id, dayMap);
+    }
+    if (failed.length) {
+      toast(`График не загрузился: ${failed.length} из ${masters.length} сотрудников. Обновите страницу.`);
     }
     renderSchedule();
   }
@@ -3956,53 +3960,123 @@ import {
     scheduleByMaster.forEach((dayMap) => {
       dayMap.forEach((it) => { if (it.dirty) dirtyCount++; });
     });
-    els.schSave.textContent = dirtyCount > 0 ? `Сохранить (${dirtyCount})` : 'Сохранить';
+    els.schSave.textContent = dirtyCount > 0 ? `Сохранить (${dirtyCount})` : 'Сохранено';
     els.schSave.disabled = dirtyCount === 0;
+    els.schSave.title = dirtyCount > 0
+      ? 'Эти дни не записались — повторить отправку'
+      : 'Изменения сохраняются сразу при применении';
   }
 
   function applyTemplate() {
     const { y, m, days } = monthRange(scheduleMonth);
+    const masters = cachedMasters.filter((x) => x.is_active);
+    const isoOf = (d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const isEmpty = (dayMap, iso) => {
+      const it = dayMap.get(iso);
+      return !(it && (it.is_day_off || it.start_time));
+    };
+
+    // Считаем до правки: шаблон бьёт по всем активным сотрудникам за месяц и
+    // теперь уходит на сервер сразу, без отдельного «Сохранить», — поэтому
+    // спрашиваем, а не молча пишем месяц графика на всю команду.
     let touched = 0;
-    cachedMasters.filter((x) => x.is_active).forEach((mst) => {
+    masters.forEach((mst) => {
       const dayMap = scheduleByMaster.get(mst.id) || new Map();
-      for (let d = 1; d <= days; d++) {
-        const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const it = dayMap.get(iso);
-        if (it && (it.is_day_off || it.start_time)) continue;
-        dayMap.set(iso, { work_date: iso, start_time: '10:00', end_time: '20:00', is_day_off: false, saved: false, dirty: true });
-        touched++;
-      }
-      scheduleByMaster.set(mst.id, dayMap);
+      for (let d = 1; d <= days; d++) if (isEmpty(dayMap, isoOf(d))) touched++;
     });
     if (touched === 0) {
       toast('Нет пустых дней для шаблона.');
       return;
     }
+    const ok = confirm(
+      `Поставить 10:00–20:00 на ${touched} пустых дней у всех активных сотрудников `
+      + `(${masters.length}) за ${MONTHS_RU[m - 1].toLowerCase()}?\n\nИзменения сохранятся сразу.`,
+    );
+    if (!ok) return;
+
+    masters.forEach((mst) => {
+      const dayMap = scheduleByMaster.get(mst.id) || new Map();
+      for (let d = 1; d <= days; d++) {
+        const iso = isoOf(d);
+        if (!isEmpty(dayMap, iso)) continue;
+        dayMap.set(iso, { work_date: iso, start_time: '10:00', end_time: '20:00', is_day_off: false, saved: false, dirty: true });
+      }
+      scheduleByMaster.set(mst.id, dayMap);
+    });
     renderSchedule();
+    void saveSchedule();
   }
 
+  // Сохраняет все несохранённые (dirty) дни. Вызывается сразу после
+  // «Применить изменения» / «Сделать дни нерабочими» / «Шаблон 10–20» —
+  // отдельного шага «не забудь нажать Сохранить» больше нет. Кнопка в тулбаре
+  // остаётся только для повтора того, что не ушло с первого раза.
+  //
+  // Два «Применить» подряд теперь обычное дело, поэтому запуски не
+  // накладываются: пока идёт сохранение, следующий вызов не стартует второй
+  // круг PUT-ов с той же пачкой, а ставится в очередь — иначе правка, сделанная
+  // во время запроса, осталась бы висеть несохранённой.
+  let schSaving = false;
+  let schSaveQueued = false;
+
   async function saveSchedule() {
-    let savedAny = false;
+    if (schSaving) { schSaveQueued = true; return; }
+    schSaving = true;
+    try {
+      do {
+        schSaveQueued = false;
+        await saveScheduleOnce();
+      } while (schSaveQueued);
+    } finally {
+      schSaving = false;
+    }
+  }
+
+  async function saveScheduleOnce() {
+    let savedDays = 0;
+    // Правки, которые сервер не принял: их надо вернуть на экран после
+    // перезагрузки, иначе loadAllSchedules перетрёт их серверным состоянием
+    // и работа человека молча исчезнет.
+    const failedMasters = new Map();
+
     for (const [masterId, dayMap] of scheduleByMaster.entries()) {
       const items = [];
-      dayMap.forEach((it) => {
+      const pending = [];
+      dayMap.forEach((it, iso) => {
         if (!it.dirty) return;
         const obj = { work_date: it.work_date, is_day_off: it.is_day_off };
         if (!it.is_day_off) {
           obj.start_time = it.start_time;
           obj.end_time = it.end_time;
         }
-        if (obj.is_day_off || (obj.start_time && obj.end_time)) items.push(obj);
+        if (obj.is_day_off || (obj.start_time && obj.end_time)) {
+          items.push(obj);
+          pending.push([iso, it]);
+        }
       });
       if (items.length === 0) continue;
       const { ok, data, status } = await apiCall('PUT', `/api/salons/schedule/${masterId}`, { items });
       if (!ok) {
-        toast(`Ошибка для сотрудника ${masterId}: ${data?.error || status}`);
+        const who = cachedMasters.find((x) => x.id === masterId)?.display_name || masterId;
+        toast(`Не сохранился график: ${who} — ${data?.error || status}`);
+        failedMasters.set(masterId, new Map(pending));
         continue;
       }
-      savedAny = true;
+      savedDays += items.length;
     }
-    if (savedAny) await loadAllSchedules();
+
+    // Ничего не ушло — перезагружать нечего, а несохранённое пусть остаётся
+    // на экране красным: человек увидит, что именно не записалось.
+    if (savedDays === 0) return;
+
+    await loadAllSchedules();
+    failedMasters.forEach((entries, mid) => {
+      const dayMap = scheduleByMaster.get(mid) || new Map();
+      entries.forEach((it, iso) => dayMap.set(iso, { ...it, dirty: true }));
+      scheduleByMaster.set(mid, dayMap);
+    });
+    if (failedMasters.size) renderSchedule();
+    toast(`Сохранено дней: ${savedDays}`);
   }
 
   // Панель правки выделенных дней (правый столбец раздела)
@@ -4027,11 +4101,10 @@ import {
       dayMap.set(iso, { ...prev, work_date: iso, ...patch, dirty: true });
       scheduleByMaster.set(mid, dayMap);
     });
-    const n = schSelected.size;
     schSelected.clear();
     schLastPick = null;
     renderSchedule();
-    toast(`Изменено дней: ${n}. Не забудьте «Сохранить».`);
+    void saveSchedule();
   }
 
   document.getElementById('schSelClear')?.addEventListener('click', () => {

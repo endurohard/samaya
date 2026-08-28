@@ -1458,7 +1458,13 @@ body.guest .auth-card { margin: 32px auto 0; }
 /* horizontal grid */
 .schedule-hgrid {
   display: grid;
-  overflow-x: auto;
+  /* Прокрутка обеих осей — внутри сетки, а не страницей. Иначе при 10+
+     сотрудниках шапка с числами уезжает вверх, и на нижних строках уже не
+     видно, в какую дату ставишь смену. Со своей высотой сетки шапка липнет
+     к её верху (top: 0), как колонка сотрудников липнет к левому краю. */
+  overflow: auto;
+  max-height: calc(100vh - 200px);   /* топбар 56 + заголовок + тулбар + отступы */
+  min-height: 320px;
 }
 .sch-corner-cell {
   background: var(--bg-soft);
@@ -1466,13 +1472,15 @@ body.guest .auth-card { margin: 32px auto 0; }
   border-right: 1px solid var(--border);
   height: 56px;
   display: flex; align-items: center; justify-content: center;
-  position: sticky; left: 0; z-index: 2;
+  /* Угол липнет по обеим осям, поэтому z-index выше и шапки, и колонки слева */
+  position: sticky; left: 0; top: 0; z-index: 4;
 }
 .sch-corner-cell svg { color: var(--text-muted); }
 .sch-day-head {
   background: var(--bg-soft);
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 3;
   padding: 8px 6px;
   text-align: center;
   font-size: var(--fs-sm);
@@ -1504,7 +1512,7 @@ body.guest .auth-card { margin: 32px auto 0; }
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
   height: 64px;
-  position: sticky; left: 0; z-index: 1;
+  position: sticky; left: 0; z-index: 2;
   display: flex; align-items: center; justify-content: center;
   padding: 6px;
 }
@@ -4230,6 +4238,7 @@ button, a, .nav-item, .subnav-item, .period-pill, .cal-toggle-btn,
   .cal-grid { font-size: var(--fs-xs); }
 
   /* schedule grid — поуже */
+  .schedule-hgrid { max-height: calc(100vh - 150px); }
   .sch-corner-cell, .sch-day-head { height: 48px; padding: 6px 2px; }
   .sch-day-num { font-size: var(--fs-md); }
   .sch-day-dow { font-size: var(--fs-xs); }
