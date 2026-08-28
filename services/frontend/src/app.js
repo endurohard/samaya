@@ -11,7 +11,7 @@ import { toast } from './modules/toast.js';
 import { trapFocus } from './modules/focus-trap.js';
 import {
   stringToColor, decodeJwt, clientInitial, formatRuDate, formatDateShort,
-  isWeekend, formatPhonePretty, formatFileSize, plural,
+  isWeekend, formatPhonePretty, formatFileSize, plural, capitalizeName,
 } from './modules/format.js';
 import { parseCsv, detectColumnMap } from './modules/csv.js';
 import {
@@ -3870,8 +3870,11 @@ import {
         if (schSelected.has(schKey(mst.id, iso))) cell.classList.add('is-selected');
 
         if (it && it.is_day_off) {
-          // У DIKIDI выходная ячейка пустая, без текста — только подсветка через .is-off + .weekend
-          cell.innerHTML = '';
+          // Раньше выходной рисовался пустым, «как у DIKIDI», и был неотличим
+          // от дня без графика: фоны .is-off (#fafbfc) и .empty почти совпадают,
+          // а на субботе-воскресенье они буквально одинаковые. После «Сделать
+          // дни нерабочими» это читалось как «сохранённые смены пропали».
+          cell.innerHTML = '<span class="sch-off-mark">—</span>';
         } else if (it && it.start_time && it.end_time) {
           cell.innerHTML = `<div>${escapeHtml(it.start_time)}</div><div>${escapeHtml(it.end_time)}</div>`;
         } else {
@@ -3954,7 +3957,9 @@ import {
         if (it && it.is_day_off) cls.push('is-off');
         if (!it || (!it.is_day_off && !it.start_time)) cls.push('empty');
         let inner = '';
-        if (it && !it.is_day_off && it.start_time && it.end_time) {
+        if (it && it.is_day_off) {
+          inner = '<span class="sch-off-mark">—</span>';
+        } else if (it && it.start_time && it.end_time) {
           inner = `<div>${escapeHtml(it.start_time)}</div><div>${escapeHtml(it.end_time)}</div>`;
         }
         html += `<div class="${cls.join(' ')}">${inner}</div>`;
@@ -5142,6 +5147,7 @@ import {
       {
         const fio = (c.full_name || '').trim().split(/\s+/);
         const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+        setV('clFio', c.full_name || '');
         setV('clLastName', fio[0]);
         setV('clFirstName', fio[1]);
         setV('clMiddleName', fio.slice(2).join(' '));
@@ -5191,7 +5197,7 @@ import {
     els.clientModalBackdrop.hidden = false;
     els.clientModal.hidden = false;
     _clientModalRelease = trapFocus(els.clientModal);
-    setTimeout(() => document.getElementById('clLastName')?.focus(), 50);
+    setTimeout(() => document.getElementById('clFio')?.focus(), 50);
   }
 
   let _clientModalRelease = null;
@@ -5202,17 +5208,41 @@ import {
     if (_clientModalRelease) { _clientModalRelease(); _clientModalRelease = null; }
   }
 
+  // Одно поле «ФИО одной строкой» раскладывается по Фамилия/Имя/Отчество.
+  // Порядок — как везде в проекте (full_name собирается и разбирается именно
+  // так): первое слово — фамилия, второе — имя, остальное — отчество.
+  function clSpreadFio() {
+    const parts = capitalizeName(document.getElementById('clFio')?.value).split(' ').filter(Boolean);
+    const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    setV('clLastName', parts[0]);
+    setV('clFirstName', parts[1]);
+    setV('clMiddleName', parts.slice(2).join(' '));
+  }
+
+  // Заглавные и в самих полях: их правят руками после раскладки, и капслок
+  // или строчная первая буква иначе уедут в базу незамеченными.
+  function clNormalizeNameField(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = capitalizeName(el.value);
+  }
+
+  document.getElementById('clFio')?.addEventListener('input', clSpreadFio);
+  ['clLastName', 'clFirstName', 'clMiddleName'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('blur', () => clNormalizeNameField(id));
+  });
+
   async function submitClientForm(e) {
     e.preventDefault();
     els.clientFormError.hidden = true;
     const id = els.clientId.value.trim();
     // ФИО собирается из трёх необязательных полей: в базе остаётся единое
     // full_name, чтобы поиск и отчёты не менялись.
-    const fullName = [
+    const fullName = capitalizeName([
       document.getElementById('clLastName')?.value.trim(),
       document.getElementById('clFirstName')?.value.trim(),
       document.getElementById('clMiddleName')?.value.trim(),
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' '));
     const body = {
       full_name: fullName,
       phone: els.clPhone.value.trim(),

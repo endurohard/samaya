@@ -1545,7 +1545,10 @@ body.guest .auth-card { margin: 32px auto 0; }
 /* Тонкая розовая полоса вертикально через всю колонку выходного */
 .sch-cell.weekend { background: #fff5f5; }
 .sch-cell.weekend:hover { background: #ffe8e8; }
-/* В выходных днях у мастеров просто пусто (как у DIKIDI) */
+/* Выходной помечается прочерком: фон у .is-off и .empty почти одинаковый,
+   а на субботе-воскресенье совпадает полностью — без метки выходной не
+   отличить от дня, на который график просто не ставили. */
+.sch-off-mark { color: var(--text-muted); font-size: var(--fs-lg); line-height: 1; }
 .sch-cell.is-off { background: #fafbfc; }
 .sch-cell.is-off.weekend { background: #fff5f5; }
 .sch-cell.is-off.weekend:hover { background: #ffe8e8; }

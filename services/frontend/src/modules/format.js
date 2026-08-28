@@ -67,3 +67,20 @@ export function plural(n, [one, few, many]) {
   if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return few;
   return many;
 }
+
+// ФИО с заглавных букв. Администратор набирает быстро, и в базу попадает
+// «магомедова амина» или «МАГОМЕДОВА АМИНА» — в списке клиентов и в
+// напоминаниях это видно сразу. Приводим каждое слово к «Магомедова»:
+// первая буква заглавная, остальные строчные (иначе капслок так и остаётся).
+// Двойные имена и фамилии через дефис — каждая часть отдельно: «Анна-Мария».
+export function capitalizeName(raw) {
+  return String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((word) => word
+      .split('-')
+      .map((part) => (part ? part[0].toLocaleUpperCase('ru') + part.slice(1).toLocaleLowerCase('ru') : part))
+      .join('-'))
+    .join(' ');
+}
