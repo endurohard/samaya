@@ -5173,3 +5173,35 @@ html, body { overflow-x: hidden; }
   font-size: var(--fs-xs); color: var(--text-dim);
   padding: 4px 8px; height: 28px; border-radius: var(--radius-sm);
 }
+
+/* ===== Свободные окна мастера в форме записи ===== */
+/* Поле времени осталось обычным вводом — окна подсказывают, а не запрещают:
+   при незаполненном графике мастера слотов нет вовсе, и жёсткий выбор
+   заблокировал бы запись целиком. */
+.bk-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.bk-slots-hint { font-size: var(--fs-sm); color: var(--text-muted); }
+.bk-slots-hint a { color: var(--primary); }
+.bk-slot {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.bk-slot:hover { border-color: var(--primary); background: var(--primary-soft); }
+.bk-slot.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}

@@ -2947,6 +2947,8 @@ import {
     const emptyFoot = document.getElementById('bSvcFootEmpty');
     if (emptyFoot) emptyFoot.hidden = svcRows.length > 0;
     checkBookingOverlap();
+    // Длительность услуг задаёт шаг и границы окон — состав изменился, пересчитываем.
+    void loadBookingSlots();
   }
 
   // Предупреждаем о наложении сразу, а не после нажатия «Создать»: время
@@ -2990,9 +2992,86 @@ import {
     warn.classList.add('is-conflict');
   }
 
-  els.bDate?.addEventListener('change', checkBookingOverlap);
-  els.bTime?.addEventListener('change', checkBookingOverlap);
-  els.bMaster?.addEventListener('change', checkBookingOverlap);
+  // Свободные окна мастера под полем времени. Поле остаётся обычным вводом:
+  // слоты считаются от графика мастера, а если график на день не заполнен,
+  // эндпоинт честно отдаёт пустой список — и жёсткий выбор из слотов не дал
+  // бы записать вообще никого. Поэтому окна показываем, но не запрещаем
+  // поставить своё время: администратору регулярно нужно втиснуть клиента.
+  let _slotsReq = 0;
+
+  function bkSlotsBox() { return document.getElementById('bSlots'); }
+
+  function bkSlotsMessage(html) {
+    const box = bkSlotsBox();
+    if (box) box.innerHTML = `<span class="bk-slots-hint">${html}</span>`;
+  }
+
+  async function loadBookingSlots() {
+    const box = bkSlotsBox();
+    if (!box) return;
+    const masterId = els.bMaster?.value;
+    const date = els.bDate?.value;
+    const ids = svcRows.map((r) => r.service_id).filter(Boolean);
+    const minutes = svcRows.reduce((acc, r) => acc + (Number(r.duration) || 0), 0);
+    if (!masterId || !date || !ids.length || !minutes) {
+      bkSlotsMessage('Выберите мастера, дату и услугу — покажем свободные окна');
+      return;
+    }
+
+    // Ответы приходят вразнобой: пока считался один запрос, мастера успевают
+    // сменить. Рисуем только последний.
+    const reqId = ++_slotsReq;
+    bkSlotsMessage('Считаем свободные окна…');
+    let url = `/api/bookings/slots?master_id=${encodeURIComponent(masterId)}`
+      + `&date=${encodeURIComponent(date)}&service_ids=${encodeURIComponent(ids.join(','))}`;
+    // При переносе исключаем саму запись, иначе её текущее время показано занятым.
+    if (editingBookingId) url += `&exclude_booking_id=${encodeURIComponent(editingBookingId)}`;
+    const { ok, data } = await apiCall('GET', url);
+    if (reqId !== _slotsReq) return;
+
+    if (!ok) {
+      bkSlotsMessage('Не удалось получить свободные окна');
+      return;
+    }
+    if (data?.meta?.schedule === 'day_off_or_missing') {
+      bkSlotsMessage('У мастера нет графика на этот день — окна не рассчитать. '
+        + '<a href="#schedule">Задать график</a>');
+      return;
+    }
+    const items = data?.items || [];
+    if (!items.length) {
+      bkSlotsMessage('Свободных окон в этот день нет — время можно поставить вручную');
+      return;
+    }
+
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const current = els.bTime?.value || '';
+    box.innerHTML = items.map((it) => {
+      const d = new Date(it.starts_at);
+      const t = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+      return `<button type="button" class="bk-slot${t === current ? ' is-active' : ''}" data-time="${t}">${t}</button>`;
+    }).join('');
+  }
+
+  // Слоты пересчитывать на смену времени не нужно — меняется только подсветка.
+  function markActiveSlot() {
+    const current = els.bTime?.value || '';
+    bkSlotsBox()?.querySelectorAll('.bk-slot').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.time === current);
+    });
+  }
+
+  bkSlotsBox()?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.bk-slot');
+    if (!btn || !els.bTime) return;
+    els.bTime.value = btn.dataset.time;
+    markActiveSlot();
+    checkBookingOverlap();
+  });
+
+  els.bDate?.addEventListener('change', () => { checkBookingOverlap(); void loadBookingSlots(); });
+  els.bTime?.addEventListener('change', () => { checkBookingOverlap(); markActiveSlot(); });
+  els.bMaster?.addEventListener('change', () => { checkBookingOverlap(); void loadBookingSlots(); });
 
   // Делегирование: кнопка «+» живёт внутри таблицы и пересоздаётся при каждой
   // перерисовке, прямой слушатель на ней потерялся бы после первой правки.

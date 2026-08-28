@@ -14,6 +14,10 @@ const slotsSchema = z.object({
   master_id: z.string().uuid(),
   date: isoDate(),
   service_ids: z.string().min(1), // CSV: "id1,id2"
+  // Перенос записи: сама переносимая бронь не должна считаться занятостью,
+  // иначе её текущее время выпадает из списка свободных окон — а именно его
+  // администратор чаще всего и оставляет, меняя только состав услуг.
+  exclude_booking_id: z.string().uuid().optional(),
 });
 
 router.get('/', async (req, res, next) => {
@@ -65,8 +69,12 @@ router.get('/', async (req, res, next) => {
       `SELECT starts_at, ends_at FROM bookings.bookings
        WHERE company_id = $1 AND master_id = $2
          AND status IN ('pending', 'confirmed')
-         AND starts_at < $3 AND ends_at > $4`,
-      [companyId, q.master_id, dayEnd.toISOString(), dayStart.toISOString()],
+         AND starts_at < $3 AND ends_at > $4
+         AND ($5::uuid IS NULL OR id <> $5::uuid)`,
+      [
+        companyId, q.master_id, dayEnd.toISOString(), dayStart.toISOString(),
+        q.exclude_booking_id ?? null,
+      ],
     );
 
     // 3b. «Занятое время» мастера — для генератора слотов это такая же занятость,
