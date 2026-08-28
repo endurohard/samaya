@@ -274,6 +274,9 @@
       starts_at: state.selectedSlot.starts_at,
       client_name: String(fd.get('client_name') || '').trim(),
       client_phone: String(fd.get('client_phone') || '').trim(),
+      // required на чекбоксе не даёт форме отправиться без галочки; сюда
+      // попадаем только когда она проставлена.
+      pd_consent: fd.get('pd_consent') === 'on',
     };
     const notes = String(fd.get('notes') || '').trim();
     if (notes) body.notes = notes;
@@ -281,6 +284,10 @@
 
     if (!body.client_name || !body.client_phone) {
       showError('Имя и телефон обязательны.');
+      return;
+    }
+    if (!body.pd_consent) {
+      showError('Подтвердите согласие на обработку персональных данных.');
       return;
     }
 

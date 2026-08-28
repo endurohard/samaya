@@ -346,3 +346,19 @@ body {
   .widget { padding: 0 12px; }
   .w-step { padding: 16px; }
 }
+
+/* Согласие на обработку ПД: чекбокс не должен растягиваться, как текстовые поля */
+.w-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 4px 0 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.w-consent input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}

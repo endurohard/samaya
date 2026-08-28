@@ -8,6 +8,7 @@ import { Router, urlencoded } from 'express';
 import crypto from 'node:crypto';
 import { pool } from '../db';
 import { normalizePhone, findOrCreateClientId } from '../client-link';
+import { recordPdConsent } from '../pd-consent';
 
 // Карточка клиента для «акционной» аудитории: source='promo' → отдельный
 // сегмент «Акционные» в разделе Клиенты. Ошибка создания не должна ломать
@@ -177,6 +178,10 @@ function pageHtml(title: string, body: string): string {
     button { margin-top: 6px; background: var(--primary); color: #fff; border: none; border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 600; font-family: inherit; cursor: pointer; box-shadow: var(--shadow-brand); }
     button:hover { background: var(--primary-hover); }
     .hint { font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+    /* Галочка согласия: input выше объявлен на всю ширину — здесь сбрасываем */
+    .consent { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; font-weight: 400; color: var(--text-dim); line-height: 1.5; cursor: pointer; }
+    .consent input { width: auto; flex: 0 0 auto; margin-top: 2px; accent-color: var(--primary); }
+    .consent a { color: var(--primary); }
     .ok-badge { display: inline-flex; align-items: center; gap: 8px; background: #f0fdf4; color: #0ea372; font-weight: 600; font-size: 14px; border-radius: 999px; padding: 8px 16px; }
     .code-box { margin-top: 16px; text-align: center; background: var(--bg-soft); border: 1px dashed var(--accent-gold); border-radius: 14px; padding: 16px; }
     .code-box .cb-label { font-size: 12px; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
@@ -202,6 +207,24 @@ function pageHtml(title: string, body: string): string {
 </body>
 </html>`;
 }
+
+// Ошибка над формой клейма. Раньше был один текст на всё; с обязательным
+// согласием нужно различать «не заполнил контакты» и «не поставил галочку» —
+// иначе человек правит телефон, который и так был верным.
+function claimErrorHtml(err: unknown): string {
+  if (!err) return '';
+  const text = String(err) === '2'
+    ? 'Подтвердите согласие на обработку персональных данных'
+    : 'Укажите имя и корректный телефон';
+  return `<div class="err">${esc(text)}</div>`;
+}
+
+// Блок согласия — общий для обеих форм клейма (страница акции и купон).
+const consentFieldHtml = `
+        <label class="consent">
+          <input type="checkbox" name="pd_consent" value="1" required />
+          <span>Я даю согласие на обработку моих персональных данных в соответствии с <a href="/privacy.html" target="_blank" rel="noopener">политикой обработки персональных данных</a>.</span>
+        </label>`;
 
 function discountLabel(c: CouponRow): string {
   return c.discount_amount != null ? `−${fmtPrice(c.discount_amount)}` : `−${c.discount_pct}%`;
@@ -319,7 +342,7 @@ router.get('/a/:ptoken', async (req, res, next) => {
       <h2>На что действует скидка</h2>
       ${services}
       <form method="POST" action="/promo/a/${esc(req.params.ptoken)}/claim">
-        ${req.query.err ? `<div class="err">Укажите имя и корректный телефон</div>` : ''}
+        ${claimErrorHtml(req.query.err)}
         <div>
           <label for="f-name">Ваше имя</label>
           <input id="f-name" name="name" required maxlength="100" placeholder="Как к вам обращаться" />
@@ -328,8 +351,9 @@ router.get('/a/:ptoken', async (req, res, next) => {
           <label for="f-phone">Телефон</label>
           <input id="f-phone" name="phone" type="tel" required maxlength="20" value="+7 " inputmode="tel" placeholder="+7 ___ ___-__-__" />
         </div>
+        ${consentFieldHtml}
         <button type="submit">Получить скидку ${esc(discountLabel(c))}</button>
-        <p class="hint">Оставьте контакты — скидка закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
+        <p class="hint">Оставьте контакты — скидка закрепится за вами, и администратор свяжется для записи.</p>
       </form>
       ${contactHtml(await companyPhone(p.company_id), `Здравствуйте! Хочу узнать про акцию «${p.promo_name}».`)}`;
     const body = `<div class="coupon">${top}<div class="coupon-body">${claimForm}</div></div>`;
@@ -350,6 +374,11 @@ router.post('/a/:ptoken/claim', urlencoded({ extended: false, limit: '5kb' }), a
     if (!name || !phone || phone.replace(/\D/g, '').length < 10) {
       return res.redirect(303, `/promo/a/${encodeURIComponent(req.params.ptoken)}?err=1`);
     }
+    // required на чекбоксе ловит только браузер; форма отправляется обычным
+    // POST, и без серверной проверки её отправит кто угодно без согласия.
+    if (req.body?.pd_consent !== '1') {
+      return res.redirect(303, `/promo/a/${encodeURIComponent(req.params.ptoken)}?err=2`);
+    }
     // Один телефон — один купон на акцию (повторная отправка не задваивает аудиторию)
     const existing = await pool.query(
       `SELECT token FROM bookings.promo_coupons WHERE promo_id = $1 AND client_phone = $2 LIMIT 1`,
@@ -360,6 +389,18 @@ router.post('/a/:ptoken/claim', urlencoded({ extended: false, limit: '5kb' }), a
     }
     const token = crypto.randomBytes(8).toString('base64url');
     const clientId = await linkPromoClient(p.company_id, phone, name);
+    // Отдельным запросом, а не внутри linkPromoClient: там ошибки глушатся,
+    // чтобы клейм пережил проблему с карточкой, — а вот потерять согласие
+    // молча нельзя. Упало здесь → клейм не состоялся, данные не приняты.
+    await recordPdConsent(pool, {
+      companyId: p.company_id,
+      clientId,
+      phone,
+      fullName: name,
+      source: 'promo',
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
     await pool.query(
       `INSERT INTO bookings.promo_coupons
          (company_id, promo_id, token, label, status, opened_at, claimed_at, client_name, client_phone, client_id)
@@ -422,7 +463,7 @@ router.get('/:token', async (req, res, next) => {
       <h2>На что действует купон</h2>
       ${services}
       <form method="POST" action="/promo/${esc(c.token)}/claim">
-        ${req.query.err ? `<div class="err">Укажите имя и корректный телефон</div>` : ''}
+        ${claimErrorHtml(req.query.err)}
         <div>
           <label for="f-name">Ваше имя</label>
           <input id="f-name" name="name" required maxlength="100" placeholder="Как к вам обращаться" />
@@ -431,8 +472,9 @@ router.get('/:token', async (req, res, next) => {
           <label for="f-phone">Телефон</label>
           <input id="f-phone" name="phone" type="tel" required maxlength="20" value="+7 " inputmode="tel" placeholder="+7 ___ ___-__-__" />
         </div>
+        ${consentFieldHtml}
         <button type="submit">Забрать купон ${esc(discountLabel(c))}</button>
-        <p class="hint">Оставьте контакты — купон закрепится за вами, и администратор свяжется для записи. Нажимая кнопку, вы соглашаетесь на обработку персональных данных.</p>
+        <p class="hint">Оставьте контакты — купон закрепится за вами, и администратор свяжется для записи.</p>
       </form>
       ${contactsFresh}`;
     const body = `<div class="coupon">${top}<div class="coupon-body">${c.status === 'claimed' ? claimedBlock : claimForm}</div></div>`;
@@ -451,8 +493,20 @@ router.post('/:token/claim', urlencoded({ extended: false, limit: '5kb' }), asyn
     if (!name || !phone || phone.replace(/\D/g, '').length < 10) {
       return res.redirect(303, `/promo/${encodeURIComponent(c.token)}?err=1`);
     }
+    if (req.body?.pd_consent !== '1') {
+      return res.redirect(303, `/promo/${encodeURIComponent(c.token)}?err=2`);
+    }
     if (!isExpired(c) && (c.status === 'issued' || c.status === 'opened')) {
       const clientId = await linkPromoClient(c.company_id, phone, name);
+      await recordPdConsent(pool, {
+        companyId: c.company_id,
+        clientId,
+        phone,
+        fullName: name,
+        source: 'promo',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
       await pool.query(
         `UPDATE bookings.promo_coupons
          SET status = 'claimed', claimed_at = NOW(), client_name = $2, client_phone = $3,

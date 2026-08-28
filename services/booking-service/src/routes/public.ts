@@ -7,6 +7,7 @@ import { loadServiceSnapshots, assertMaster, assertBookingWithinSchedule, assert
 import { buildConfirmationEmail, buildMasterNotifyEmail } from '../mailer';
 import { enqueueNotification } from '../notification-outbox';
 import { findOrCreateClientId, normalizePhone } from '../client-link';
+import { recordPdConsent } from '../pd-consent';
 
 const router = Router();
 
@@ -19,6 +20,9 @@ const createSchema = z.object({
   client_name: z.string().min(1).max(200),
   client_email: z.string().email().optional(),
   notes: z.string().max(1000).optional(),
+  // Согласие на обработку ПД. Проверяем отдельно, а не z.literal(true):
+  // так клиент получает внятное «нужно согласие», а не дамп zod-ошибки.
+  pd_consent: z.boolean().optional(),
 });
 
 router.post('/create', async (req, res, next) => {
@@ -27,6 +31,15 @@ router.post('/create', async (req, res, next) => {
     const input = createSchema.parse(req.body);
     const companyId = input.company_id ?? config.DEFAULT_COMPANY_ID;
     if (!companyId) throw new HttpError(400, 'company_id required (no default configured)');
+    // Без согласия запись не создаём вовсе: принять имя с телефоном и потом
+    // выяснять, была ли галочка, уже поздно — данные приняты.
+    if (input.pd_consent !== true) {
+      throw new HttpError(
+        400,
+        'нужно согласие на обработку персональных данных',
+        'PD_CONSENT_REQUIRED',
+      );
+    }
 
     await client.query('BEGIN');
     await assertMaster(client, companyId, input.master_id);
@@ -50,6 +63,18 @@ router.post('/create', async (req, res, next) => {
     // Храним нормализованный телефон и в записи — чтобы фильтры/джойны по номеру
     // сходились с нормализованным телефоном карточки клиента.
     const normPhone = normalizePhone(input.client_phone);
+
+    // Согласие фиксируем в той же транзакции: либо есть и запись, и
+    // доказательство согласия, либо нет ни того, ни другого.
+    await recordPdConsent(client, {
+      companyId,
+      clientId,
+      phone: input.client_phone,
+      fullName: input.client_name,
+      source: 'public_booking',
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
 
     const ins = await client.query(
       `INSERT INTO bookings.bookings

@@ -143,6 +143,11 @@
     .confirm-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .confirm-row:last-child { border-bottom: none; }
     .err { color: var(--danger); font-size: 13px; margin-top: 8px; display: none; }
+    /* Согласие на обработку ПД */
+    .consent { display: flex; align-items: flex-start; gap: 9px; margin-top: 16px;
+      font-size: 12.5px; color: var(--text-dim); line-height: 1.5; cursor: pointer; }
+    .consent input { width: auto; flex: 0 0 auto; margin-top: 2px; accent-color: var(--primary); }
+    .consent a { color: var(--primary); }
     .loading-dots { display: inline-block; }
     .spinner-inline {
       display: inline-block; width: 14px; height: 14px;
@@ -244,6 +249,11 @@
       <label for="fNote">Примечание (необязательно)</label>
       <input id="fNote" type="text" placeholder="Пожелания, вопросы…" />
     </div>
+    <label class="consent" for="fConsent">
+      <input id="fConsent" type="checkbox" />
+      <span>Я даю согласие на обработку моих персональных данных в соответствии с
+        <a href="/privacy.html" target="_blank" rel="noopener">политикой обработки персональных данных</a>.</span>
+    </label>
     <div class="err" id="submitErr"></div>
     <div class="btn-row">
       <button class="btn-back" id="btn4back">← Назад</button>
@@ -467,6 +477,7 @@ $('btn4submit').addEventListener('click', async () => {
   errEl.style.display = 'none';
   if (!name) { errEl.textContent = 'Введите ваше имя'; errEl.style.display = 'block'; return; }
   if (phone.replace(/\D/g,'').length < 10) { errEl.textContent = 'Введите корректный телефон'; errEl.style.display = 'block'; return; }
+  if (!$('fConsent').checked) { errEl.textContent = 'Подтвердите согласие на обработку персональных данных'; errEl.style.display = 'block'; return; }
   const btn = $('btn4submit');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-inline"></span>';
@@ -480,6 +491,7 @@ $('btn4submit').addEventListener('click', async () => {
       client_phone: phone,
       client_email: emailVal || undefined,
       notes: $('fNote').value.trim() || undefined,
+      pd_consent: true,
     };
     const r = await fetch(`${API}/bookings/public/create`, {
       method: 'POST',

@@ -56,7 +56,7 @@ echo "═══ 6. ПУБЛИЧНЫЙ ВИДЖЕТ: создание брони 
 MID="352b6443-7507-403d-a97e-783ccd2d57b6"
 SVC=$(curl -s "$BASE/api/salons/services" -H "$H_AUTH" | jget "['items'][0]['id']" 2>/dev/null)
 SLOT=$(python3 -c "import datetime;print((datetime.datetime.now()+datetime.timedelta(days=7)).strftime('%Y-%m-%dT13:00:00+03:00'))")
-mkjson() { python3 -c "import json,sys; json.dump({'master_id':sys.argv[1],'service_ids':[sys.argv[2]],'starts_at':sys.argv[3],'client_phone':sys.argv[4],'client_name':sys.argv[5]}, sys.stdout)" "$@"; }
+mkjson() { python3 -c "import json,sys; json.dump({'master_id':sys.argv[1],'service_ids':[sys.argv[2]],'starts_at':sys.argv[3],'client_phone':sys.argv[4],'client_name':sys.argv[5],'pd_consent':True}, sys.stdout)" "$@"; }
 mkjson "$MID" "$SVC" "$SLOT" 79990001122 "Flow Тест" > /tmp/ft_bk1.json
 mkjson "$MID" "$SVC" "$SLOT" 79990003344 "Flow Тест2" > /tmp/ft_bk2.json
 mkjson "00000000-0000-0000-0000-000000000000" "$SVC" "$SLOT" 79990005566 "Flow Тест3" > /tmp/ft_bk3.json
@@ -66,6 +66,8 @@ if [ -n "$BID" ]; then echo "  ✓ публичная бронь создана 
 check "двойная бронь в тот же слот → 409" 409 "$(code -X POST "$BASE/api/bookings/public/create" -H 'Content-Type: application/json' --data @/tmp/ft_bk2.json)"
 check "бронь с несуществующим мастером → 404" 404 "$(code -X POST "$BASE/api/bookings/public/create" -H 'Content-Type: application/json' --data @/tmp/ft_bk3.json)"
 check "бронь с битым JSON → 400" 400 "$(code -X POST "$BASE/api/bookings/public/create" -H 'Content-Type: application/json' -d 'oops')"
+python3 -c "import json,sys; d=json.load(open('/tmp/ft_bk2.json')); d.pop('pd_consent'); json.dump(d, open('/tmp/ft_bk_noconsent.json','w'))"
+check "бронь без согласия на обработку ПД → 400" 400 "$(code -X POST "$BASE/api/bookings/public/create" -H 'Content-Type: application/json' --data @/tmp/ft_bk_noconsent.json)"
 check "bookings с несуществующей датой → 400" 400 "$(code "$BASE/api/bookings?from=2026-13-99&to=2026-12-31" -H "$H_AUTH")"
 
 echo "═══ 7. КЛИЕНТСКИЙ ПОРТАЛ ═══"
