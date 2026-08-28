@@ -3286,10 +3286,10 @@ import {
       const isPhone = /^[\d+][\d\s()+-]*$/.test(typed);
       if (isPhone && els.clPhone) { els.clPhone.value = typed; }
       else {
-        const fio = typed.split(/\s+/);
-        const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
-        setV('clLastName', fio[0]);
-        setV('clFirstName', fio.slice(1).join(' '));
+        // Набранное в поиске — это то же «Имя Фамилия», что вводят в карточке:
+        // кладём в строку ФИО и раскладываем общим разбором, а не своей копией.
+        const fioEl = document.getElementById('clFio');
+        if (fioEl) { fioEl.value = typed; clSpreadFio(); fioEl.value = clFioLine(); }
       }
     }, 60);
   });
@@ -5147,10 +5147,10 @@ import {
       {
         const fio = (c.full_name || '').trim().split(/\s+/);
         const setV = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
-        setV('clFio', c.full_name || '');
         setV('clLastName', fio[0]);
         setV('clFirstName', fio[1]);
         setV('clMiddleName', fio.slice(2).join(' '));
+        setV('clFio', clFioLine());
       }
       els.clPhone.value = c.phone || '';
       els.clBirthday.value = c.birthday || '';
@@ -5208,15 +5208,25 @@ import {
     if (_clientModalRelease) { _clientModalRelease(); _clientModalRelease = null; }
   }
 
-  // Одно поле «ФИО одной строкой» раскладывается по Фамилия/Имя/Отчество.
-  // Порядок — как везде в проекте (full_name собирается и разбирается именно
-  // так): первое слово — фамилия, второе — имя, остальное — отчество.
+  // Одно поле «ФИО одной строкой» раскладывается по полям.
+  // Вводят в порядке «Имя Фамилия» — так говорят и так набирают.
+  // В базе full_name при этом остаётся «Фамилия Имя Отчество»: этот формат
+  // читают поиск, отчёты и все уже заведённые карточки, и менять его значило
+  // бы разложить наперекрёст всех существующих клиентов.
   function clSpreadFio() {
     const parts = capitalizeName(document.getElementById('clFio')?.value).split(' ').filter(Boolean);
     const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-    setV('clLastName', parts[0]);
-    setV('clFirstName', parts[1]);
+    setV('clFirstName', parts[0]);
+    setV('clLastName', parts[1]);
     setV('clMiddleName', parts.slice(2).join(' '));
+  }
+
+  // Обратная сборка строки ФИО из полей — в том же порядке, в котором её
+  // вводят. Без этого при открытии карточки в строке оказалось бы
+  // «Фамилия Имя», и правка строки поменяла бы имя с фамилией местами.
+  function clFioLine() {
+    const v = (id) => document.getElementById(id)?.value.trim() || '';
+    return [v('clFirstName'), v('clLastName'), v('clMiddleName')].filter(Boolean).join(' ');
   }
 
   // Заглавные и в самих полях: их правят руками после раскладки, и капслок
@@ -5228,6 +5238,9 @@ import {
   }
 
   document.getElementById('clFio')?.addEventListener('input', clSpreadFio);
+  document.getElementById('clFio')?.addEventListener('blur', (e) => {
+    e.target.value = capitalizeName(e.target.value);
+  });
   ['clLastName', 'clFirstName', 'clMiddleName'].forEach((id) => {
     document.getElementById(id)?.addEventListener('blur', () => clNormalizeNameField(id));
   });
