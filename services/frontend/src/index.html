@@ -625,6 +625,7 @@
               <h2 class="card-title">Сотрудники</h2>
               <span class="counter" id="mastersCounter">0</span>
               <div class="data-head-spacer"></div>
+              <button class="btn-secondary btn-sm" id="positionsToggle" type="button" title="Справочник должностей">Должности</button>
               <button class="btn-primary btn-sm" id="addMasterToggle" type="button">+ Добавить сотрудника</button>
             </div>
             <details class="add-block" id="addMasterBlock">
@@ -637,17 +638,13 @@
                   </div>
                   <div>
                     <label for="mPosition">Должность / роль</label>
-                    <select id="mPosition" name="position">
-                      <option value="">— без должности —</option>
-                      <option value="Косметолог">Косметолог</option>
-                      <option value="Врач-косметолог">Врач-косметолог</option>
-                      <option value="Лазерный технолог">Лазерный технолог</option>
-                      <option value="Специалист по бровям">Специалист по бровям</option>
-                      <option value="Специалист по ресницам">Специалист по ресницам</option>
-                      <option value="Менеджер по продажам">Менеджер по продажам</option>
-                      <option value="Администратор">Администратор</option>
-                      <option value="Техничка">Техничка</option>
-                    </select>
+                    <!-- Список был закрытым select: должности вроде «Ассистент»
+                         в него не добавить, хотя такие сотрудники есть. Ввод
+                         свободный, а список — подсказки: базовые плюс те, что
+                         уже заведены в компании (наполняется в app.js). -->
+                    <input id="mPosition" name="position" type="text" list="positionOptions"
+                           autocomplete="off" placeholder="Например, Ассистент" />
+                    <datalist id="positionOptions"></datalist>
                   </div>
                   <div>
                     <label for="mPhone">Телефон</label>
@@ -693,10 +690,14 @@
               <button class="journal-datenav-btn" id="journalPrevDay" type="button" aria-label="Предыдущий день">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button class="journal-datenav-current" id="journalDateBtn" type="button">
-                <span id="journalDateLabel">—</span>
-                <input type="date" id="journalDate" class="journal-datenav-input" />
-              </button>
+              <div class="journal-datepick">
+                <button class="journal-datenav-current" id="journalDateBtn" type="button"
+                        aria-haspopup="dialog" aria-expanded="false">
+                  <span id="journalDateLabel">—</span>
+                </button>
+                <div class="mini-cal journal-datepop" id="journalDatePop" hidden role="dialog" aria-label="Выбор даты"></div>
+              </div>
+              <input type="date" id="journalDate" hidden />
               <button class="journal-datenav-btn" id="journalNextDay" type="button" aria-label="Следующий день">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
@@ -1065,6 +1066,16 @@
                 <button type="button" class="btn-primary" id="schApplyTime">Применить изменения</button>
                 <div class="sch-edit-or">или</div>
                 <button type="button" class="btn-outline" id="schMarkOff">Сделать дни нерабочими</button>
+                <!-- Ассистент выходит к конкретному врачу, и завтра это может
+                     быть другой: прикрепление задаётся на выделенные дни. -->
+                <div class="sch-assist-block" id="schAssistBlock" hidden>
+                  <div class="sch-edit-or">и</div>
+                  <label class="sch-edit-label" for="schAssistMaster">
+                    Кому ассистирует <b id="schAssistWho"></b>
+                  </label>
+                  <select id="schAssistMaster"></select>
+                  <button type="button" class="btn-outline" id="schAssistApply">Прикрепить на выбранные дни</button>
+                </div>
               </div>
               <div id="schPreview" class="sch-preview"></div>
               <label class="sch-preview-toggle" title="Phase 1 — пометки записей в превью">
@@ -1515,6 +1526,7 @@
                       <option value="week">Неделя</option>
                       <option value="month" selected>Месяц</option>
                     </select>
+                    <p class="hint" style="margin:4px 0 0;">«День» — оплата за каждый выход по графику: так считают ассистентам.</p>
                   </div>
                 </div>
 
@@ -3019,6 +3031,29 @@
         </form>
       </div>
 
+      <!-- Modal: справочник должностей -->
+      <div class="modal-backdrop" id="positionsBackdrop" hidden></div>
+      <div class="modal" id="positionsModal" hidden role="dialog" aria-modal="true" aria-labelledby="positionsTitle">
+        <div class="modal-head">
+          <h3 class="modal-title" id="positionsTitle">Должности</h3>
+          <button type="button" class="modal-close" id="positionsClose" aria-label="Закрыть">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint" style="margin-top:0;">
+            Галочка «В журнале» решает, получает ли сотрудник с этой должностью колонку
+            в журнале записей. Снимите её для тех, на кого клиентов не записывают.
+          </p>
+          <form id="positionsAddForm" class="positions-add">
+            <input id="positionsNewName" type="text" maxlength="80" placeholder="Новая должность, например Ассистент" required />
+            <button type="submit" class="btn-primary btn-sm">Добавить</button>
+          </form>
+          <div id="positionsList" class="positions-list"></div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn-secondary" id="positionsDone">Готово</button>
+        </div>
+      </div>
+
       <!-- Modal: оформить продажу (complete booking) -->
       <div class="modal-backdrop" id="saleModalBackdrop" hidden></div>
       <!-- Шаг 2: оплата частями (поверх модалки продажи, как в DIKIDI) -->
@@ -3306,7 +3341,7 @@
                 <div class="form-grid">
                   <div><label for="mcFirstName">Имя *</label><input id="mcFirstName" name="first_name" type="text" required /></div>
                   <div><label for="mcLastName">Фамилия</label><input id="mcLastName" name="last_name" type="text" /></div>
-                  <div><label for="mcPosition">Должность *</label><input id="mcPosition" name="position" type="text" required placeholder="Врач-косметолог" /></div>
+                  <div><label for="mcPosition">Должность *</label><input id="mcPosition" name="position" type="text" required list="positionOptions" autocomplete="off" placeholder="Врач-косметолог" /></div>
                   <div><label for="mcCategory">Категория *</label>
                     <select id="mcCategory" name="category" required>
                       <option value="">— выберите —</option>

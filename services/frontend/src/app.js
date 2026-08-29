@@ -1231,10 +1231,56 @@ import {
     if (!ok) return;
     cachedMasters = data?.items || [];
     mastersLoadedAt = Date.now();
+    // Должности решают, кто получает колонку в журнале, поэтому грузятся вместе
+    // с сотрудниками, а не только при открытии справочника.
+    await loadPositions();
     renderMasters();
   }
 
+  // ===== Справочник должностей =====
+  let cachedPositions = [];
+
+  async function loadPositions() {
+    if (!store.access) return;
+    const { ok, data } = await apiCall('GET', '/api/salons/positions', null);
+    if (!ok) return;
+    cachedPositions = data?.items || [];
+  }
+
+  const positionKey = (name) => (name || '').trim().toLowerCase();
+
+  // Должность без записи в справочнике ведёт себя как видимая: справочник
+  // сидируется из карточек, но сотрудника могли завести с новой должностью.
+  function positionShowsInJournal(name) {
+    const p = cachedPositions.find((x) => positionKey(x.name) === positionKey(name));
+    return p ? p.show_in_journal !== false : true;
+  }
+
+  // Единственная точка правды о колонках журнала: сотрудник оказывает услуги
+  // и его должность не помечена «не в журнале».
+  function isJournalMaster(m) {
+    return m.is_active && m.provides_services !== false && positionShowsInJournal(m.position);
+  }
+
+  // Базовые должности плюс всё, что уже заведено в компании: список открытый,
+  // и введённая однажды «Ассистент» должна подсказываться в следующий раз.
+  const BASE_POSITIONS = [
+    'Косметолог', 'Врач-косметолог', 'Лазерный технолог', 'Ассистент',
+    'Специалист по бровям', 'Специалист по ресницам',
+    'Менеджер по продажам', 'Администратор', 'Техничка',
+  ];
+
+  function renderPositionOptions() {
+    const dl = document.getElementById('positionOptions');
+    if (!dl) return;
+    const used = cachedMasters.map((m) => (m.position || '').trim()).filter(Boolean);
+    const known = cachedPositions.map((p) => (p.name || '').trim()).filter(Boolean);
+    const all = [...new Set([...BASE_POSITIONS, ...known, ...used])].sort((a, b) => a.localeCompare(b, 'ru'));
+    dl.innerHTML = all.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('');
+  }
+
   function renderMasters() {
+    renderPositionOptions();
     if (!els.mastersCounter) return;
     els.mastersCounter.textContent = String(cachedMasters.length);
     if (cachedMasters.length === 0) {
@@ -1389,6 +1435,90 @@ import {
     await loadServices();
   });
 
+  // ===== Справочник должностей: модалка из раздела «Сотрудники» =====
+  function renderPositionsList() {
+    const box = document.getElementById('positionsList');
+    if (!box) return;
+    if (!cachedPositions.length) {
+      box.innerHTML = '<div class="empty">Должностей пока нет — добавьте первую.</div>';
+      return;
+    }
+    box.innerHTML = cachedPositions.map((p) => `
+      <div class="positions-row" data-pos-id="${escapeHtml(p.id)}">
+        <span class="positions-name">${escapeHtml(p.name)}</span>
+        <span class="positions-count">${p.masters_count || 0}</span>
+        <label class="positions-flag" title="Показывать сотрудников с этой должностью в журнале записей">
+          <input type="checkbox" data-pos-journal ${p.show_in_journal !== false ? 'checked' : ''} />
+          <span>В журнале</span>
+        </label>
+        <button type="button" class="btn-ghost btn-xs" data-pos-del aria-label="Удалить должность">×</button>
+      </div>`).join('');
+  }
+
+  function openPositionsModal() {
+    document.getElementById('positionsBackdrop').hidden = false;
+    document.getElementById('positionsModal').hidden = false;
+    renderPositionsList();
+  }
+
+  function closePositionsModal() {
+    document.getElementById('positionsBackdrop').hidden = true;
+    document.getElementById('positionsModal').hidden = true;
+  }
+
+  document.getElementById('positionsToggle')?.addEventListener('click', async () => {
+    await loadPositions();
+    openPositionsModal();
+  });
+  document.getElementById('positionsClose')?.addEventListener('click', closePositionsModal);
+  document.getElementById('positionsDone')?.addEventListener('click', closePositionsModal);
+  document.getElementById('positionsBackdrop')?.addEventListener('click', closePositionsModal);
+
+  document.getElementById('positionsAddForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('positionsNewName');
+    const name = input.value.trim();
+    if (!name) return;
+    const { ok, data, status } = await apiCall('POST', '/api/salons/positions', { name });
+    if (!ok) { toast(`Не удалось добавить: ${data?.error || status}`); return; }
+    input.value = '';
+    await loadPositions();
+    renderPositionsList();
+    renderPositionOptions();
+  });
+
+  document.getElementById('positionsList')?.addEventListener('change', async (e) => {
+    const cb = e.target.closest('[data-pos-journal]');
+    if (!cb) return;
+    const id = cb.closest('[data-pos-id]')?.dataset.posId;
+    if (!id) return;
+    const { ok, data, status } = await apiCall('PATCH', `/api/salons/positions/${id}`, {
+      show_in_journal: cb.checked,
+    });
+    if (!ok) {
+      cb.checked = !cb.checked;
+      toast(`Не удалось сохранить: ${data?.error || status}`);
+      return;
+    }
+    await loadPositions();
+    // Журнал перерисовываем сразу: смысл флага в том, чтобы колонка появилась
+    // или исчезла, и проверять это перезагрузкой страницы — так себе способ.
+    renderJournal();
+  });
+
+  document.getElementById('positionsList')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-pos-del]');
+    if (!btn) return;
+    const row = btn.closest('[data-pos-id]');
+    const name = row?.querySelector('.positions-name')?.textContent || '';
+    if (!confirm(`Удалить должность «${name}» из справочника? У сотрудников она останется.`)) return;
+    const { ok, data, status } = await apiCall('DELETE', `/api/salons/positions/${row.dataset.posId}`, null);
+    if (!ok) { toast(`Не удалось удалить: ${data?.error || status}`); return; }
+    await loadPositions();
+    renderPositionsList();
+    renderPositionOptions();
+  });
+
   // ===== Add master =====
   els.addMasterToggle.addEventListener('click', () => {
     els.addMasterBlock.open = !els.addMasterBlock.open;
@@ -1472,7 +1602,7 @@ import {
     if (els.filterMaster) {
       const cur = journalFilters.master_id;
       els.filterMaster.innerHTML = '<option value="">Все</option>' +
-        cachedMasters.filter((m) => m.provides_services !== false)
+        cachedMasters.filter(isJournalMaster)
           .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('');
       els.filterMaster.value = cur;
     }
@@ -1528,7 +1658,7 @@ import {
 
   function renderCalendar() {
     if (!els.journalCalendar) return;
-    const masters = cachedMasters.filter((m) => m.is_active && m.provides_services !== false
+    const masters = cachedMasters.filter((m) => isJournalMaster(m)
       && (!jrnSelectedMasters || jrnSelectedMasters.has(m.id)));
     if (masters.length === 0) {
       els.journalCalendar.innerHTML = `
@@ -1747,11 +1877,11 @@ import {
   }
 
   // ===== Mini-calendar (right aside in journal) =====
-  function renderMiniCal() {
-    if (!els.miniCal) return;
-    const selected = els.journalDate.value || todayLocalISO();
-    if (!miniCalAnchor) miniCalAnchor = selected.slice(0, 7);
-    const [y, m] = miniCalAnchor.split('-').map(Number);
+  // Разметка общая для двух мест: календарь в правой колонке и всплывающий
+  // календарь под датой в шапке журнала. Держать две копии сетки месяца
+  // означало бы чинить выходные и «сегодня» дважды.
+  function miniCalHtml(anchorMonth, selected) {
+    const [y, m] = anchorMonth.split('-').map(Number);
     const first = new Date(y, m - 1, 1);
     const monthName = MONTHS_RU[m - 1];
     const today = todayLocalISO();
@@ -1802,30 +1932,110 @@ import {
       html += `<div class="mini-cal-day outside" data-iso="${iso}">${i}</div>`;
     }
     html += '</div>';
-    els.miniCal.innerHTML = html;
-
-    els.miniCal.querySelectorAll('[data-mc]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const dir = b.dataset.mc;
-        const [yy, mm] = miniCalAnchor.split('-').map(Number);
-        let nm = mm + (dir === 'next' ? 1 : -1);
-        let ny = yy;
-        if (nm < 1) { nm = 12; ny--; }
-        if (nm > 12) { nm = 1; ny++; }
-        miniCalAnchor = `${ny}-${String(nm).padStart(2, '0')}`;
-        renderMiniCal();
-      });
-    });
-    els.miniCal.querySelectorAll('.mini-cal-day').forEach((cell) => {
-      cell.addEventListener('click', () => {
-        const iso = cell.dataset.iso;
-        if (!iso) return;
-        els.journalDate.value = iso;
-        miniCalAnchor = iso.slice(0, 7);
-        void loadBookings();
-      });
-    });
+    return html;
   }
+
+  // Сдвиг месяца в сетке: 'prev' | 'next'.
+  function shiftMonth(anchorMonth, dir) {
+    const [yy, mm] = anchorMonth.split('-').map(Number);
+    let nm = mm + (dir === 'next' ? 1 : -1);
+    let ny = yy;
+    if (nm < 1) { nm = 12; ny--; }
+    if (nm > 12) { nm = 1; ny++; }
+    return `${ny}-${String(nm).padStart(2, '0')}`;
+  }
+
+  function renderMiniCal() {
+    if (!els.miniCal) return;
+    const selected = els.journalDate.value || todayLocalISO();
+    if (!miniCalAnchor) miniCalAnchor = selected.slice(0, 7);
+    els.miniCal.innerHTML = miniCalHtml(miniCalAnchor, selected);
+  }
+
+  // Делегирование, а не слушатели на ячейках: сетка перерисовывается на каждое
+  // переключение месяца, и прямые слушатели пришлось бы навешивать заново.
+  els.miniCal?.addEventListener('click', (e) => {
+    const nav = e.target.closest('[data-mc]');
+    if (nav) {
+      miniCalAnchor = shiftMonth(miniCalAnchor || todayLocalISO().slice(0, 7), nav.dataset.mc);
+      renderMiniCal();
+      return;
+    }
+    const cell = e.target.closest('.mini-cal-day');
+    if (!cell?.dataset.iso) return;
+    pickJournalDate(cell.dataset.iso);
+  });
+
+  // ===== Календарь под датой в шапке журнала =====
+  // Дата в шапке раньше прикрывала невидимый input[type=date]: клик по ней
+  // ставил фокус, но нативный календарь Chrome так не раскрывается — по нажатию
+  // не происходило ничего. Показываем ту же сетку месяца, что и в правой
+  // колонке: она видна и в списочном режиме, где правой колонки нет.
+  let datePopAnchor = null;
+
+  function journalDatePopEl() { return document.getElementById('journalDatePop'); }
+
+  function renderJournalDatePop() {
+    const pop = journalDatePopEl();
+    if (!pop) return;
+    const selected = els.journalDate.value || todayLocalISO();
+    if (!datePopAnchor) datePopAnchor = selected.slice(0, 7);
+    pop.innerHTML = miniCalHtml(datePopAnchor, selected);
+  }
+
+  function openJournalDatePop() {
+    const pop = journalDatePopEl();
+    if (!pop) return;
+    // Месяц открываем на выбранной дате, а не там, где его оставили в прошлый
+    // раз: иначе после перехода стрелками календарь показывает чужой месяц.
+    datePopAnchor = (els.journalDate.value || todayLocalISO()).slice(0, 7);
+    renderJournalDatePop();
+    pop.hidden = false;
+    els.journalDateBtn?.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeJournalDatePop() {
+    const pop = journalDatePopEl();
+    if (!pop || pop.hidden) return;
+    pop.hidden = true;
+    els.journalDateBtn?.setAttribute('aria-expanded', 'false');
+  }
+
+  // Выбор числа из любой сетки: обе меняют якорь журнала, период не трогаем —
+  // в режиме «Неделя» или «Месяц» показывается тот период, куда попало число.
+  function pickJournalDate(iso) {
+    els.journalDate.value = iso;
+    miniCalAnchor = iso.slice(0, 7);
+    datePopAnchor = miniCalAnchor;
+    closeJournalDatePop();
+    void loadBookings();
+  }
+
+  els.journalDateBtn?.addEventListener('click', () => {
+    if (journalDatePopEl()?.hidden === false) closeJournalDatePop();
+    else openJournalDatePop();
+  });
+
+  journalDatePopEl()?.addEventListener('click', (e) => {
+    const nav = e.target.closest('[data-mc]');
+    if (nav) {
+      datePopAnchor = shiftMonth(datePopAnchor || todayLocalISO().slice(0, 7), nav.dataset.mc);
+      renderJournalDatePop();
+      return;
+    }
+    const cell = e.target.closest('.mini-cal-day');
+    if (!cell?.dataset.iso) return;
+    pickJournalDate(cell.dataset.iso);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (journalDatePopEl()?.hidden !== false) return;
+    if (e.target.closest('.journal-datepick')) return;
+    closeJournalDatePop();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeJournalDatePop();
+  });
 
   // ===== Finance widget =====
   function renderFinance() {
@@ -1897,7 +2107,7 @@ import {
 
   function _renderCalendarLegacy() {
     if (!els.journalCalendar) return;
-    const masters = cachedMasters.filter((m) => m.is_active && m.provides_services !== false
+    const masters = cachedMasters.filter((m) => isJournalMaster(m)
       && (!jrnSelectedMasters || jrnSelectedMasters.has(m.id)));
     if (masters.length === 0) {
       els.journalCalendar.innerHTML = '<div class="empty">Сначала добавь хотя бы одного сотрудника.</div>';
@@ -2807,8 +3017,10 @@ import {
     if (!cachedMasters.length || !cachedServices.length) {
       void Promise.all([loadMasters(), loadServices()]).then(populateBookingForm);
     }
+    // Тот же фильтр, что и у колонок журнала: записать на сотрудника, которого
+    // в журнале нет, значит потерять запись из виду.
     els.bMaster.innerHTML = cachedMasters
-      .filter((m) => m.is_active && m.provides_services !== false)
+      .filter(isJournalMaster)
       .map((m) => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('');
     // Менеджеры: сотрудники с provides_services=false (не техничка) ИЛИ с должностью менеджер/администратор
     const managerPositions = ['менеджер', 'администратор'];
@@ -3454,10 +3666,6 @@ import {
     if (els.bClientSearch) els.bClientSearch.value = _clientSelectedLabel;
   }
 
-  els.journalDate?.addEventListener('change', () => {
-    miniCalAnchor = (els.journalDate.value || todayLocalISO()).slice(0, 7);
-    void loadBookings();
-  });
   els.journalPrevDay?.addEventListener('click', () => shiftJournalDate(-1));
   els.journalNextDay?.addEventListener('click', () => shiftJournalDate(1));
   document.getElementById('exportBookingsCsv')?.addEventListener('click', exportBookingsCsv);
@@ -3942,7 +4150,36 @@ import {
     if (failed.length) {
       toast(`График не загрузился: ${failed.length} из ${masters.length} сотрудников. Обновите страницу.`);
     }
+    await loadAssistantAssignments(from, to);
     renderSchedule();
+  }
+
+  // ===== Ассистенты: кто к кому прикреплён в конкретный день =====
+  // Ключ `${assistantId}|${iso}` → masterId врача. Ассистент выходит не «в
+  // клинику», а к конкретному врачу, и завтра это может быть другой врач.
+  let assistantByDay = new Map();
+
+  const assistKey = (assistantId, iso) => `${assistantId}|${iso}`;
+
+  async function loadAssistantAssignments(from, to) {
+    assistantByDay = new Map();
+    const { ok, data } = await apiCall('GET', `/api/salons/schedule/assistants/all?from=${from}&to=${to}`);
+    if (!ok) return;
+    (data?.items || []).forEach((it) => {
+      assistantByDay.set(assistKey(it.assistant_id, it.work_date), it.master_id);
+    });
+  }
+
+  // Врачи, к которым имеет смысл прикреплять: те, кто реально ведёт приём.
+  function assistTargets(excludeId) {
+    return cachedMasters.filter((m) => m.is_active && m.provides_services !== false && m.id !== excludeId);
+  }
+
+  function masterShortName(id) {
+    const m = cachedMasters.find((x) => x.id === id);
+    if (!m) return '';
+    // В ячейке графика помещается только фамилия — имя обрезаем.
+    return (m.display_name || '').trim().split(/\s+/)[0] || '';
   }
 
   function renderSchedule() {
@@ -4052,6 +4289,17 @@ import {
           cell.innerHTML = `<div>${escapeHtml(it.start_time)}</div><div>${escapeHtml(it.end_time)}</div>`;
         } else {
           cell.innerHTML = '';
+        }
+
+        // К кому прикреплён в этот день — прямо в ячейке: иначе, чтобы понять,
+        // кто с кем работает, пришлось бы тыкать в каждый день по очереди.
+        const assistTo = assistantByDay.get(assistKey(mst.id, iso));
+        if (assistTo && !(it && it.is_day_off)) {
+          const tag = document.createElement('div');
+          tag.className = 'sch-assist';
+          tag.textContent = masterShortName(assistTo);
+          tag.title = `Ассистирует: ${cachedMasters.find((x) => x.id === assistTo)?.display_name || ''}`;
+          cell.appendChild(tag);
         }
 
         cell.addEventListener('click', (e) => {
@@ -4277,7 +4525,58 @@ import {
     panel.hidden = n === 0;
     hint.hidden = n > 0;
     if (cnt) cnt.textContent = String(n);
+    renderSchAssistBlock();
   }
+
+  // Прикрепление работает только для одного сотрудника за раз: «ассистирует
+  // такому-то» — свойство пары, и на выделении из нескольких строк непонятно,
+  // кого к кому цеплять.
+  function schSelectedAssistantId() {
+    const ids = new Set([...schSelected].map((k) => k.split('|')[0]));
+    return ids.size === 1 ? [...ids][0] : null;
+  }
+
+  function renderSchAssistBlock() {
+    const box = document.getElementById('schAssistBlock');
+    if (!box) return;
+    const assistantId = schSelectedAssistantId();
+    if (!assistantId || !schSelected.size) { box.hidden = true; return; }
+    box.hidden = false;
+
+    const dates = [...schSelected].map((k) => k.split('|')[1]).sort();
+    // Показываем текущее значение, если на всех выбранных днях оно одно.
+    const cur = [...new Set(dates.map((iso) => assistantByDay.get(assistKey(assistantId, iso)) || ''))];
+    const single = cur.length === 1 ? cur[0] : '';
+    const sel = document.getElementById('schAssistMaster');
+    sel.innerHTML = '<option value="">— не прикреплён —</option>'
+      + assistTargets(assistantId)
+        .map((m) => `<option value="${escapeHtml(m.id)}"${m.id === single ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`)
+        .join('');
+    const who = cachedMasters.find((m) => m.id === assistantId);
+    const nameEl = document.getElementById('schAssistWho');
+    if (nameEl) nameEl.textContent = who?.display_name || '';
+  }
+
+  document.getElementById('schAssistApply')?.addEventListener('click', async () => {
+    const assistantId = schSelectedAssistantId();
+    if (!assistantId) { toast('Выделите дни одного сотрудника'); return; }
+    const masterId = document.getElementById('schAssistMaster').value || null;
+    const items = [...schSelected].map((k) => ({
+      work_date: k.split('|')[1],
+      assistant_id: assistantId,
+      master_id: masterId,
+    }));
+    const { ok, data, status } = await apiCall('PUT', '/api/salons/schedule/assistants/all', { items });
+    if (!ok) { toast(`Не удалось сохранить: ${data?.error || status}`); return; }
+    items.forEach((it) => {
+      if (masterId) assistantByDay.set(assistKey(assistantId, it.work_date), masterId);
+      else assistantByDay.delete(assistKey(assistantId, it.work_date));
+    });
+    toast(masterId ? `Прикреплён на ${items.length} дн.` : `Открепление на ${items.length} дн.`);
+    schSelected.clear();
+    schLastPick = null;
+    renderSchedule();
+  });
 
   // Применить к выделенным дням: либо рабочее время, либо выходной.
   function schApplyToSelection(patch) {
@@ -4332,7 +4631,7 @@ import {
   // ===== Journal master filter (DIKIDI-style dropdown с группировкой) =====
   function jrnGroupMasters() {
     const groups = new Map();
-    cachedMasters.filter((m) => m.is_active && m.provides_services !== false).forEach((m) => {
+    cachedMasters.filter(isJournalMaster).forEach((m) => {
       const role = (m.specialization || '').trim() || 'Другие';
       if (!groups.has(role)) groups.set(role, []);
       groups.get(role).push(m);
@@ -4347,7 +4646,7 @@ import {
     const triggerCount = document.getElementById('jrnMastersCount');
     if (!root) return;
     const groups = jrnGroupMasters();
-    const total = cachedMasters.filter((m) => m.is_active && m.provides_services !== false).length;
+    const total = cachedMasters.filter(isJournalMaster).length;
     const selectedCount = jrnSelectedMasters ? jrnSelectedMasters.size : total;
 
     if (allCb) allCb.checked = !jrnSelectedMasters || jrnSelectedMasters.size === total;
@@ -4394,7 +4693,7 @@ import {
     root.querySelectorAll('[data-jmaster-cb]').forEach((cb) => {
       cb.addEventListener('change', () => {
         const id = cb.dataset.jmasterCb;
-        const all = cachedMasters.filter((m) => m.is_active && m.provides_services !== false);
+        const all = cachedMasters.filter(isJournalMaster);
         if (jrnSelectedMasters === null) jrnSelectedMasters = new Set(all.map((m) => m.id));
         if (cb.checked) jrnSelectedMasters.add(id); else jrnSelectedMasters.delete(id);
         if (jrnSelectedMasters.size === all.length) jrnSelectedMasters = null;
@@ -4406,7 +4705,7 @@ import {
       cb.addEventListener('change', () => {
         const role = cb.dataset.jgrpCb;
         const groupMasters = (jrnGroupMasters().get(role) || []).map((m) => m.id);
-        const all = cachedMasters.filter((m) => m.is_active && m.provides_services !== false);
+        const all = cachedMasters.filter(isJournalMaster);
         if (jrnSelectedMasters === null) jrnSelectedMasters = new Set(all.map((m) => m.id));
         if (cb.checked) groupMasters.forEach((id) => jrnSelectedMasters.add(id));
         else groupMasters.forEach((id) => jrnSelectedMasters.delete(id));

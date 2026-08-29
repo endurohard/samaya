@@ -12,6 +12,77 @@ const querySchema = z.object({
   to: isoDate(),
 });
 
+// ===== Ассистенты: кто к какому врачу прикреплён в конкретный день =====
+// Объявлено до '/:masterId', иначе '/assistants' уедет в него как id мастера.
+
+router.get('/assistants/all', async (req, res, next) => {
+  try {
+    const q = querySchema.parse(req.query);
+    const { rows } = await pool.query(
+      `SELECT work_date::text AS work_date, assistant_id, master_id
+         FROM salons.assistant_assignments
+        WHERE company_id = $1 AND work_date >= $2::date AND work_date <= $3::date
+        ORDER BY work_date`,
+      [req.auth!.company_id, q.from, q.to],
+    );
+    return res.json({ items: rows });
+  } catch (e) { return next(e); }
+});
+
+// master_id = null снимает прикрепление на этот день: отдельный DELETE на
+// каждую дату означал бы пачку запросов при снятии выделенного диапазона.
+const assignSchema = z.object({
+  items: z.array(z.object({
+    work_date: isoDate(),
+    assistant_id: z.string().uuid(),
+    master_id: z.string().uuid().nullable(),
+  })).min(1).max(366),
+});
+
+router.put('/assistants/all', requireRole(['owner', 'admin']), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { items } = assignSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    await client.query('BEGIN');
+
+    // Оба сотрудника должны принадлежать компании: id приходят с клиента, и
+    // без проверки чужого мастера можно было бы прикрепить к своему графику.
+    const ids = [...new Set(items.flatMap((it) => [it.assistant_id, it.master_id].filter(Boolean)))];
+    const own = await client.query(
+      `SELECT id FROM salons.masters WHERE company_id = $1 AND id = ANY($2::uuid[])`,
+      [companyId, ids],
+    );
+    if (own.rows.length !== ids.length) throw new HttpError(404, 'master not found');
+
+    for (const it of items) {
+      if (!it.master_id) {
+        await client.query(
+          `DELETE FROM salons.assistant_assignments
+            WHERE company_id = $1 AND assistant_id = $2 AND work_date = $3::date`,
+          [companyId, it.assistant_id, it.work_date],
+        );
+        continue;
+      }
+      if (it.master_id === it.assistant_id) throw new HttpError(400, 'assistant cannot assist self');
+      await client.query(
+        `INSERT INTO salons.assistant_assignments (company_id, assistant_id, master_id, work_date)
+         VALUES ($1, $2, $3, $4::date)
+         ON CONFLICT (assistant_id, work_date) DO UPDATE SET master_id = EXCLUDED.master_id`,
+        [companyId, it.assistant_id, it.master_id, it.work_date],
+      );
+    }
+
+    await client.query('COMMIT');
+    return res.json({ updated: items.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    return next(e);
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/:masterId', async (req, res, next) => {
   try {
     const q = querySchema.parse(req.query);

@@ -939,11 +939,23 @@ body.guest .auth-card { margin: 32px auto 0; }
   min-width: 130px;
 }
 .journal-datenav-current:hover { background: var(--bg); }
-.journal-datenav-input {
+/* Календарь под датой в шапке журнала. Открывается по клику на саму дату —
+   там, где раньше лежал невидимый input[type=date], который в Chrome от клика
+   только получал фокус. */
+.journal-datepick { position: relative; }
+.journal-datepop {
   position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: 252px;
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, .18));
+}
+@media (max-width: 720px) {
+  /* На узком экране шапка занимает всю ширину: у края поповер иначе уезжает
+     за пределы окна. */
+  .journal-datepop { left: 0; transform: none; }
 }
 
 /* layout: main + aside */
@@ -5219,4 +5231,68 @@ html, body { overflow-x: hidden; }
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
+}
+
+/* ===== Справочник должностей ===== */
+.positions-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.positions-add input { flex: 1; }
+.positions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.positions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+.positions-name { flex: 1; font-weight: 500; }
+/* Сколько сотрудников с этой должностью — иначе непонятно, что удаляешь. */
+.positions-count {
+  min-width: 24px;
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+.positions-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* ===== Ассистент в графике ===== */
+.sch-assist-block { margin-top: 10px; }
+.sch-assist-block select { width: 100%; margin-bottom: 8px; }
+.sch-assist-block .btn-outline { width: 100%; }
+/* Метка «ассистирует такому-то» в ячейке дня: место есть только под фамилию,
+   полное имя — в подсказке. */
+.sch-assist {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.1;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: 999px;
+  padding: 1px 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
