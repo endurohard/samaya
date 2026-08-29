@@ -2713,16 +2713,23 @@ import {
     await loadBookings();
   });
 
-  document.getElementById('bFootComplete')?.addEventListener('click', () => {
-    const b = cachedBookings.find((x) => x.id === editingBookingId);
+  // Клик по денежной кнопке снимает фокус с поля цены — автосохранение уже
+  // запущено, дожидаемся его: иначе продажа и пополнение открылись бы с
+  // суммой, которую только что заменили.
+  document.getElementById('bFootComplete')?.addEventListener('click', async () => {
+    const id = editingBookingId;
+    await bookingMoneySave;
+    const b = cachedBookings.find((x) => x.id === id);
     if (!b) return;
     resetBookingForm();
     closeAddBookingModal();
     openSaleFor(b);
   });
 
-  document.getElementById('bFootTopup')?.addEventListener('click', () => {
-    const b = cachedBookings.find((x) => x.id === editingBookingId);
+  document.getElementById('bFootTopup')?.addEventListener('click', async () => {
+    const id = editingBookingId;
+    await bookingMoneySave;
+    const b = cachedBookings.find((x) => x.id === id);
     if (!b) return;
     resetBookingForm();
     closeAddBookingModal();
@@ -3051,6 +3058,23 @@ import {
       const t = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
       return `<button type="button" class="bk-slot${t === current ? ' is-active' : ''}" data-time="${t}">${t}</button>`;
     }).join('');
+    scrollSlotsToCurrent();
+  }
+
+  // Лента прокручивается, и её начало — утро. Открывая запись на вечер, админ
+  // видел бы «10:00» и решил, что нужного окна нет. Подводим к текущему
+  // времени: точное совпадение, иначе ближайшее окно после него.
+  function scrollSlotsToCurrent() {
+    const box = bkSlotsBox();
+    if (!box) return;
+    const current = els.bTime?.value || '';
+    const slots = [...box.querySelectorAll('.bk-slot')];
+    if (!slots.length) return;
+    const target = slots.find((b) => b.dataset.time === current)
+      || (current ? slots.find((b) => b.dataset.time > current) : null)
+      || slots[0];
+    // scrollIntoView прокрутил бы заодно и модалку — двигаем только ленту.
+    box.scrollLeft = target.offsetLeft - (box.clientWidth - target.offsetWidth) / 2;
   }
 
   // Слоты пересчитывать на смену времени не нужно — меняется только подсветка.
@@ -3069,8 +3093,23 @@ import {
     checkBookingOverlap();
   });
 
+  // Колесо мыши крутит страницу по вертикали, а лента горизонтальная: без
+  // этого её можно было двигать только перетаскиванием скроллбара.
+  bkSlotsBox()?.addEventListener('wheel', (e) => {
+    const box = e.currentTarget;
+    if (box.scrollWidth <= box.clientWidth) return;
+    // Трекпадом уже листают вбок — вмешиваемся только в вертикальный жест.
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    box.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+
   els.bDate?.addEventListener('change', () => { checkBookingOverlap(); void loadBookingSlots(); });
-  els.bTime?.addEventListener('change', () => { checkBookingOverlap(); markActiveSlot(); });
+  els.bTime?.addEventListener('change', () => {
+    checkBookingOverlap();
+    markActiveSlot();
+    scrollSlotsToCurrent();
+  });
   els.bMaster?.addEventListener('change', () => { checkBookingOverlap(); void loadBookingSlots(); });
 
   // Делегирование: кнопка «+» живёт внутри таблицы и пересоздаётся при каждой
@@ -3147,10 +3186,42 @@ import {
   // не нужно, значение просто оседает в модели.
   document.getElementById('bSvcGrid')?.addEventListener('change', (e) => {
     const t = e.target;
-    if (!t.classList.contains('bk-svc-manager')) return;
-    const row = svcRows[Number(t.dataset.idx)];
-    if (row) row.manager_id = t.value || '';
+    if (t.classList.contains('bk-svc-manager')) {
+      const row = svcRows[Number(t.dataset.idx)];
+      if (row) row.manager_id = t.value || '';
+      return;
+    }
+    // Правка суммы в открытой записи применяется сразу, без «Сохранить»:
+    // администратор меняет цену и тут же идёт пополнять счёт клиента, а
+    // раньше новая сумма жила только в форме — пополнение и продажа считались
+    // по старой, пока кто-нибудь не вспомнит нажать кнопку.
+    if (t.classList.contains('bk-svc-price')
+      || t.classList.contains('bk-svc-disc-pct')
+      || t.classList.contains('bk-svc-disc-sum')) {
+      void autoSaveBookingMoney();
+    }
   });
+
+  // Автосохранения выстраиваются в очередь: правку двух цен подряд иначе
+  // отправили бы двумя параллельными PATCH, и порядок применения был бы
+  // случайным. Кнопки «Пополнить счёт» и «Оформить продажу» ждут эту же
+  // цепочку, чтобы открыться уже с пересчитанной суммой.
+  let bookingMoneySave = Promise.resolve();
+
+  function autoSaveBookingMoney() {
+    // Новую запись автосохранять некуда — она появится по «Создать».
+    if (!editingBookingId || addBookingMode === 'block') return bookingMoneySave;
+    bookingMoneySave = bookingMoneySave.then(async () => {
+      if (!editingBookingId) return;
+      const { ok, error } = await sendBookingForm();
+      if (!ok) { toast(`Сумма не сохранена: ${error}`); return; }
+      // Форма остаётся открытой — перечитываем журнал, чтобы кэш записи (а с
+      // ним суммы для продажи и пополнения) был свежим.
+      await loadBookings();
+      toast('Сумма обновлена');
+    });
+    return bookingMoneySave;
+  }
 
   document.getElementById('bSvcGrid')?.addEventListener('input', (e) => {
     const t = e.target;
@@ -3502,10 +3573,17 @@ import {
   async function openTopupFor(b) {
     if (!b || !b.client_id) { toast('Запись не привязана к клиенту'); return; }
     _bkTopupClientId = b.client_id;
+    // Счёт пополняют, чтобы оплатить эту запись, поэтому подставляем её сумму
+    // за вычетом скидки: набирать её руками после правки цены — лишний шаг и
+    // лишний способ ошибиться. Поле остаётся редактируемым.
+    const due = Math.max(0, Math.round(Number(b.total_price || 0) - Number(b.discount_amount || 0)));
     const nameEl = document.getElementById('bkTopupClient');
-    if (nameEl) nameEl.textContent = 'Клиент: ' + (b.client_name || b.client_phone || '—');
+    if (nameEl) {
+      nameEl.textContent = 'Клиент: ' + (b.client_name || b.client_phone || '—')
+        + (due ? ' · к оплате по записи: ' + formatPrice(due) : '');
+    }
     const amtEl = document.getElementById('bkTopupAmount');
-    if (amtEl) amtEl.value = '';
+    if (amtEl) amtEl.value = due ? String(due) : '';
     const noteEl = document.getElementById('bkTopupNote');
     if (noteEl) noteEl.value = '';
     const errEl = document.getElementById('bkTopupError');
@@ -3706,9 +3784,10 @@ import {
     return d && t ? `${d}T${t}` : '';
   }
 
-  els.addBookingForm?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (addBookingMode === 'block') { await submitTimeBlock(); return; }
+  // Тело запроса собирается отдельно от submit: ровно его же отправляет
+  // автосохранение суммы, и разъехаться эти две сборки не должны.
+  // Возвращает { body } либо { error } с текстом для тоста.
+  function buildBookingBody() {
     const fd = new FormData(els.addBookingForm);
     const master_id = String(fd.get('master_id') || '');
     const startsLocal = bookingStartLocal();  // "2026-04-25T11:00"
@@ -3716,13 +3795,11 @@ import {
     const client_name = getBookingClientName();
     const notes = String(fd.get('notes') || '').trim();
     if (svcRows.some((r) => !r.service_id)) {
-      toast('Выберите услугу в каждой строке');
-      return;
+      return { error: 'Выберите услугу в каждой строке' };
     }
     const service_ids = svcRows.map((r) => r.service_id);
     if (!master_id || !startsLocal || !client_phone || service_ids.length === 0) {
-      toast('Заполни сотрудника, время, телефон и хотя бы одну услугу');
-      return;
+      return { error: 'Заполни сотрудника, время, телефон и хотя бы одну услугу' };
     }
     const manager_id = String(fd.get('manager_id') || '').trim() || null;
     const tz = '+03:00'; // соответствует COMPANY_TZ_OFFSET в booking-service
@@ -3763,14 +3840,31 @@ import {
     if (client_name) body.client_name = client_name;
     if (notes) body.notes = notes;
     if (manager_id) body.manager_id = manager_id;
+    return { body };
+  }
+
+  // Отправка формы без побочных эффектов интерфейса: закрывать модалку и
+  // перезагружать журнал решает вызывающий — автосохранение оставляет форму
+  // открытой, а «Сохранить» её закрывает.
+  async function sendBookingForm() {
+    const { body, error } = buildBookingBody();
+    if (error) return { ok: false, error };
     const { ok, data, status } = editingBookingId
       ? await apiCall('PATCH', `/api/bookings/${editingBookingId}`, body)
       : await apiCall('POST', '/api/bookings', body);
     if (!ok) {
-      toast(`Ошибка: ${data?.error || status}${data?.code ? ' · ' + data.code : ''}`);
-      return;
+      return { ok: false, error: `${data?.error || status}${data?.code ? ' · ' + data.code : ''}` };
     }
-    toast(editingBookingId ? 'Запись изменена' : 'Запись создана');
+    return { ok: true, data };
+  }
+
+  els.addBookingForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (addBookingMode === 'block') { await submitTimeBlock(); return; }
+    const wasEditing = !!editingBookingId;
+    const { ok, error } = await sendBookingForm();
+    if (!ok) { toast(`Ошибка: ${error}`); return; }
+    toast(wasEditing ? 'Запись изменена' : 'Запись создана');
     resetBookingForm();
     closeAddBookingModal();
     if (!els.journalDate.value) els.journalDate.value = todayLocalISO();
@@ -9875,7 +9969,9 @@ import {
     const maxRev = Math.max(...rows.map((r) => r.revenue), 1);
     el.innerHTML = rows.map((r) => {
       const pct = Math.round((r.revenue / maxRev) * 100);
-      const d = new Date(r.day + 'T00:00:00');
+      // День приходит строкой YYYY-MM-DD; берём первые 10 символов, чтобы
+      // метка времени (если бэкенд отдал её) не превращалась в Invalid Date.
+      const d = new Date(String(r.day).slice(0, 10) + 'T00:00:00');
       const label = `${d.getDate()} ${MONTHS_RU_SHORT[d.getMonth()]}`;
       return `<div class="an-bar-row" title="${label}: ${formatPrice(r.revenue)} (${r.sales} продаж)">
         <div class="an-bar-label">${label}</div>

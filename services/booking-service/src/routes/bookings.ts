@@ -236,7 +236,10 @@ router.get('/analytics', async (req, res, next) => {
       ),
       // Revenue by day
       pool.query(
-        `SELECT starts_at::date AS day,
+        // to_char, а не ::date: node-pg отдаёт date как JS Date, в JSON он
+        // уходит меткой времени в UTC — фронт получал «2026-08-27T21:00:00Z»
+        // вместо «2026-08-28» и рисовал NaN, да ещё и днём раньше.
+        `SELECT to_char(starts_at, 'YYYY-MM-DD') AS day,
                 COUNT(*) FILTER (WHERE status = 'completed') AS sales,
                 COALESCE(SUM(total_price - discount_amount) FILTER (WHERE status = 'completed'), 0)::float8 AS revenue
          FROM bookings.bookings

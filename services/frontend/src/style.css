@@ -5178,17 +5178,32 @@ html, body { overflow-x: hidden; }
 /* Поле времени осталось обычным вводом — окна подсказывают, а не запрещают:
    при незаполненном графике мастера слотов нет вовсе, и жёсткий выбор
    заблокировал бы запись целиком. */
+/* Окна идут одной прокручиваемой лентой: на день их набирается три-четыре
+   десятка, и сеткой в несколько рядов они отжимали услуги и клиента вниз —
+   форму приходилось листать, чтобы вообще увидеть, что записываешь. */
 .bk-slots {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   margin-top: 10px;
-  max-height: 96px;
-  overflow-y: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
 }
+.bk-slots::-webkit-scrollbar { height: 6px; }
+.bk-slots::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+.bk-slots::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 .bk-slots-hint { font-size: var(--fs-sm); color: var(--text-muted); }
 .bk-slots-hint a { color: var(--primary); }
 .bk-slot {
+  flex: 0 0 auto;
+  scroll-snap-align: center;
   padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

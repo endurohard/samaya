@@ -394,7 +394,9 @@ router.get('/balance/topups-report', async (req, res, next) => {
       [companyId, from, to],
     );
     const byDay = await pool.query(
-      `SELECT created_at::date AS day,
+      // to_char, а не ::date: node-pg отдаёт date как JS Date, и в JSON он
+      // уходит меткой времени в UTC — в отчёте дата съезжала на день назад.
+      `SELECT to_char(created_at, 'YYYY-MM-DD') AS day,
               COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cash'), 0)::float8     AS cash,
               COALESCE(SUM(amount) FILTER (WHERE payment_method = 'cashless'), 0)::float8 AS cashless,
               COALESCE(SUM(amount), 0)::float8                                            AS total
