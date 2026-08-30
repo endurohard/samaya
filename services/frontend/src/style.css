@@ -5296,3 +5296,9 @@ html, body { overflow-x: hidden; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Метка со стороны врача — кто ему помогает: другой цвет, чтобы не путать с
+   «к кому идёт ассистент». */
+.sch-assist.is-helper {
+  color: var(--text-dim);
+  background: var(--bg);
+}

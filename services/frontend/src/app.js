@@ -4175,6 +4175,27 @@ import {
     return cachedMasters.filter((m) => m.is_active && m.provides_services !== false && m.id !== excludeId);
   }
 
+  // Обратная сторона: кто ассистирует этому врачу в этот день. Хранение идёт
+  // по ассистенту (у него в день один врач), а спрашивают чаще наоборот.
+  function assistantsOf(masterId, iso) {
+    const out = [];
+    assistantByDay.forEach((doctorId, key) => {
+      if (doctorId !== masterId) return;
+      const [aid, day] = key.split('|');
+      if (day === iso) out.push(aid);
+    });
+    return out;
+  }
+
+  // Кандидаты в ассистенты врача: все активные, кроме него самого. Тех, кто не
+  // оказывает услуги, показываем первыми — обычно ассистируют именно они.
+  function assistCandidates(doctorId) {
+    return cachedMasters
+      .filter((m) => m.is_active && m.id !== doctorId)
+      .sort((a, b) => (a.provides_services === false ? 0 : 1) - (b.provides_services === false ? 0 : 1)
+        || (a.display_name || '').localeCompare(b.display_name || '', 'ru'));
+  }
+
   function masterShortName(id) {
     const m = cachedMasters.find((x) => x.id === id);
     if (!m) return '';
@@ -4293,12 +4314,25 @@ import {
 
         // К кому прикреплён в этот день — прямо в ячейке: иначе, чтобы понять,
         // кто с кем работает, пришлось бы тыкать в каждый день по очереди.
+        const dayOff = !!(it && it.is_day_off);
         const assistTo = assistantByDay.get(assistKey(mst.id, iso));
-        if (assistTo && !(it && it.is_day_off)) {
+        if (assistTo && !dayOff) {
           const tag = document.createElement('div');
           tag.className = 'sch-assist';
-          tag.textContent = masterShortName(assistTo);
+          tag.textContent = `→ ${masterShortName(assistTo)}`;
           tag.title = `Ассистирует: ${cachedMasters.find((x) => x.id === assistTo)?.display_name || ''}`;
+          cell.appendChild(tag);
+        }
+        // У врача — обратная подпись: кто ему сегодня помогает. Иначе состав
+        // пары виден только в строке ассистента, а смотрят обычно на врача.
+        const helpers = dayOff ? [] : assistantsOf(mst.id, iso);
+        if (helpers.length) {
+          const tag = document.createElement('div');
+          tag.className = 'sch-assist is-helper';
+          tag.textContent = `+ ${helpers.map(masterShortName).join(', ')}`;
+          tag.title = 'Ассистируют: ' + helpers
+            .map((id) => cachedMasters.find((x) => x.id === id)?.display_name || '')
+            .join(', ');
           cell.appendChild(tag);
         }
 
@@ -4531,36 +4565,60 @@ import {
   // Прикрепление работает только для одного сотрудника за раз: «ассистирует
   // такому-то» — свойство пары, и на выделении из нескольких строк непонятно,
   // кого к кому цеплять.
-  function schSelectedAssistantId() {
+  function schSelectedStaffId() {
     const ids = new Set([...schSelected].map((k) => k.split('|')[0]));
     return ids.size === 1 ? [...ids][0] : null;
+  }
+
+  // Сторону пары определяет тот, чьи дни выделили. Врач сам не ассистирует —
+  // у его строки спрашиваем обратное: кто помогает ему в эти дни.
+  function schSelectionIsDoctor() {
+    const id = schSelectedStaffId();
+    const m = cachedMasters.find((x) => x.id === id);
+    return !!m && m.provides_services !== false;
   }
 
   function renderSchAssistBlock() {
     const box = document.getElementById('schAssistBlock');
     if (!box) return;
-    const assistantId = schSelectedAssistantId();
-    if (!assistantId || !schSelected.size) { box.hidden = true; return; }
+    const staffId = schSelectedStaffId();
+    if (!staffId || !schSelected.size) { box.hidden = true; return; }
     box.hidden = false;
 
     const dates = [...schSelected].map((k) => k.split('|')[1]).sort();
-    // Показываем текущее значение, если на всех выбранных днях оно одно.
-    const cur = [...new Set(dates.map((iso) => assistantByDay.get(assistKey(assistantId, iso)) || ''))];
-    const single = cur.length === 1 ? cur[0] : '';
+    const isDoctor = schSelectionIsDoctor();
     const sel = document.getElementById('schAssistMaster');
-    sel.innerHTML = '<option value="">— не прикреплён —</option>'
-      + assistTargets(assistantId)
-        .map((m) => `<option value="${escapeHtml(m.id)}"${m.id === single ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`)
-        .join('');
-    const who = cachedMasters.find((m) => m.id === assistantId);
+    const labelEl = document.getElementById('schAssistLabel');
     const nameEl = document.getElementById('schAssistWho');
+    const who = cachedMasters.find((m) => m.id === staffId);
     if (nameEl) nameEl.textContent = who?.display_name || '';
+
+    // Текущее значение показываем, только если на всех выбранных днях оно одно
+    // и то же: иначе селект соврал бы про часть дней.
+    let current;
+    if (isDoctor) {
+      const perDay = dates.map((iso) => assistantsOf(staffId, iso).sort().join(','));
+      current = new Set(perDay).size === 1 ? (perDay[0].split(',')[0] || '') : '';
+    } else {
+      const perDay = dates.map((iso) => assistantByDay.get(assistKey(staffId, iso)) || '');
+      current = new Set(perDay).size === 1 ? perDay[0] : '';
+    }
+
+    if (labelEl) labelEl.textContent = isDoctor ? 'Кто ассистирует' : 'Кому ассистирует';
+    const options = isDoctor ? assistCandidates(staffId) : assistTargets(staffId);
+    sel.innerHTML = `<option value="">${isDoctor ? '— никого —' : '— не прикреплён —'}</option>`
+      + options
+        .map((m) => `<option value="${escapeHtml(m.id)}"${m.id === current ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`)
+        .join('');
   }
 
   document.getElementById('schAssistApply')?.addEventListener('click', async () => {
-    const assistantId = schSelectedAssistantId();
-    if (!assistantId) { toast('Выделите дни одного сотрудника'); return; }
-    const masterId = document.getElementById('schAssistMaster').value || null;
+    const staffId = schSelectedStaffId();
+    if (!staffId) { toast('Выделите дни одного сотрудника'); return; }
+    const pairId = document.getElementById('schAssistMaster').value || null;
+    const isDoctor = schSelectionIsDoctor();
+    const assistantId = isDoctor ? pairId : staffId;
+    const masterId = isDoctor ? staffId : pairId;
     const items = [...schSelected].map((k) => ({
       work_date: k.split('|')[1],
       assistant_id: assistantId,
@@ -4568,7 +4626,7 @@ import {
     }));
     const { ok, data, status } = await apiCall('PUT', '/api/salons/schedule/assistants/all', { items });
     if (!ok) { toast(`Не удалось сохранить: ${data?.error || status}`); return; }
-    toast(masterId
+    toast(pairId
       ? `Прикреплён на ${items.length} дн. — дни отмечены рабочими`
       : `Открепление на ${items.length} дн.`);
     schSelected.clear();
@@ -4632,7 +4690,9 @@ import {
   function jrnGroupMasters() {
     const groups = new Map();
     cachedMasters.filter(isJournalMaster).forEach((m) => {
-      const role = (m.specialization || '').trim() || 'Другие';
+      // Группируем по должности из справочника: specialization заполняют
+      // редко, и весь список сваливался в одну кучу «Другие».
+      const role = (m.position || '').trim() || (m.specialization || '').trim() || 'Без должности';
       if (!groups.has(role)) groups.set(role, []);
       groups.get(role).push(m);
     });
@@ -4745,7 +4805,9 @@ import {
   function schGroupMasters() {
     const groups = new Map();
     cachedMasters.filter((m) => m.is_active).forEach((m) => {
-      const role = (m.specialization || '').trim() || 'Другие';
+      // Группируем по должности из справочника: specialization заполняют
+      // редко, и весь список сваливался в одну кучу «Другие».
+      const role = (m.position || '').trim() || (m.specialization || '').trim() || 'Без должности';
       if (!groups.has(role)) groups.set(role, []);
       groups.get(role).push(m);
     });

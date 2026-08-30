@@ -29,13 +29,19 @@ router.get('/assistants/all', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-// master_id = null снимает прикрепление на этот день: отдельный DELETE на
-// каждую дату означал бы пачку запросов при снятии выделенного диапазона.
+// Пару задают с любой стороны: выделили дни ассистента — выбирают врача,
+// выделили дни врача — выбирают, кто ему в этот день ассистирует.
+// null на одной из сторон снимает прикрепление: assistant_id без master_id —
+// «этот ассистент сегодня никому», master_id без assistant_id — «у этого врача
+// сегодня никого». Отдельный DELETE на каждую дату означал бы пачку запросов
+// при снятии выделенного диапазона.
 const assignSchema = z.object({
   items: z.array(z.object({
     work_date: isoDate(),
-    assistant_id: z.string().uuid(),
-    master_id: z.string().uuid().nullable(),
+    assistant_id: z.string().uuid().nullable().optional(),
+    master_id: z.string().uuid().nullable().optional(),
+  }).refine((d) => d.assistant_id || d.master_id, {
+    message: 'assistant_id or master_id required',
   })).min(1).max(366),
 });
 
@@ -61,6 +67,16 @@ router.put('/assistants/all', requireRole(['owner', 'admin']), async (req, res, 
           `DELETE FROM salons.assistant_assignments
             WHERE company_id = $1 AND assistant_id = $2 AND work_date = $3::date`,
           [companyId, it.assistant_id, it.work_date],
+        );
+        continue;
+      }
+      // Снятие со стороны врача: у него в этот день может быть не один
+      // ассистент, поэтому убираем всех — выбор «никого» так и читается.
+      if (!it.assistant_id) {
+        await client.query(
+          `DELETE FROM salons.assistant_assignments
+            WHERE company_id = $1 AND master_id = $2 AND work_date = $3::date`,
+          [companyId, it.master_id, it.work_date],
         );
         continue;
       }
