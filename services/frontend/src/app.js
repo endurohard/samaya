@@ -4568,14 +4568,14 @@ import {
     }));
     const { ok, data, status } = await apiCall('PUT', '/api/salons/schedule/assistants/all', { items });
     if (!ok) { toast(`Не удалось сохранить: ${data?.error || status}`); return; }
-    items.forEach((it) => {
-      if (masterId) assistantByDay.set(assistKey(assistantId, it.work_date), masterId);
-      else assistantByDay.delete(assistKey(assistantId, it.work_date));
-    });
-    toast(masterId ? `Прикреплён на ${items.length} дн.` : `Открепление на ${items.length} дн.`);
+    toast(masterId
+      ? `Прикреплён на ${items.length} дн. — дни отмечены рабочими`
+      : `Открепление на ${items.length} дн.`);
     schSelected.clear();
     schLastPick = null;
-    renderSchedule();
+    // Прикрепление ставит ассистенту смену на сервере, поэтому перечитываем
+    // график целиком: локальным патчем ячейки остались бы пустыми.
+    await loadAllSchedules();
   });
 
   // Применить к выделенным дням: либо рабочее время, либо выходной.

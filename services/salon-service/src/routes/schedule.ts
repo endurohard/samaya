@@ -71,6 +71,41 @@ router.put('/assistants/all', requireRole(['owner', 'admin']), async (req, res, 
          ON CONFLICT (assistant_id, work_date) DO UPDATE SET master_id = EXCLUDED.master_id`,
         [companyId, it.assistant_id, it.master_id, it.work_date],
       );
+
+      // Прикрепление к врачу и есть выход ассистента на работу: держать смену
+      // отдельной галочкой значит делать ту же работу дважды и получать день,
+      // за который прикрепление есть, а оплаты за выход нет — зарплата считает
+      // ставку по рабочим дням графика.
+      //
+      // Часы берём у врача: ассистент выходит на его приём. Если у врача на
+      // этот день смены нет — по шаблону компании, иначе 10:00–20:00.
+      // Уже проставленную смену не перетираем: её могли задать руками короче
+      // или длиннее. А вот выходной перебиваем — прикрепили, значит работает.
+      await client.query(
+        `INSERT INTO salons.master_schedules AS ms
+           (company_id, master_id, work_date, start_time, end_time, is_day_off)
+         SELECT $1, $2, $4::date,
+                COALESCE(doc.start_time, tmpl.start_time, TIME '10:00'),
+                COALESCE(doc.end_time,   tmpl.end_time,   TIME '20:00'),
+                FALSE
+           FROM (SELECT 1) AS one
+           LEFT JOIN salons.master_schedules doc
+             ON doc.master_id = $3 AND doc.work_date = $4::date AND doc.is_day_off = FALSE
+           LEFT JOIN LATERAL (
+             SELECT start_time, end_time
+               FROM salons.schedule_templates
+              WHERE company_id = $1 AND is_default = TRUE
+              ORDER BY created_at
+              LIMIT 1
+           ) tmpl ON TRUE
+         ON CONFLICT (master_id, work_date) DO UPDATE SET
+           is_day_off = FALSE,
+           start_time = COALESCE(
+             CASE WHEN ms.is_day_off THEN NULL ELSE ms.start_time END, EXCLUDED.start_time),
+           end_time = COALESCE(
+             CASE WHEN ms.is_day_off THEN NULL ELSE ms.end_time END, EXCLUDED.end_time)`,
+        [companyId, it.assistant_id, it.master_id, it.work_date],
+      );
     }
 
     await client.query('COMMIT');
