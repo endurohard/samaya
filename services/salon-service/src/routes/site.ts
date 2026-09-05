@@ -94,6 +94,25 @@ function page(opts: {
   const menuHtml = opts.menu.map((m) =>
     `<a class="menu-link${m.active ? ' active' : ''}" href="${esc(m.href)}">${esc(m.label)}</a>`,
   ).join('');
+
+  // Выпадающий список разделов на details/summary: страницы каталога отдаются
+  // сервером, а CSP запрещает инлайновые скрипты — раскрытие по клику должен
+  // уметь сам HTML. Заодно работает с выключенным JS и с клавиатуры.
+  const activeMenu = opts.menu.find((m) => m.active);
+  const menuDropdown = opts.menu.length ? `
+    <details class="cat-dd">
+      <summary class="cat-dd-btn" aria-label="Разделы услуг">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round"/></svg>
+        <span class="cat-dd-label">${esc(activeMenu ? activeMenu.label : 'Разделы')}</span>
+        <svg class="cat-dd-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </summary>
+      <div class="cat-dd-list">
+        <a class="cat-dd-item${activeMenu ? '' : ' active'}" href="/services">Все услуги</a>
+        ${opts.menu.map((m) =>
+          `<a class="cat-dd-item${m.active ? ' active' : ''}" href="${esc(m.href)}">${esc(m.label)}</a>`,
+        ).join('')}
+      </div>
+    </details>` : '';
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -139,6 +158,61 @@ function page(opts: {
     .spacer { flex: 1; }
     .header-link { text-decoration: none; font-weight: 600; font-size: var(--fs-sm); color: var(--text-dim); padding: 8px 14px; border-radius: var(--radius-pill); transition: color 0.15s, background 0.15s; }
     .header-link:hover { color: var(--primary); background: var(--primary-soft); }
+
+    /* Кнопка «Разделы» со списком. details/summary — раскрытие без скриптов,
+       которые на этих страницах запрещены CSP. Кнопка нужна и на десктопе:
+       на странице раздела она сразу показывает, где ты находишься. */
+    .cat-dd { position: relative; }
+    .cat-dd > summary {
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      background: var(--card);
+      color: var(--text);
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      cursor: pointer;
+      max-width: 60vw;
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .cat-dd > summary::-webkit-details-marker { display: none; }
+    .cat-dd > summary:hover { border-color: var(--primary); color: var(--primary); }
+    .cat-dd > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .cat-dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cat-dd-chev { flex: 0 0 auto; transition: transform .15s; }
+    .cat-dd[open] > summary { border-color: var(--primary); color: var(--primary); }
+    .cat-dd[open] .cat-dd-chev { transform: rotate(180deg); }
+    .cat-dd-list {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      min-width: 280px;
+      max-width: min(360px, 90vw);
+      max-height: min(70vh, 520px);
+      overflow-y: auto;
+      padding: 6px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg, 16px);
+      box-shadow: 0 18px 44px rgba(42, 32, 32, .18);
+      z-index: 40;
+    }
+    .cat-dd-item {
+      display: block;
+      padding: 11px 14px;
+      border-radius: 10px;
+      text-decoration: none;
+      color: var(--text);
+      font-size: var(--fs-sm);
+      line-height: 1.3;
+    }
+    .cat-dd-item:hover { background: var(--primary-soft); color: var(--primary); }
+    .cat-dd-item.active { background: var(--primary); color: #fff; font-weight: 600; }
 
     /* Меню категорий. На десктопе переносим строками: лента в одну строку
        обрезала последние категории за краем экрана — о том, что там есть ещё
@@ -288,20 +362,11 @@ function page(opts: {
       main { padding: 0 16px 40px; }
       .hero { padding: 32px 0 4px; }
       nav.cat-menu { top: 64px; }
-      /* Телефон: одна строка со свайпом и снапом по чипам. Справа оставляем
-         зазор, чтобы край последнего чипа было видно — иначе лента выглядит
-         обрезанной, а не прокручиваемой. */
-      .menu-inner {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        scroll-snap-type: x proximity;
-        padding: 10px 16px;
-      }
-      .menu-inner::-webkit-scrollbar { display: none; }
-      .menu-link { scroll-snap-align: start; flex: 0 0 auto; }
-      .menu-inner::after { content: ''; flex: 0 0 8px; }
+      /* Телефон: ленту чипов прячем совсем — её заменяет список из кнопки
+         «Разделы». В одну строку она обрезалась, в несколько занимала пол-экрана. */
+      nav.cat-menu { display: none; }
+      .cat-dd > summary { max-width: 52vw; }
+      .cat-dd-list { right: -8px; }
     }
   </style>
 </head>
@@ -316,6 +381,7 @@ function page(opts: {
         </span>
       </a>
       <div class="spacer"></div>
+      ${menuDropdown}
       <a class="header-link" href="/contacts">Контакты</a>
     </div>
   </header>
