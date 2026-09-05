@@ -2019,6 +2019,11 @@ import {
   journalDatePopEl()?.addEventListener('click', (e) => {
     const nav = e.target.closest('[data-mc]');
     if (nav) {
+      // Нажатая стрелка исчезает вместе с перерисованной сеткой, и до
+      // обработчика «клик мимо» доходит уже отцепленный от документа узел —
+      // календарь принимал такой клик за внешний и закрывался на каждом
+      // переключении месяца. Дальше событию идти незачем.
+      e.stopPropagation();
       datePopAnchor = shiftMonth(datePopAnchor || todayLocalISO().slice(0, 7), nav.dataset.mc);
       renderJournalDatePop();
       return;
@@ -2030,7 +2035,10 @@ import {
 
   document.addEventListener('click', (e) => {
     if (journalDatePopEl()?.hidden !== false) return;
-    if (e.target.closest('.journal-datepick')) return;
+    // composedPath, а не closest от target: путь события помнит исходные узлы,
+    // даже если обработчик выше уже заменил разметку под ними.
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
+    if (path.some((el) => el instanceof Element && el.classList.contains('journal-datepick'))) return;
     closeJournalDatePop();
   });
   document.addEventListener('keydown', (e) => {
@@ -3200,6 +3208,18 @@ import {
     } else if (block) {
       warn.textContent = `Время занято мастером: ${formatTimeRange(block.starts_at, block.ends_at)}`;
       warn.hidden = false;
+    } else if (startLocal.slice(0, 10) < todayLocalISO()) {
+      // Записи уходили в прошлый месяц незамеченными: журнал листают
+      // календарём, и, промахнувшись месяцем, администратор весь день заводил
+      // клиентов на август, а в карточках потом «нет сентябрьских записей».
+      // Заводить задним числом иногда нужно, поэтому предупреждаем, а не
+      // запрещаем — но так, чтобы дату было видно целиком.
+      const d = new Date(startLocal.slice(0, 10) + 'T00:00:00');
+      warn.textContent = `Дата в прошлом: ${d.getDate()} ${MONTHS_RU_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
+        + ` — проверьте, тот ли месяц выбран`;
+      warn.hidden = false;
+      warn.classList.add('is-conflict');
+      return;
     } else {
       const endD = new Date(end);
       const pad2 = (n) => String(n).padStart(2, '0');
