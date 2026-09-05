@@ -140,11 +140,32 @@ function page(opts: {
     .header-link { text-decoration: none; font-weight: 600; font-size: var(--fs-sm); color: var(--text-dim); padding: 8px 14px; border-radius: var(--radius-pill); transition: color 0.15s, background 0.15s; }
     .header-link:hover { color: var(--primary); background: var(--primary-soft); }
 
+    /* Меню категорий. На десктопе переносим строками: лента в одну строку
+       обрезала последние категории за краем экрана — о том, что там есть ещё
+       разделы, приходилось догадываться. Ленту со скроллом оставляем телефону,
+       где перенос занял бы половину экрана. */
     nav.cat-menu { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 64px; z-index: 19; }
-    .menu-inner { max-width: 1120px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .menu-inner::-webkit-scrollbar { display: none; }
-    .menu-link { white-space: nowrap; text-decoration: none; font-size: var(--fs-sm); color: var(--text-dim); padding: 7px 14px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--bg); transition: all 0.15s; }
-    .menu-link:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+    .menu-inner { max-width: 1120px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .menu-link {
+      white-space: nowrap;
+      text-decoration: none;
+      font-size: var(--fs-base);
+      color: var(--text);
+      /* Тач-таргет ~40px: по чипам промахивались, особенно с телефона. */
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      padding: 9px 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      background: var(--bg);
+      cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s, box-shadow .15s, transform .1s;
+    }
+    .menu-link:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    .menu-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    /* Отклик на нажатие: без него на телефоне неясно, попал ли по чипу. */
+    .menu-link:active { transform: scale(.97); }
     .menu-link.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 
     main { width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 24px 56px; flex: 1; }
@@ -267,6 +288,20 @@ function page(opts: {
       main { padding: 0 16px 40px; }
       .hero { padding: 32px 0 4px; }
       nav.cat-menu { top: 64px; }
+      /* Телефон: одна строка со свайпом и снапом по чипам. Справа оставляем
+         зазор, чтобы край последнего чипа было видно — иначе лента выглядит
+         обрезанной, а не прокручиваемой. */
+      .menu-inner {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        scroll-snap-type: x proximity;
+        padding: 10px 16px;
+      }
+      .menu-inner::-webkit-scrollbar { display: none; }
+      .menu-link { scroll-snap-align: start; flex: 0 0 auto; }
+      .menu-inner::after { content: ''; flex: 0 0 8px; }
     }
   </style>
 </head>
