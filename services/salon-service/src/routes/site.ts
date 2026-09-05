@@ -91,10 +91,6 @@ function page(opts: {
   menu: Array<{ label: string; href: string; active?: boolean }>;
   body: string;
 }): string {
-  const menuHtml = opts.menu.map((m) =>
-    `<a class="menu-link${m.active ? ' active' : ''}" href="${esc(m.href)}">${esc(m.label)}</a>`,
-  ).join('');
-
   // Выпадающий список разделов на details/summary: страницы каталога отдаются
   // сервером, а CSP запрещает инлайновые скрипты — раскрытие по клику должен
   // уметь сам HTML. Заодно работает с выключенным JS и с клавиатуры.
@@ -186,6 +182,17 @@ function page(opts: {
     .cat-dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cat-dd-chev { flex: 0 0 auto; transition: transform .15s; }
     .cat-dd[open] > summary { border-color: var(--primary); color: var(--primary); }
+    /* Клик мимо закрывает список. Скриптов на этих страницах нет (CSP), но
+       раскрытый summary можно растянуть невидимым слоем на весь экран: клик по
+       нему — это клик по самому summary, то есть закрытие. Слой лежит ниже
+       списка, поэтому пункты остаются кликабельными. */
+    .cat-dd[open] > summary::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      cursor: default;
+    }
     .cat-dd[open] .cat-dd-chev { transform: rotate(180deg); }
     .cat-dd-list {
       position: absolute;
@@ -214,33 +221,6 @@ function page(opts: {
     .cat-dd-item:hover { background: var(--primary-soft); color: var(--primary); }
     .cat-dd-item.active { background: var(--primary); color: #fff; font-weight: 600; }
 
-    /* Меню категорий. На десктопе переносим строками: лента в одну строку
-       обрезала последние категории за краем экрана — о том, что там есть ещё
-       разделы, приходилось догадываться. Ленту со скроллом оставляем телефону,
-       где перенос занял бы половину экрана. */
-    nav.cat-menu { background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 64px; z-index: 19; }
-    .menu-inner { max-width: 1120px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 8px; }
-    .menu-link {
-      white-space: nowrap;
-      text-decoration: none;
-      font-size: var(--fs-base);
-      color: var(--text);
-      /* Тач-таргет ~40px: по чипам промахивались, особенно с телефона. */
-      min-height: 40px;
-      display: inline-flex;
-      align-items: center;
-      padding: 9px 18px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-pill);
-      background: var(--bg);
-      cursor: pointer;
-      transition: border-color .15s, color .15s, background .15s, box-shadow .15s, transform .1s;
-    }
-    .menu-link:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); box-shadow: 0 2px 10px rgba(0,0,0,.06); }
-    .menu-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-    /* Отклик на нажатие: без него на телефоне неясно, попал ли по чипу. */
-    .menu-link:active { transform: scale(.97); }
-    .menu-link.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 
     main { width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 24px 56px; flex: 1; }
 
@@ -361,10 +341,6 @@ function page(opts: {
       .header-inner { padding: 0 16px; }
       main { padding: 0 16px 40px; }
       .hero { padding: 32px 0 4px; }
-      nav.cat-menu { top: 64px; }
-      /* Телефон: ленту чипов прячем совсем — её заменяет список из кнопки
-         «Разделы». В одну строку она обрезалась, в несколько занимала пол-экрана. */
-      nav.cat-menu { display: none; }
       .cat-dd > summary { max-width: 52vw; }
       .cat-dd-list { right: -8px; }
     }
@@ -385,7 +361,6 @@ function page(opts: {
       <a class="header-link" href="/contacts">Контакты</a>
     </div>
   </header>
-  ${opts.menu.length ? `<nav class="cat-menu" aria-label="Меню услуг"><div class="menu-inner">${menuHtml}</div></nav>` : ''}
   <main>${opts.body}</main>
   <footer>
     <div class="footer-inner">
