@@ -341,11 +341,31 @@ function page(opts: {
     .footer-cta { text-decoration: none; font-weight: 600; font-size: var(--fs-sm); color: #fff; border: 1px solid rgba(255, 246, 240, 0.35); padding: 9px 18px; border-radius: var(--radius-pill); transition: all 0.15s; }
     .footer-cta:hover { background: rgba(255, 246, 240, 0.12); border-color: rgba(255, 246, 240, 0.6); }
     @media (max-width: 640px) {
-      .header-inner { padding: 0 16px; }
+      /* Шапка не помещалась в ширину телефона: «Контакты» обрезало краем
+         экрана. Ужимаем всё, что можно ужать, — подпись бренда, отступы,
+         название текущего раздела в кнопке. */
+      .header-inner { padding: 0 12px; gap: 8px; }
+      .brand img { width: 32px; height: 32px; }
+      .brand-name { font-size: 17px; }
+      .brand-sub { display: none; }
       main { padding: 0 16px 40px; }
-      .hero { padding: 32px 0 4px; }
-      .cat-dd > summary { max-width: 52vw; }
-      .cat-dd-list { right: -8px; }
+      .hero { padding: 28px 0 4px; }
+      .hero p { font-size: var(--fs-sm); }
+      .cat-dd > summary { max-width: 34vw; padding: 8px 12px; gap: 6px; }
+      .cat-dd-list { right: -4px; min-width: min(280px, 84vw); }
+      .header-link { padding: 8px 8px; }
+      /* Карточка в 200px съедала пол-экрана: на телефоне их листают, а не
+         рассматривают, поэтому делаем ниже и плотнее. */
+      .grid { gap: 14px; margin-top: 14px; }
+      .cat-card { min-height: 148px; }
+      .cat-card .cc-body { padding: 16px; }
+      .cat-card .cc-name { font-size: 19px; }
+    }
+    @media (max-width: 400px) {
+      /* Совсем узкий экран: у кнопки остаются иконка и шеврон — что это меню
+         разделов, ясно и без подписи, зато «Контакты» перестают обрезаться. */
+      .cat-dd-label { display: none; }
+      .cat-dd > summary { max-width: none; }
     }
   </style>
 </head>
