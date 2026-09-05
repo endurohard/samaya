@@ -145,7 +145,10 @@ function page(opts: {
     body { font-family: var(--font-sans, 'Golos Text', sans-serif); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
     a { color: inherit; }
 
-    header { background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+    /* Без backdrop-filter: он делает шапку containing block для fixed-потомков,
+       и слой, закрывающий список по клику мимо, растягивался лишь на её высоту.
+       Фон сделан почти непрозрачным — на глаз разница с размытием незаметна. */
+    header { background: rgba(255,255,255,0.97); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
     .header-inner { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px; }
     .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .brand img { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; box-shadow: var(--shadow-sm); }
