@@ -14,6 +14,7 @@
 - [[concepts/dikidi-extraction-attempts]] — что пробовали скрапить и почему не вышло (для будущих агентов)
 - [[concepts/inventory-tech-cards]] — учёт расходников + автосписание по техкартам услуг
 - [[concepts/domain-routing]] — внешние домены → Kong на infobot → внутренние сервисы; чек-лист добавления домена
+- [[concepts/telephony-vats-integration]] — контур интеграции с ВАТС: API, события, записи разговоров, посменный контроль
 
 ## Decisions / Audits
 - [[decisions/2026-04-25-mvp-scope]] — ADR-001: scope Phase 0 MVP, отложенные модули, архитектурные правила
