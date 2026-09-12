@@ -16,6 +16,7 @@ export const VIEW_TITLES = {
   salary: 'Зарплата',
   promotion: 'Акции и промокоды',
   messages: 'Сообщения',
+  telephony: 'Телефония',
   settings: 'Настройки',
 };
 

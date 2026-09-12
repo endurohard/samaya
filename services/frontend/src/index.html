@@ -79,6 +79,10 @@
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.12 2.99 2.71 3.23a48.4 48.4 0 003.29.37V21l4.18-4.18a1.14 1.14 0 01.78-.33 48.3 48.3 0 005.83-.5c1.59-.23 2.71-1.62 2.71-3.23V6.74c0-1.6-1.12-3-2.71-3.23A48.4 48.4 0 0012 3c-2.39 0-4.74.18-7.04.51-1.59.24-2.71 1.63-2.71 3.23v6.02z"/></svg>
           <span>Сообщения</span>
         </a>
+        <a class="nav-item" data-view="telephony" href="#telephony">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.28 6.72 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.37c0-.52-.35-.97-.85-1.09l-4.42-1.11c-.44-.11-.9.06-1.17.42l-.97 1.29c-.28.37-.76.54-1.2.37a12.04 12.04 0 01-6.7-6.7c-.17-.44 0-.92.37-1.2l1.29-.97c.37-.27.53-.73.42-1.17L7.4 3.1a1.13 1.13 0 00-1.09-.85H4.5A2.25 2.25 0 002.25 4.5v2.25z"/></svg>
+          <span>Телефония</span>
+        </a>
         <a class="nav-item" data-view="salary" href="#salary">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3"/></svg>
           <span>Зарплата</span>
@@ -1207,6 +1211,99 @@
         </section>
 
         <!-- View: salary (Sprint 1 — Tab 1 + Tab 4 + 2 заглушки) -->
+        <!-- View: telephony -->
+        <section class="view" data-view="telephony" hidden>
+          <nav class="subnav" id="telSubnav">
+            <button type="button" class="subnav-item active" data-tel-tab="calls">Журнал звонков</button>
+            <button type="button" class="subnav-item" data-tel-tab="extensions">Номера сотрудников</button>
+          </nav>
+
+          <!-- Tab: журнал -->
+          <div id="telTabCalls" class="tel-tab">
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Звонки</h2>
+                <span class="counter" id="telCallsCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <span class="tel-sync" id="telSyncState"></span>
+                <button class="btn-secondary btn-sm" id="telSyncBtn" type="button" title="Перечитать журнал из ВАТС">Обновить</button>
+              </div>
+
+              <div class="tel-toolbar">
+                <div class="period-pills" id="telPeriod" role="tablist" aria-label="Период">
+                  <button type="button" class="period-pill" data-tel-period="today">Сегодня</button>
+                  <button type="button" class="period-pill active" data-tel-period="week">Неделя</button>
+                  <button type="button" class="period-pill" data-tel-period="month">Месяц</button>
+                </div>
+                <select id="telDirection" title="Направление">
+                  <option value="">Все звонки</option>
+                  <option value="inbound">Входящие</option>
+                  <option value="outbound">Исходящие</option>
+                </select>
+                <select id="telStatus" title="Результат">
+                  <option value="">Любой результат</option>
+                  <option value="answered">Отвечены</option>
+                  <option value="missed">Пропущены</option>
+                </select>
+                <select id="telMaster" title="Сотрудник">
+                  <option value="">Все сотрудники</option>
+                </select>
+                <input id="telNumber" type="search" placeholder="Номер клиента" />
+              </div>
+
+              <div class="tel-summary" id="telSummary"></div>
+
+              <table class="data-table" id="telCallsTable">
+                <thead>
+                  <tr>
+                    <th>Когда</th>
+                    <th>Клиент</th>
+                    <th>Сотрудник</th>
+                    <th>Линия</th>
+                    <th class="text-right">Длительность</th>
+                    <th>Результат</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody><tr><td colspan="7" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+
+              <div class="tel-more">
+                <button class="btn-secondary btn-sm" id="telMoreBtn" type="button" hidden>Показать ещё</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: номера -->
+          <div id="telTabExtensions" class="tel-tab" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Внутренние номера</h2>
+                <span class="counter" id="telExtCounter">0</span>
+              </div>
+              <p class="hint" style="margin:0 0 12px;">
+                Привязка номера к сотруднику: его фамилия уходит в ВАТС и дальше видна и в звонках,
+                и на экране телефона. Прошлые звонки с этого номера тоже закрепляются за сотрудником.
+              </p>
+              <div id="telExtList" class="tel-ext-list"></div>
+            </div>
+          </div>
+
+          <!-- Плеер записи -->
+          <div class="modal-backdrop" id="telPlayerBackdrop" hidden></div>
+          <div class="modal" id="telPlayerModal" hidden role="dialog" aria-modal="true" aria-labelledby="telPlayerTitle">
+            <div class="modal-head">
+              <h3 class="modal-title" id="telPlayerTitle">Запись разговора</h3>
+              <button type="button" class="modal-close" id="telPlayerClose" aria-label="Закрыть">×</button>
+            </div>
+            <div class="modal-body">
+              <div id="telPlayerInfo" class="tel-player-info"></div>
+              <audio id="telPlayerAudio" controls preload="auto" style="width:100%;margin-top:12px;"></audio>
+              <div id="telPlayerError" class="form-error" hidden></div>
+            </div>
+          </div>
+        </section>
+
         <section class="view view-salary" data-view="salary" hidden>
           <nav class="subnav" id="salarySubnav">
             <button type="button" class="subnav-item active" data-sal-tab="payroll">Расчёт зарплаты</button>

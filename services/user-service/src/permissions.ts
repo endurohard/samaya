@@ -53,6 +53,14 @@ export const PERMISSION_MODULES: PermModule[] = [
     { key: 'view', label: 'Просмотр' },
     { key: 'manage', label: 'Создание и редактирование' },
   ] },
+  // Прослушивание вынесено отдельным правом от просмотра журнала: запись
+  // разговора с пациентом — персональные данные и врачебная тайна, доступ к
+  // ней нужен не всем, кому нужен список звонков.
+  { key: 'telephony', label: 'Телефония', actions: [
+    { key: 'view', label: 'Журнал звонков' },
+    { key: 'listen', label: 'Прослушивание записей' },
+    { key: 'manage', label: 'Привязка номеров' },
+  ] },
 ];
 
 export type Permissions = Record<string, boolean>;

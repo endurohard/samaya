@@ -360,6 +360,43 @@ services:
     cpus: 1
     restart: unless-stopped
 
+  telephony-service:
+    build:
+      context: ./services/telephony-service
+      dockerfile: Dockerfile
+    container_name: samaya-telephony-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3009
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:?DEFAULT_COMPANY_ID required}
+      # Ключ организации из портала ВАТС: даёт и журнал звонков, и записи.
+      VATS_BASE_URL: ${VATS_BASE_URL:-https://vats05.ru/api/public}
+      VATS_API_KEY: ${VATS_API_KEY:?VATS_API_KEY required}
+      SYNC_INTERVAL_MS: ${TELEPHONY_SYNC_INTERVAL_MS:-180000}
+      SYNC_INITIAL_DAYS: ${TELEPHONY_SYNC_INITIAL_DAYS:-90}
+      RECORDINGS_DIR: /data/recordings
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3009"
+    volumes:
+      - telephony_recordings:/data/recordings
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3009/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+
   mailhog:
     image: mailhog/mailhog:latest
     container_name: samaya-mailhog
@@ -384,3 +421,4 @@ volumes:
   redis_data:
   whatsapp_session:
   service-media:
+  telephony_recordings:

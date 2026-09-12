@@ -122,6 +122,15 @@ services:
         strip_path: false
         methods: [GET, POST, DELETE, OPTIONS]
 
+  - name: telephony-service
+    url: http://telephony-service:3009
+    routes:
+      - name: telephony
+        paths:
+          - /api/telephony
+        strip_path: false
+        methods: [GET, POST, PUT, OPTIONS]
+
 routes: []
 
 plugins:

@@ -521,6 +521,9 @@ import {
     if (view === 'salary') {
       void activateSalaryView();
     }
+    if (view === 'telephony') {
+      void activateTelephonyView();
+    }
     if (view === 'settings') {
       void activateSettingsView();
     }
@@ -5057,6 +5060,278 @@ import {
     void loadAllSchedules();
   });
   els.schAddMaster?.addEventListener('click', () => toast('Добавь сотрудника в разделе «Сотрудники».'));
+
+  // ===== Телефония =====
+  // Журнал зеркалится в нашей базе, поэтому фильтры и листание идут к своему
+  // сервису, а не в ВАТС: список открывается и когда АТС недоступна.
+  const telState = { period: 'week', offset: 0, limit: 50, items: [], loading: false };
+
+  const telPad = (n) => String(n).padStart(2, '0');
+
+  function telFmtWhen(iso) {
+    const d = new Date(iso);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    const time = `${telPad(d.getHours())}:${telPad(d.getMinutes())}`;
+    return sameDay ? time : `${d.getDate()} ${MONTHS_RU_SHORT[d.getMonth()]}, ${time}`;
+  }
+
+  function telFmtDur(sec) {
+    const s = Math.max(0, Number(sec) || 0);
+    return `${Math.floor(s / 60)}:${telPad(s % 60)}`;
+  }
+
+  function telRange() {
+    const to = new Date();
+    const from = new Date();
+    if (telState.period === 'today') from.setHours(0, 0, 0, 0);
+    else if (telState.period === 'week') from.setDate(from.getDate() - 7);
+    else from.setDate(from.getDate() - 30);
+    return { from: from.toISOString(), to: to.toISOString() };
+  }
+
+  function telQuery() {
+    const { from, to } = telRange();
+    const p = new URLSearchParams({ from, to, limit: String(telState.limit), offset: String(telState.offset) });
+    const dir = document.getElementById('telDirection')?.value;
+    const status = document.getElementById('telStatus')?.value;
+    const master = document.getElementById('telMaster')?.value;
+    const number = document.getElementById('telNumber')?.value?.trim();
+    if (dir) p.set('direction', dir);
+    if (status) p.set('status', status);
+    if (master) p.set('master_id', master);
+    if (number) p.set('number', number);
+    return p.toString();
+  }
+
+  async function loadTelCalls({ reset = false } = {}) {
+    if (telState.loading) return;
+    telState.loading = true;
+    if (reset) { telState.offset = 0; telState.items = []; }
+    const { ok, data } = await apiCall('GET', `/api/telephony/calls?${telQuery()}`);
+    telState.loading = false;
+    if (!ok) { renderTelCalls({ error: true }); return; }
+    telState.items = telState.items.concat(data?.items || []);
+    telState.totals = data?.totals || null;
+    renderTelCalls();
+  }
+
+  function renderTelCalls({ error = false } = {}) {
+    const tbody = document.querySelector('#telCallsTable tbody');
+    const counter = document.getElementById('telCallsCounter');
+    const summary = document.getElementById('telSummary');
+    const more = document.getElementById('telMoreBtn');
+    if (!tbody) return;
+
+    if (error) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">Не удалось загрузить журнал</td></tr>';
+      return;
+    }
+    if (!telState.items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">За период звонков нет</td></tr>';
+      if (more) more.hidden = true;
+      if (counter) counter.textContent = '0';
+      if (summary) summary.innerHTML = '';
+      return;
+    }
+
+    if (counter) counter.textContent = String(telState.totals?.total ?? telState.items.length);
+    if (summary && telState.totals) {
+      summary.innerHTML = `Отвечено: <b>${telState.totals.answered}</b> · Пропущено: <b>${telState.totals.missed}</b>`;
+    }
+
+    tbody.innerHTML = telState.items.map((c) => {
+      const inbound = c.direction === 'inbound';
+      const who = c.client_name || c.client_name_vats || '';
+      // Номер показываем всегда: имя может быть от ВАТС, а звонить будут по номеру.
+      const client = `${who ? `<div class="row-name">${escapeHtml(who)}</div>` : ''}`
+        + `<div class="row-meta">${escapeHtml(c.client_number || '—')}</div>`;
+      const statusCls = c.status === 'answered' ? 'pill-ok' : c.status === 'missed' ? 'pill-danger' : 'pill-mute';
+      const statusLabel = c.status === 'answered' ? 'отвечен' : c.status === 'missed' ? 'пропущен' : 'отменён';
+      const master = c.master_name || (c.extension ? `доб. ${escapeHtml(c.extension)}` : '—');
+      return `<tr data-tel-call="${escapeHtml(c.id)}">
+        <td><span class="tel-dir ${inbound ? 'is-in' : 'is-out'}" title="${inbound ? 'Входящий' : 'Исходящий'}">${inbound ? '↓' : '↑'}</span> ${escapeHtml(telFmtWhen(c.started_at))}</td>
+        <td>${client}</td>
+        <td>${escapeHtml(master)}</td>
+        <td class="text-dim">${escapeHtml(c.line || '—')}</td>
+        <td class="text-right">${c.duration_sec ? telFmtDur(c.duration_sec) : '—'}</td>
+        <td><span class="pill ${statusCls}">${statusLabel}</span></td>
+        <td class="text-right">${c.has_recording ? '<button type="button" class="btn-ghost btn-xs" data-tel-play>▶ Прослушать</button>' : ''}</td>
+      </tr>`;
+    }).join('');
+
+    if (more) more.hidden = telState.items.length >= (telState.totals?.total ?? 0);
+  }
+
+  async function loadTelStatus() {
+    const el = document.getElementById('telSyncState');
+    if (!el) return;
+    const { ok, data } = await apiCall('GET', '/api/telephony/status');
+    if (!ok) { el.textContent = ''; return; }
+    if (data?.last_error) {
+      el.className = 'tel-sync is-error';
+      el.textContent = `ВАТС: ${data.last_error.slice(0, 60)}`;
+      return;
+    }
+    el.className = 'tel-sync';
+    el.textContent = data?.last_ok_at ? `обновлено ${telFmtWhen(data.last_ok_at)}` : 'синхронизация ещё не проходила';
+  }
+
+  function telFillMasters() {
+    const sel = document.getElementById('telMaster');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Все сотрудники</option>'
+      + cachedMasters.filter((m) => m.is_active)
+        .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.display_name)}</option>`).join('');
+    sel.value = cur;
+  }
+
+  async function activateTelephonyView() {
+    if (!cachedMasters.length) await loadMasters();
+    telFillMasters();
+    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus()]);
+  }
+
+  // Запись тянем фетчем с токеном и отдаём плееру blob-ссылкой: тег <audio> не
+  // умеет слать заголовок авторизации, а ключ ВАТС в адресе — это ключ в
+  // истории браузера и в логах прокси.
+  async function telPlayRecording(call) {
+    const backdrop = document.getElementById('telPlayerBackdrop');
+    const modal = document.getElementById('telPlayerModal');
+    const audio = document.getElementById('telPlayerAudio');
+    const info = document.getElementById('telPlayerInfo');
+    const err = document.getElementById('telPlayerError');
+    if (!modal || !audio) return;
+
+    backdrop.hidden = false; modal.hidden = false; err.hidden = true;
+    info.innerHTML = `${escapeHtml(call.client_name || call.client_number || '')}`
+      + ` · ${escapeHtml(telFmtWhen(call.started_at))} · ${telFmtDur(call.duration_sec)}`
+      + (call.master_name ? ` · ${escapeHtml(call.master_name)}` : '');
+    audio.removeAttribute('src');
+
+    try {
+      const res = await fetch(`/api/telephony/calls/${encodeURIComponent(call.id)}/recording`, {
+        headers: { Authorization: `Bearer ${store.access}` },
+      });
+      if (!res.ok) throw new Error(res.status === 403 ? 'нет права на прослушивание' : `ошибка ${res.status}`);
+      const blob = await res.blob();
+      if (audio.dataset.url) URL.revokeObjectURL(audio.dataset.url);
+      const url = URL.createObjectURL(blob);
+      audio.dataset.url = url;
+      audio.src = url;
+      void audio.play().catch(() => { /* автовоспроизведение может быть запрещено */ });
+    } catch (e) {
+      err.textContent = `Запись недоступна: ${e.message}`;
+      err.hidden = false;
+    }
+  }
+
+  function telClosePlayer() {
+    const audio = document.getElementById('telPlayerAudio');
+    if (audio) {
+      audio.pause();
+      if (audio.dataset.url) { URL.revokeObjectURL(audio.dataset.url); delete audio.dataset.url; }
+      audio.removeAttribute('src');
+    }
+    document.getElementById('telPlayerBackdrop').hidden = true;
+    document.getElementById('telPlayerModal').hidden = true;
+  }
+
+  async function loadTelExtensions() {
+    const box = document.getElementById('telExtList');
+    if (!box) return;
+    if (!cachedMasters.length) await loadMasters();
+    const { ok, data } = await apiCall('GET', '/api/telephony/extensions');
+    if (!ok) { box.innerHTML = '<div class="empty">Не удалось получить номера</div>'; return; }
+    const items = data?.items || [];
+    document.getElementById('telExtCounter').textContent = String(items.length);
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">В ВАТС нет внутренних номеров для этой организации</div>';
+      return;
+    }
+    const options = cachedMasters.filter((m) => m.is_active);
+    box.innerHTML = items.map((e) => `
+      <div class="tel-ext-row" data-tel-ext="${escapeHtml(e.extension)}">
+        <span class="tel-ext-num">${escapeHtml(e.extension)}</span>
+        <span class="tel-ext-vats">${escapeHtml(e.vats_name || '—')}</span>
+        <select data-tel-ext-master>
+          <option value="">— не привязан —</option>
+          ${options.map((m) => `<option value="${escapeHtml(m.id)}"${m.id === e.master_id ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`).join('')}
+        </select>
+        <span class="tel-ext-calls">${e.calls_count} ${plural(e.calls_count, ['звонок', 'звонка', 'звонков'])}</span>
+      </div>`).join('');
+  }
+
+  document.getElementById('telSubnav')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tel-tab]');
+    if (!btn) return;
+    document.querySelectorAll('#telSubnav .subnav-item').forEach((b) => b.classList.toggle('active', b === btn));
+    const tab = btn.dataset.telTab;
+    document.getElementById('telTabCalls').hidden = tab !== 'calls';
+    document.getElementById('telTabExtensions').hidden = tab !== 'extensions';
+    if (tab === 'extensions') void loadTelExtensions();
+  });
+
+  document.getElementById('telPeriod')?.addEventListener('click', (e) => {
+    const pill = e.target.closest('[data-tel-period]');
+    if (!pill) return;
+    telState.period = pill.dataset.telPeriod;
+    document.querySelectorAll('#telPeriod .period-pill').forEach((p) => p.classList.toggle('active', p === pill));
+    void loadTelCalls({ reset: true });
+  });
+
+  ['telDirection', 'telStatus', 'telMaster'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', () => void loadTelCalls({ reset: true }));
+  });
+  let telNumberTimer = null;
+  document.getElementById('telNumber')?.addEventListener('input', () => {
+    clearTimeout(telNumberTimer);
+    telNumberTimer = setTimeout(() => void loadTelCalls({ reset: true }), 400);
+  });
+
+  document.getElementById('telMoreBtn')?.addEventListener('click', () => {
+    telState.offset += telState.limit;
+    void loadTelCalls();
+  });
+
+  // «Обновить» гоняет синхронизацию сразу: ждать очередной цикл, когда звонок
+  // только что закончился, — не вариант.
+  document.getElementById('telSyncBtn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = 'Обновляем…';
+    await apiCall('POST', '/api/telephony/sync', {});
+    btn.disabled = false;
+    btn.textContent = prev;
+    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus()]);
+  });
+
+  document.querySelector('#telCallsTable')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tel-play]');
+    if (!btn) return;
+    const id = btn.closest('[data-tel-call]')?.dataset.telCall;
+    const call = telState.items.find((c) => c.id === id);
+    if (call) void telPlayRecording(call);
+  });
+
+  document.getElementById('telPlayerClose')?.addEventListener('click', telClosePlayer);
+  document.getElementById('telPlayerBackdrop')?.addEventListener('click', telClosePlayer);
+
+  document.getElementById('telExtList')?.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-tel-ext-master]');
+    if (!sel) return;
+    const ext = sel.closest('[data-tel-ext]')?.dataset.telExt;
+    const { ok, data, status } = await apiCall('PUT', `/api/telephony/extensions/${encodeURIComponent(ext)}`, {
+      master_id: sel.value || null,
+    });
+    if (!ok) { toast(`Не удалось привязать: ${data?.error || status}`); void loadTelExtensions(); return; }
+    toast(data?.calls_relinked
+      ? `Номер ${ext} привязан · пересчитано звонков: ${data.calls_relinked}`
+      : `Номер ${ext} привязан`);
+    void loadTelExtensions();
+  });
 
   // ===== Journal master filter (DIKIDI-style dropdown с группировкой) =====
   function jrnGroupMasters() {
