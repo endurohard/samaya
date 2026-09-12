@@ -368,7 +368,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3009
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:?DEFAULT_COMPANY_ID required}
       # Ключ организации из портала ВАТС: даёт и журнал звонков, и записи.
