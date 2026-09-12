@@ -33,6 +33,7 @@ _(пока нет)_
 |---|---|
 | `database/migrations/001_users.sql` | [[services/user-service]] — таблицы `companies`, `users`, `refresh_tokens` + триггеры updated_at + сид компании Samaya |
 | `database/migrations/002_salons.sql` | [[services/salon-service]] — `service_categories`, `services` (с `tech_card_id` ref для Phase 0b), `masters`, `master_services`, `master_schedules` |
+| `database/migrations/051_service_catalogs.sql` | [[services/salon-service]] — `service_catalogs`, `service_catalog_items` (каталоги услуг по ссылке `/c/<token>`) |
 | `database/migrations/003_bookings.sql` | [[services/booking-service]] — `bookings` (с EXCLUDE constraint на пересечение интервалов через `btree_gist`), `booking_services` (snapshot), `booking_events_outbox` |
 | `database/migrations/004_inventory.sql` | [[services/inventory-service]] — `products`, `warehouses` (сид default), `suppliers`, `supplier_invoices`, `stock_lots` (FIFO), `stock_movements` (с UNIQUE idempotency), `tech_cards` + `tech_card_items` |
 | `database/migrations/005_clients.sql` | [[services/client-service]] — `clients` (CITEXT phone unique per company, avatar_color, bonus_balance, флаги is_blocked/is_deleted, trgm-индексы) |

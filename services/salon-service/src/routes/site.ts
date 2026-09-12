@@ -12,6 +12,7 @@ import { pool } from '../db';
 import { config } from '../config';
 import { HttpError } from '../middleware';
 import { slugify } from '../slug';
+import { CATALOG_TOKEN_RE } from '../token';
 
 const router = Router();
 
@@ -646,6 +647,189 @@ router.get('/contacts', async (req, res, next) => {
       menu: [],
       body,
     });
+    return res.type('html').send(html);
+  } catch (e) { return next(e); }
+});
+
+
+// ===== Каталоги услуг по ссылке: /c/<token> и /c/<token>/<slug> =====
+// Подборка, собранная администратором (salons.service_catalogs). Сюда попадают
+// любые активные услуги, а не только show_in_menu, поэтому страницы услуг
+// живут внутри каталога (/c/<token>/<slug>), а не на общем /services/<slug>.
+
+interface CatalogRow {
+  id: string; name: string; description: string | null; token: string;
+}
+
+async function findCatalog(companyId: string, token: string): Promise<CatalogRow | undefined> {
+  if (!CATALOG_TOKEN_RE.test(token)) return undefined;
+  const { rows } = await pool.query<CatalogRow>(
+    `SELECT id, name, description, token FROM salons.service_catalogs
+     WHERE company_id = $1 AND token = $2 AND is_active = TRUE`,
+    [companyId, token],
+  );
+  return rows[0];
+}
+
+async function catalogServices(companyId: string, catalogId: string): Promise<MenuService[]> {
+  const { rows } = await pool.query(
+    `SELECT s.id, s.name, s.slug, s.description, s.price::float8 AS price,
+            s.duration_minutes, s.color, s.image_path,
+            s.video_path, s.preview_enabled,
+            c.name AS category_name
+     FROM salons.service_catalog_items ci
+     JOIN salons.services s ON s.id = ci.service_id
+     LEFT JOIN salons.service_categories c ON c.id = s.category_id
+     WHERE ci.catalog_id = $1 AND s.company_id = $2 AND s.is_active = TRUE
+     ORDER BY ci.sort_order, s.name`,
+    [catalogId, companyId],
+  );
+  return rows;
+}
+
+// Ключ услуги в URL каталога: slug, а если его нет — id.
+function catalogItemKey(s: MenuService): string { return s.slug || s.id; }
+
+function catalogRowHtml(token: string, s: MenuService): string {
+  const thumb = s.image_path
+    ? `<img src="/media/${esc(s.image_path)}" alt="${esc(s.name)}" loading="lazy" />`
+    : `<div class="ph"><span>${esc([...s.name][0] ?? '•').toUpperCase()}</span></div>`;
+  const prev = preview(s.description, 180);
+  return `<a class="svc-row" href="/c/${esc(token)}/${esc(catalogItemKey(s))}">
+    <div class="thumb">${thumb}</div>
+    <div class="sr-body">
+      <div class="sr-name">${esc(s.name)}</div>
+      ${prev ? `<div class="sr-desc">${esc(prev)}</div>` : ''}
+      <div class="sr-foot">
+        <span class="sr-price">${fmtPrice(s.price)}</span>
+        <span class="sr-dur">${esc(fmtDuration(s.duration_minutes))}</span>
+        <span class="sr-more">Подробнее →</span>
+      </div>
+    </div>
+  </a>`;
+}
+
+function catalogCardHtml(token: string, s: MenuService): string {
+  const img = s.image_path
+    ? `<img src="/media/${esc(s.image_path)}" alt="${esc(s.name)}" loading="lazy" />`
+    : `<div class="ph"><span>${esc([...s.name][0] ?? '•').toUpperCase()}</span></div>`;
+  const prev = preview(s.description, 150);
+  return `<a class="svc-card" href="/c/${esc(token)}/${esc(catalogItemKey(s))}">
+    <div class="img">${img}</div>
+    <div class="body">
+      <div class="name">${esc(s.name)}</div>
+      ${prev ? `<div class="prev">${esc(prev)}</div>` : ''}
+      <div class="row">
+        <span class="price">${fmtPrice(s.price)}</span>
+        <span class="dur">${esc(fmtDuration(s.duration_minutes))}</span>
+        <span class="more">Подробнее →</span>
+      </div>
+    </div>
+  </a>`;
+}
+
+function catalogNotFound(): string {
+  return page({
+    title: 'Каталог не найден — Samaya',
+    metaDescription: 'Каталог услуг не найден или ссылка отключена.',
+    canonicalPath: '/services',
+    menu: [],
+    body: `<div class="svc-page"><div class="empty"><h1 style="font-family:var(--font-display,Fraunces,serif);">Каталог не найден</h1><p style="margin:12px 0 20px;">Ссылка устарела или отключена.</p><a class="cta-ghost" href="/services">← Все услуги</a></div></div>`,
+  });
+}
+
+// Страница каталога: название, вводный текст, список услуг
+router.get('/c/:token', async (req, res, next) => {
+  try {
+    const companyId = getCompanyId(req);
+    const cat = await findCatalog(companyId, req.params.token);
+    if (!cat) return res.status(404).type('html').send(catalogNotFound());
+    const items = await catalogServices(companyId, cat.id);
+    // Счётчик открытий — best-effort, ответ не ждёт
+    void pool.query(`UPDATE salons.service_catalogs SET views = views + 1 WHERE id = $1`, [cat.id]).catch(() => {});
+    const prices = items.map((s) => s.price);
+    const overline = items.length
+      ? `${declProcedures(items.length)} · от ${fmtPrice(Math.min(...prices))}`
+      : 'Подборка услуг';
+    const body = `
+      <div class="hero">
+        <div class="overline">${esc(overline)}</div>
+        <h1>${esc(cat.name)}</h1>
+        ${cat.description ? `<p>${esc(cat.description)}</p>` : ''}
+      </div>
+      ${items.length
+        ? `<div class="svc-rows">${items.map((s) => catalogRowHtml(cat.token, s)).join('')}</div>`
+        : `<div class="empty">В этой подборке пока нет услуг.</div>`}`;
+    const html = page({
+      title: `${cat.name} — Samaya`,
+      metaDescription: preview(cat.description, 160) || `${cat.name}: ${declProcedures(items.length)} с ценами в клинике Samaya.`,
+      canonicalPath: `/c/${cat.token}`,
+      menu: [],
+      body,
+    });
+    // Персональные ссылки не для поисковиков
+    res.set('X-Robots-Tag', 'noindex');
+    return res.type('html').send(html);
+  } catch (e) { return next(e); }
+});
+
+// Страница услуги внутри каталога: назад ведёт в каталог, «ещё» — из него же
+router.get('/c/:token/:key', async (req, res, next) => {
+  try {
+    const companyId = getCompanyId(req);
+    const cat = await findCatalog(companyId, req.params.token);
+    if (!cat) return res.status(404).type('html').send(catalogNotFound());
+    const items = await catalogServices(companyId, cat.id);
+    const s = items.find((x) => catalogItemKey(x) === req.params.key || x.id === req.params.key);
+    if (!s) {
+      const html = page({
+        title: 'Услуга не найдена — Samaya',
+        metaDescription: 'Услуга не найдена.',
+        canonicalPath: `/c/${cat.token}`,
+        menu: [],
+        body: `<div class="svc-page"><div class="empty"><h1 style="font-family:var(--font-display,Fraunces,serif);">Услуга не найдена</h1><p style="margin:12px 0 20px;">Возможно, её убрали из подборки.</p><a class="cta-ghost" href="/c/${esc(cat.token)}">← Назад к «${esc(cat.name)}»</a></div></div>`,
+      });
+      return res.status(404).type('html').send(html);
+    }
+    const related = items.filter((x) => x.id !== s.id).slice(0, 3);
+    const hero = s.image_path
+      ? `<div class="hero-img"><img src="/media/${esc(s.image_path)}" alt="${esc(s.name)}" /></div>`
+      : '';
+    const video = (s.preview_enabled && s.video_path)
+      ? `<div class="video-wrap"><video controls playsinline preload="metadata" src="/media/${esc(s.video_path)}"></video></div>`
+      : '';
+    const body = `
+      <div class="crumbs"><a href="/c/${esc(cat.token)}">${esc(cat.name)}</a> · ${esc(s.name)}</div>
+      <div class="svc-page">
+        <article class="svc-detail">
+          ${hero}
+          <div class="body">
+            <h1>${esc(s.name)}</h1>
+            <div class="meta">
+              <span class="price-big">${fmtPrice(s.price)}</span>
+              <span class="chip">${esc(fmtDuration(s.duration_minutes))}</span>
+              ${s.category_name ? `<span class="chip">${esc(s.category_name)}</span>` : ''}
+            </div>
+            ${s.description ? `<div class="desc">${esc(s.description)}</div>` : ''}
+            ${video}
+            <div class="cta-row">
+              <a class="cta-ghost" href="/c/${esc(cat.token)}">← Назад к «${esc(cat.name)}»</a>
+            </div>
+          </div>
+        </article>
+        ${related.length ? `<section class="related">
+          <div class="cat-head"><h2>Ещё из «${esc(cat.name)}»</h2></div>
+          <div class="grid">${related.map((x) => catalogCardHtml(cat.token, x)).join('')}</div>
+        </section>` : ''}
+      </div>`;
+    const html = page({
+      title: `${s.name} — ${cat.name} — Samaya`,
+      metaDescription: preview(s.description, 160) || `${s.name}: цена ${fmtPrice(s.price)} в клинике Samaya.`,
+      canonicalPath: `/c/${cat.token}/${catalogItemKey(s)}`,
+      menu: [],
+      body,
+    });
+    res.set('X-Robots-Tag', 'noindex');
     return res.type('html').send(html);
   } catch (e) { return next(e); }
 });

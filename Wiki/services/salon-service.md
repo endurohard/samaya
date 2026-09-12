@@ -1,10 +1,11 @@
 ---
 type: service
 status: stable
-last_verified: 2026-04-25
+last_verified: 2026-09-12
 sources:
   - services/salon-service/
   - database/migrations/002_salons.sql
+  - database/migrations/051_service_catalogs.sql
 ---
 
 # salon-service
@@ -41,6 +42,12 @@ sources:
 | GET | `/api/salons/public/services?company_id=...` | публично (виджет) |
 | GET | `/api/salons/public/masters?company_id=...` | публично |
 | GET | `/api/salons/public/masters/:id/services?company_id=...` | публично |
+| GET/POST | `/api/salons/catalogs` | services.view / services.manage |
+| GET/PATCH/DELETE | `/api/salons/catalogs/:id` | services.view / services.manage |
+| PUT/POST | `/api/salons/catalogs/:id/services` | services.manage (PUT — заменить состав, POST — дописать) |
+| DELETE | `/api/salons/catalogs/:id/services/:serviceId` | services.manage |
+| POST | `/api/salons/catalogs/:id/regenerate` | services.manage (новый токен ссылки) |
+| GET | `/api/salons/public/site/c/:token[/:key]` | публично — страница каталога по ссылке (nginx: `/c/...`) |
 | GET | `/health` | внутренний |
 
 `company_id` для публичных эндпоинтов: query param или env `DEFAULT_COMPANY_ID`.
@@ -56,6 +63,26 @@ DELETE на услугу/мастера — **soft-delete** (`is_active = FALSE`
 - `masters` — id, company_id, **user_id** (nullable, ref на users.users(id) без FK — schema-per-service), display_name, specialization, avatar_url, sort_order, is_active. Partial UNIQUE по `(company_id, user_id)` где `user_id IS NOT NULL`.
 - `master_services` — composite PK `(master_id, service_id)`, optional `custom_price`/`custom_duration_minutes`.
 - `master_schedules` — id, company_id, master_id, work_date DATE, start_time/end_time (TIME, NULL если `is_day_off=true`), `is_day_off`. UNIQUE `(master_id, work_date)`. CHECK гарантирует, что `is_day_off=true` ⟺ start/end NULL.
+
+## Каталоги услуг по ссылке (2026-09-12)
+
+Подборка услуг, которую администратор собирает вручную и отправляет клиенту одной ссылкой
+`/c/<token>`. Отличие от сайта `/services`: туда попадают только `show_in_menu`, а в каталог —
+любая активная услуга компании, поэтому страница услуги живёт внутри каталога
+(`/c/<token>/<slug|id>`), а не на общем `/services/<slug>`.
+
+- Таблицы `salons.service_catalogs` (name, description, `token` UNIQUE, `is_active`, `views`) и
+  `salons.service_catalog_items` (PK `(catalog_id, service_id)`, `sort_order` = порядок добавления).
+  Миграция `database/migrations/051_service_catalogs.sql`.
+- Токен — 12 случайных байт в base64url, 16 символов (`src/token.ts`). Публичный роут сначала
+  проверяет его регуляркой `CATALOG_TOKEN_RE` и только потом идёт в БД.
+- Состав пишется через `INSERT ... SELECT ... JOIN salons.services s ON s.company_id = $company`
+  (`routes/catalogs.ts`), так что чужие `service_id` молча отбрасываются — без отдельной проверки.
+- «Сменить ссылку» (`/regenerate`) выдаёт новый токен и обнуляет `views`; выключенный `is_active`
+  и удалённый каталог отдают 404 «Каталог не найден». Страницы помечены `X-Robots-Tag: noindex` —
+  это персональные ссылки, не для индекса.
+- Счётчик открытий инкрементится best-effort (`void pool.query(...)`), ответ не ждёт.
+- Тесты: `__tests__/token.test.ts`, `__tests__/site-catalog.test.ts` (SSR с замоканным pool).
 
 ## Ключевые архитектурные решения
 

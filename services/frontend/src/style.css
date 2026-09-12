@@ -5302,3 +5302,32 @@ html, body { overflow-x: hidden; }
   color: var(--text-dim);
   background: var(--bg);
 }
+
+/* ===== Каталоги услуг по ссылке (модалка из раздела «Услуги») ===== */
+.catalogs-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.catalog-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.catalog-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.catalog-row.inactive { opacity: 0.55; }
+.catalog-row .row-main { flex: 1; min-width: 0; }
+.catalog-row .row-name { font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-row .row-meta { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 2px; }
+.catalog-row .btn-xs { flex: 0 0 auto; }
+.catalog-services-box { max-height: 260px; }
+.catalog-svc-group {
+  font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted); padding: 8px 8px 4px;
+}
+.catalog-svc-group:first-child { padding-top: 2px; }
+.catalog-svc-item.is-hidden { display: none; }
+.catalog-svc-order {
+  font-size: var(--fs-xs); color: var(--text-muted);
+  min-width: 18px; text-align: right; font-variant-numeric: tabular-nums;
+}

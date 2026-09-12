@@ -1435,6 +1435,273 @@ import {
     await loadServices();
   });
 
+  // ===== Каталоги услуг по ссылке: модалка из раздела «Услуги» =====
+  // Список каталогов и редактор живут в одной модалке двумя панелями —
+  // без стопки модалок. Состав каталога держим в Set, чтобы поиск по
+  // услугам не сбрасывал отметки; порядок добавления = порядок в каталоге.
+  let cachedCatalogs = [];
+  let catalogSel = [];            // service_id в порядке добавления
+  const catalogLink = (token) => `${location.origin}/c/${token}`;
+
+  async function loadCatalogs() {
+    const { ok, data } = await apiCall('GET', '/api/salons/catalogs', null);
+    if (!ok) return false;
+    cachedCatalogs = data?.items || [];
+    return true;
+  }
+
+  function renderCatalogsList() {
+    const box = document.getElementById('catalogsList');
+    if (!box) return;
+    if (!cachedCatalogs.length) {
+      box.innerHTML = '<div class="empty">Каталогов пока нет — создайте первый и добавьте в него услуги.</div>';
+      return;
+    }
+    box.innerHTML = cachedCatalogs.map((c) => `
+      <div class="catalog-row${c.is_active ? '' : ' inactive'}" data-catalog-id="${escapeHtml(c.id)}">
+        <div class="row-main">
+          <div class="row-name">${escapeHtml(c.name)}</div>
+          <div class="row-meta">
+            ${c.items_count || 0} ${plural(c.items_count || 0, ['услуга', 'услуги', 'услуг'])} · открытий: ${c.views || 0}
+            ${c.is_active ? '' : ' · <span class="badge">ссылка выключена</span>'}
+          </div>
+        </div>
+        <button type="button" class="btn-ghost btn-xs" data-catalog-copy="${escapeHtml(c.token)}" title="Скопировать ссылку">Ссылка</button>
+        <a class="btn-ghost btn-xs" href="${escapeHtml(catalogLink(c.token))}" target="_blank" rel="noopener" data-catalog-open title="Открыть страницу">↗</a>
+      </div>`).join('');
+  }
+
+  function showCatalogPanel(which) {
+    const editing = which === 'edit';
+    document.getElementById('catalogsListPanel').hidden = editing;
+    document.getElementById('catalogEditPanel').hidden = !editing;
+    document.getElementById('catalogsBack').hidden = !editing;
+    document.getElementById('catalogsTitle').textContent = editing ? 'Каталог' : 'Каталоги по ссылке';
+  }
+
+  async function openCatalogsModal() {
+    if (!(await loadCatalogs())) { toast('Не удалось загрузить каталоги'); return; }
+    renderCatalogsList();
+    showCatalogPanel('list');
+    document.getElementById('catalogsBackdrop').hidden = false;
+    document.getElementById('catalogsModal').hidden = false;
+  }
+
+  function closeCatalogsModal() {
+    document.getElementById('catalogsBackdrop').hidden = true;
+    document.getElementById('catalogsModal').hidden = true;
+    document.getElementById('catalogQrWrap').hidden = true;
+  }
+
+  // Список услуг с галочками, сгруппированный по группам услуг; у отмеченных —
+  // номер в каталоге. Фильтр — по подстроке названия, отметки не теряются.
+  function renderCatalogServicesPicker() {
+    const box = document.getElementById('catalogServicesBox');
+    if (!box) return;
+    const active = cachedServices.filter((s) => s.is_active);
+    if (!active.length) {
+      box.innerHTML = '<div class="muted" style="font-size:var(--fs-sm);padding:8px;">Активных услуг нет</div>';
+      return;
+    }
+    const groups = new Map();
+    for (const s of active) {
+      const key = s.category_name || 'Без группы';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    }
+    const keys = [...groups.keys()].sort((a, b) => {
+      if (a === 'Без группы') return 1;
+      if (b === 'Без группы') return -1;
+      return a.localeCompare(b, 'ru');
+    });
+    box.innerHTML = keys.map((key) => `
+      <div class="catalog-svc-group" data-catalog-group>${escapeHtml(key)}</div>
+      ${groups.get(key).map((s) => `
+        <label class="promo-svc-item catalog-svc-item" data-catalog-svc data-name="${escapeHtml(s.name.toLowerCase())}">
+          <input type="checkbox" class="catalog-svc-check" value="${escapeHtml(s.id)}" />
+          <span>${escapeHtml(s.name)}</span>
+          <span class="promo-svc-price">${formatPrice(s.price)}</span>
+          <span class="catalog-svc-order"></span>
+        </label>`).join('')}`).join('');
+    syncCatalogPicker();
+    applyCatalogSearch();
+  }
+
+  function syncCatalogPicker() {
+    const box = document.getElementById('catalogServicesBox');
+    const pos = new Map(catalogSel.map((id, i) => [id, i + 1]));
+    box.querySelectorAll('.catalog-svc-item').forEach((item) => {
+      const cb = item.querySelector('.catalog-svc-check');
+      const n = pos.get(cb.value);
+      cb.checked = !!n;
+      item.querySelector('.catalog-svc-order').textContent = n ? `#${n}` : '';
+    });
+    document.getElementById('catalogSelCount').textContent = String(catalogSel.length);
+  }
+
+  function applyCatalogSearch() {
+    const q = document.getElementById('catalogSvcSearch').value.trim().toLowerCase();
+    const box = document.getElementById('catalogServicesBox');
+    box.querySelectorAll('.catalog-svc-item').forEach((item) => {
+      item.classList.toggle('is-hidden', !!q && !item.dataset.name.includes(q));
+    });
+    // Заголовок группы прячем, если под ним ничего не осталось
+    box.querySelectorAll('[data-catalog-group]').forEach((head) => {
+      let el = head.nextElementSibling; let any = false;
+      while (el && !el.hasAttribute('data-catalog-group')) {
+        if (!el.classList.contains('is-hidden')) { any = true; break; }
+        el = el.nextElementSibling;
+      }
+      head.hidden = !any;
+    });
+  }
+
+  function fillCatalogEditor(c) {
+    document.getElementById('catalogEditId').value = c.id;
+    document.getElementById('catalogEditName').value = c.name;
+    document.getElementById('catalogEditDesc').value = c.description || '';
+    document.getElementById('catalogEditActive').checked = !!c.is_active;
+    document.getElementById('catalogEditLink').value = catalogLink(c.token);
+    document.getElementById('catalogLinkOpen').href = catalogLink(c.token);
+    document.getElementById('catalogEditViews').textContent = `Открытий: ${c.views || 0}`;
+    document.getElementById('catalogQrWrap').hidden = true;
+    document.getElementById('catalogEditError').hidden = true;
+  }
+
+  async function openCatalogEditor(id) {
+    const c = cachedCatalogs.find((x) => x.id === id);
+    if (!c) return;
+    if (!cachedServices.length) await loadServices();
+    catalogSel = [...(c.service_ids || [])];
+    document.getElementById('catalogSvcSearch').value = '';
+    fillCatalogEditor(c);
+    renderCatalogServicesPicker();
+    showCatalogPanel('edit');
+    setTimeout(() => document.getElementById('catalogEditName').focus(), 50);
+  }
+
+  document.getElementById('svcCatalogsBtn')?.addEventListener('click', () => { void openCatalogsModal(); });
+  document.getElementById('catalogsClose')?.addEventListener('click', closeCatalogsModal);
+  document.getElementById('catalogsDone')?.addEventListener('click', closeCatalogsModal);
+  document.getElementById('catalogsBackdrop')?.addEventListener('click', closeCatalogsModal);
+  document.getElementById('catalogsBack')?.addEventListener('click', async () => {
+    await loadCatalogs();
+    renderCatalogsList();
+    showCatalogPanel('list');
+  });
+  document.getElementById('catalogEditCancel')?.addEventListener('click', async () => {
+    await loadCatalogs();
+    renderCatalogsList();
+    showCatalogPanel('list');
+  });
+
+  // Создание: сразу открываем редактор, чтобы добавить услуги и скопировать ссылку
+  document.getElementById('catalogAddForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('catalogNewName');
+    const name = input.value.trim();
+    if (!name) return;
+    const { ok, data, status } = await apiCall('POST', '/api/salons/catalogs', { name });
+    if (!ok) { toast(`Не удалось создать каталог: ${data?.error || status}`); return; }
+    input.value = '';
+    cachedCatalogs.unshift(data);
+    toast('Каталог создан — добавьте услуги и скопируйте ссылку');
+    await openCatalogEditor(data.id);
+  });
+
+  document.getElementById('catalogsList')?.addEventListener('click', async (e) => {
+    const copyBtn = e.target.closest('[data-catalog-copy]');
+    if (copyBtn) {
+      e.stopPropagation();
+      try { await navigator.clipboard.writeText(catalogLink(copyBtn.dataset.catalogCopy)); toast('Ссылка скопирована'); }
+      catch (_e) { toast('Не удалось скопировать — откройте каталог и скопируйте из поля'); }
+      return;
+    }
+    if (e.target.closest('[data-catalog-open]')) { e.stopPropagation(); return; }
+    const row = e.target.closest('[data-catalog-id]');
+    if (row) void openCatalogEditor(row.dataset.catalogId);
+  });
+
+  document.getElementById('catalogServicesBox')?.addEventListener('change', (e) => {
+    const cb = e.target.closest('.catalog-svc-check');
+    if (!cb) return;
+    if (cb.checked) { if (!catalogSel.includes(cb.value)) catalogSel.push(cb.value); }
+    else catalogSel = catalogSel.filter((id) => id !== cb.value);
+    syncCatalogPicker();
+  });
+  document.getElementById('catalogSvcSearch')?.addEventListener('input', applyCatalogSearch);
+
+  document.getElementById('catalogLinkCopy')?.addEventListener('click', async () => {
+    const link = document.getElementById('catalogEditLink').value;
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); toast('Ссылка скопирована'); }
+    catch (_e) { document.getElementById('catalogEditLink').select(); toast('Скопируйте вручную'); }
+  });
+
+  document.getElementById('catalogLinkQr')?.addEventListener('click', async () => {
+    const wrap = document.getElementById('catalogQrWrap');
+    const link = document.getElementById('catalogEditLink').value;
+    if (!link) return;
+    if (!wrap.hidden) { wrap.hidden = true; return; }
+    const canvas = document.getElementById('catalogQrCanvas');
+    try {
+      await QRCode.toCanvas(canvas, link, { width: 220, margin: 1, color: { dark: '#5e2b2d', light: '#ffffff' } });
+      const dl = document.getElementById('catalogQrDownload');
+      dl.href = canvas.toDataURL('image/png');
+      dl.download = 'catalog-qr.png';
+      wrap.hidden = false;
+    } catch (_e) { toast('Не удалось построить QR'); }
+  });
+
+  document.getElementById('catalogLinkRegen')?.addEventListener('click', async () => {
+    const id = document.getElementById('catalogEditId').value;
+    if (!id) return;
+    if (!confirm('Старая ссылка перестанет открываться. Сменить?')) return;
+    const { ok, data, status } = await apiCall('POST', `/api/salons/catalogs/${id}/regenerate`, {});
+    if (!ok) { toast(`Не удалось сменить ссылку: ${data?.error || status}`); return; }
+    const i = cachedCatalogs.findIndex((x) => x.id === id);
+    if (i >= 0) cachedCatalogs[i] = data;
+    document.getElementById('catalogEditLink').value = catalogLink(data.token);
+    document.getElementById('catalogLinkOpen').href = catalogLink(data.token);
+    document.getElementById('catalogEditViews').textContent = 'Открытий: 0';
+    document.getElementById('catalogQrWrap').hidden = true;
+    toast('Ссылка обновлена');
+  });
+
+  document.getElementById('catalogEditDelete')?.addEventListener('click', async () => {
+    const id = document.getElementById('catalogEditId').value;
+    if (!id) return;
+    if (!confirm('Удалить каталог? Ссылка перестанет открываться.')) return;
+    const { ok, data, status } = await apiCall('DELETE', `/api/salons/catalogs/${id}`, null);
+    if (!ok) { toast(`Не удалось удалить: ${data?.error || status}`); return; }
+    toast('Каталог удалён');
+    await loadCatalogs();
+    renderCatalogsList();
+    showCatalogPanel('list');
+  });
+
+  document.getElementById('catalogEditPanel')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('catalogEditId').value;
+    const errEl = document.getElementById('catalogEditError');
+    errEl.hidden = true;
+    const body = {
+      name: document.getElementById('catalogEditName').value.trim(),
+      description: document.getElementById('catalogEditDesc').value.trim() || null,
+      is_active: document.getElementById('catalogEditActive').checked,
+    };
+    if (!body.name) { errEl.textContent = 'Укажите название'; errEl.hidden = false; return; }
+    const r1 = await apiCall('PATCH', `/api/salons/catalogs/${id}`, body);
+    if (!r1.ok) { errEl.textContent = r1.data?.error || `Ошибка ${r1.status}`; errEl.hidden = false; return; }
+    const r2 = await apiCall('PUT', `/api/salons/catalogs/${id}/services`, { service_ids: catalogSel });
+    if (!r2.ok) { errEl.textContent = r2.data?.error || `Ошибка ${r2.status}`; errEl.hidden = false; return; }
+    const i = cachedCatalogs.findIndex((x) => x.id === id);
+    if (i >= 0) cachedCatalogs[i] = r2.data;
+    toast('Каталог сохранён');
+    renderCatalogsList();
+    showCatalogPanel('list');
+  });
+
   // ===== Справочник должностей: модалка из раздела «Сотрудники» =====
   function renderPositionsList() {
     const box = document.getElementById('positionsList');

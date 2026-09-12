@@ -15,6 +15,7 @@ import publicRoutes from './routes/public';
 import companyRoutes from './routes/company';
 import templatesRoutes from './routes/templates';
 import positionsRoutes from './routes/positions';
+import catalogsRoutes from './routes/catalogs';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -49,6 +50,8 @@ const companyGate = (req: Request, res: Response, next: NextFunction) =>
 // Auth-protected routes
 app.use('/api/salons/categories', authenticate, gate('services.view', 'services.manage'), categoriesRoutes);
 app.use('/api/salons/services', authenticate, gate('services.view', 'services.manage'), servicesRoutes);
+// Каталоги услуг по ссылке — те же права, что и на услуги
+app.use('/api/salons/catalogs', authenticate, gate('services.view', 'services.manage'), catalogsRoutes);
 app.use('/api/salons/schedule', authenticate, gate('schedule.view', 'schedule.edit'), scheduleRoutes);   // /:masterId
 // Должности нужны и в журнале (какие сотрудники получают колонку), поэтому
 // читаются под тем же гейтом, что и мастера — без отдельного права.

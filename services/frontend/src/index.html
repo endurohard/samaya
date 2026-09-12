@@ -434,6 +434,7 @@
               <span class="counter" id="servicesCounter">0</span>
               <div class="data-head-spacer"></div>
               <button class="btn-ghost btn-sm" id="svcGroupsBtn" type="button">Группы услуг</button>
+              <button class="btn-secondary btn-sm" id="svcCatalogsBtn" type="button" title="Подборки услуг, которые отправляют клиенту одной ссылкой">Каталоги по ссылке</button>
               <button class="btn-primary btn-sm" id="addServiceToggle" type="button">+ Добавить услугу</button>
             </div>
             <details class="add-block" id="addServiceBlock">
@@ -3053,6 +3054,90 @@
         <div class="modal-foot">
           <button type="button" class="btn-secondary" id="positionsDone">Готово</button>
         </div>
+      </div>
+
+      <!-- Modal: каталоги услуг по ссылке -->
+      <div class="modal-backdrop" id="catalogsBackdrop" hidden></div>
+      <div class="modal" id="catalogsModal" hidden role="dialog" aria-modal="true" aria-labelledby="catalogsTitle" style="max-width:640px;">
+        <div class="modal-head">
+          <button type="button" class="btn-ghost btn-xs" id="catalogsBack" hidden aria-label="К списку каталогов">← Каталоги</button>
+          <h3 class="modal-title" id="catalogsTitle">Каталоги по ссылке</h3>
+          <button type="button" class="modal-close" id="catalogsClose" aria-label="Закрыть">×</button>
+        </div>
+
+        <!-- Панель: список каталогов -->
+        <div id="catalogsListPanel">
+          <div class="modal-body">
+            <p class="hint" style="margin-top:0;">
+              Каталог — подборка услуг с ценами и описаниями, которую клиент открывает по одной ссылке.
+              В него можно добавить любую услугу, даже скрытую из меню сайта.
+            </p>
+            <form id="catalogAddForm" class="positions-add">
+              <input id="catalogNewName" type="text" maxlength="120" placeholder="Название, например «Уход для Марины»" required />
+              <button type="submit" class="btn-primary btn-sm">Создать</button>
+            </form>
+            <div id="catalogsList" class="catalogs-list"></div>
+          </div>
+          <div class="modal-foot">
+            <button type="button" class="btn-secondary" id="catalogsDone">Готово</button>
+          </div>
+        </div>
+
+        <!-- Панель: редактор каталога -->
+        <form id="catalogEditPanel" hidden>
+          <input type="hidden" id="catalogEditId" />
+          <div class="modal-body">
+            <div>
+              <label for="catalogEditName">Название</label>
+              <input id="catalogEditName" type="text" maxlength="120" required />
+            </div>
+            <div style="margin-top:12px;">
+              <label for="catalogEditDesc">Вводный текст (необязательно)</label>
+              <textarea id="catalogEditDesc" rows="2" maxlength="2000" placeholder="Например: подобрали для вас процедуры по итогам консультации" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;resize:vertical;font-family:inherit;"></textarea>
+            </div>
+            <label class="sal-checkbox-row" style="margin-top:12px;">
+              <input type="checkbox" id="catalogEditActive" />
+              <span>Ссылка активна</span>
+            </label>
+            <div class="muted" style="font-size:var(--fs-xs);margin-top:2px;">Выключенная ссылка открывает «Каталог не найден» — удобно, если подборка устарела.</div>
+
+            <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
+            <div style="font-weight:600;margin-bottom:4px;">Ссылка для клиента</div>
+            <div class="input-with-btn">
+              <input id="catalogEditLink" type="text" readonly />
+              <button type="button" class="btn-ghost btn-xs" id="catalogLinkCopy">Копировать</button>
+              <button type="button" class="btn-ghost btn-xs" id="catalogLinkQr">QR</button>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+              <a id="catalogLinkOpen" href="#" target="_blank" rel="noopener" class="muted" style="font-size:var(--fs-xs);">Открыть страницу ↗</a>
+              <span id="catalogEditViews" class="muted" style="font-size:var(--fs-xs);"></span>
+              <button type="button" class="btn-link-danger" id="catalogLinkRegen" style="font-size:var(--fs-xs);margin-left:auto;">Сменить ссылку</button>
+            </div>
+            <div id="catalogQrWrap" style="margin-top:10px;text-align:center;" hidden>
+              <canvas id="catalogQrCanvas" style="border:1px solid var(--border);border-radius:12px;padding:8px;background:#fff;"></canvas>
+              <div style="margin-top:6px;">
+                <a id="catalogQrDownload" class="btn-ghost btn-xs" download="catalog-qr.png" href="#">Скачать PNG</a>
+              </div>
+            </div>
+
+            <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-weight:600;">Услуги в каталоге</span>
+              <span class="counter" id="catalogSelCount">0</span>
+              <input id="catalogSvcSearch" type="search" placeholder="Поиск по названию" style="margin-left:auto;max-width:220px;font-size:13px;" />
+            </div>
+            <div class="muted" style="font-size:var(--fs-xs);margin-bottom:6px;">
+              Отметьте услуги — они появятся в каталоге в порядке добавления. Сохраняется кнопкой «Сохранить».
+            </div>
+            <div id="catalogServicesBox" class="promo-services-box catalog-services-box"></div>
+            <div class="error" id="catalogEditError" hidden></div>
+          </div>
+          <div class="modal-foot">
+            <button type="button" class="btn-danger btn-sm" id="catalogEditDelete" style="margin-right:auto;">Удалить каталог</button>
+            <button type="submit" class="btn-primary">Сохранить</button>
+            <button type="button" class="btn-ghost" id="catalogEditCancel">Отмена</button>
+          </div>
+        </form>
       </div>
 
       <!-- Modal: оформить продажу (complete booking) -->
