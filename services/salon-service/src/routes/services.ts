@@ -5,7 +5,7 @@ import path from 'node:path';
 import multer from 'multer';
 import { pool } from '../db';
 import { config } from '../config';
-import { authenticate, requireRole, HttpError } from '../middleware';
+import { authenticate, requirePermission, HttpError } from '../middleware';
 import { transcodeServiceVideo } from '../transcode';
 import { shrinkImage } from '../image';
 import { slugify, uniqueSlug } from '../slug';
@@ -100,7 +100,7 @@ async function slugTaken(companyId: string, slug: string, excludeId?: string): P
   return rows.length > 0;
 }
 
-router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const input = createSchema.parse(req.body);
     const companyId = req.auth!.company_id;
@@ -136,7 +136,7 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
 
 const updateSchema = createSchema.partial();
 
-router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.patch('/:id', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const input = updateSchema.parse(req.body);
     const fields: string[] = [];
@@ -156,7 +156,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
   } catch (e) { return next(e); }
 });
 
-router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id', requirePermission('services.manage'), async (req, res, next) => {
   try {
     // Soft-delete: бронирования сохраняют ссылку на услугу и её историческую цену
     const { rows } = await pool.query(
@@ -171,7 +171,7 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
 
 // ===== Видео-превью услуги =====
 // POST /:id/preview-video — загрузить/заменить ролик (multipart, поле "video").
-router.post('/:id/preview-video', requireRole(['owner', 'admin']), (req, res, next) => {
+router.post('/:id/preview-video', requirePermission('services.manage'), (req, res, next) => {
   uploadVideo(req, res, (err: unknown) => {
     if (err) {
       const e = err as { message?: string; code?: string };
@@ -205,7 +205,7 @@ router.post('/:id/preview-video', requireRole(['owner', 'admin']), (req, res, ne
 });
 
 // DELETE /:id/preview-video — убрать ролик и выключить превью.
-router.delete('/:id/preview-video', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id/preview-video', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const svc = await pool.query<{ video_path: string | null }>(
       `SELECT video_path FROM salons.services WHERE company_id = $1 AND id = $2`,
@@ -234,7 +234,7 @@ router.delete('/:id/preview-video', requireRole(['owner', 'admin']), async (req,
 
 // ===== Изображение услуги (карточка каталога /services) =====
 // POST /:id/image — загрузить/заменить (multipart, поле "image").
-router.post('/:id/image', requireRole(['owner', 'admin']), (req, res, next) => {
+router.post('/:id/image', requirePermission('services.manage'), (req, res, next) => {
   uploadImage(req, res, (err: unknown) => {
     if (err) {
       const e = err as { message?: string; code?: string };
@@ -269,7 +269,7 @@ router.post('/:id/image', requireRole(['owner', 'admin']), (req, res, next) => {
 });
 
 // DELETE /:id/image — убрать изображение.
-router.delete('/:id/image', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id/image', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `UPDATE salons.services SET image_path = NULL, updated_at = NOW()
@@ -313,7 +313,7 @@ const assignMastersSchema = z.object({
 });
 
 // PUT — заменяет набор мастеров услуги (и их кастомные цены) целиком.
-router.put('/:id/masters', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.put('/:id/masters', requirePermission('services.manage'), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const { assignments } = assignMastersSchema.parse(req.body);

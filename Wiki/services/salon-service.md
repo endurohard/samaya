@@ -88,7 +88,7 @@ DELETE на услугу/мастера — **soft-delete** (`is_active = FALSE`
 ## Ключевые архитектурные решения
 
 - **Multi-tenant guard на каждом запросе**: все queries `WHERE company_id = req.auth.company_id`. JWT-claim не сравнивается с body — body может ошибаться или пытаться обмануть. Источник истины — JWT.
-- **RBAC**: `requireRole(['owner','admin'])` на всех мутациях. Чтения — любая аутентифицированная роль.
+- **RBAC**: мутации услуг, групп и каталогов — по праву `services.manage` (`requirePermission`, гейт в `index.ts`), а не по роли: мастер с выданным правом может править каталог. Мастера/должности/расписание пока по-старому — `requireRole(['owner','admin'])`. Чтения — любая аутентифицированная роль.
 - **Cross-schema FK не используем** (DDD-боундари): `masters.user_id` — UUID без FK на `users.users(id)`. Если когда-то разнесём БД по сервисам, разрыва не будет.
 - **Schedule bulk upsert**: PUT `/schedule/:masterId` — `INSERT ... ON CONFLICT (master_id, work_date) DO UPDATE`. Транзакция на весь bulk, валидация мастера в той же транзакции.
 - **Master/service assignment** — replace-семантика (PUT), не diff. Транзакция: проверка company_id для services + DELETE all + INSERT new. Защита от cross-tenant: `services WHERE company_id = $1 AND id = ANY(...)`.

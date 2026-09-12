@@ -16,7 +16,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { PoolClient } from 'pg';
 import { pool } from '../db';
-import { authenticate, requireRole, HttpError } from '../middleware';
+import { authenticate, requirePermission, HttpError } from '../middleware';
 import { newCatalogToken } from '../token';
 
 const router = Router();
@@ -88,7 +88,7 @@ const createSchema = z.object({
   service_ids: idsSchema.optional(),
 });
 
-router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/', requirePermission('services.manage'), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const input = createSchema.parse(req.body);
@@ -116,7 +116,7 @@ const updateSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.patch('/:id', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const input = updateSchema.parse(req.body);
     const fields: string[] = [];
@@ -137,7 +137,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
   } catch (e) { return next(e); }
 });
 
-router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `DELETE FROM salons.service_catalogs WHERE company_id = $1 AND id = $2 RETURNING id`,
@@ -149,7 +149,7 @@ router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) =>
 });
 
 // Новый токен: старая ссылка перестаёт открываться (если разошлась не туда).
-router.post('/:id/regenerate', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/:id/regenerate', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `UPDATE salons.service_catalogs SET token = $3, views = 0, updated_at = NOW()
@@ -163,7 +163,7 @@ router.post('/:id/regenerate', requireRole(['owner', 'admin']), async (req, res,
 
 const itemsSchema = z.object({ service_ids: idsSchema });
 
-router.put('/:id/services', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.put('/:id/services', requirePermission('services.manage'), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const { service_ids } = itemsSchema.parse(req.body);
@@ -187,7 +187,7 @@ router.put('/:id/services', requireRole(['owner', 'admin']), async (req, res, ne
 });
 
 // Добавить услуги в конец; уже присутствующие пропускаются.
-router.post('/:id/services', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/:id/services', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const { service_ids } = itemsSchema.parse(req.body);
     const companyId = req.auth!.company_id;
@@ -210,7 +210,7 @@ router.post('/:id/services', requireRole(['owner', 'admin']), async (req, res, n
   } catch (e) { return next(e); }
 });
 
-router.delete('/:id/services/:serviceId', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id/services/:serviceId', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const companyId = req.auth!.company_id;
     const { rows } = await pool.query(

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../db';
-import { authenticate, requireRole, HttpError } from '../middleware';
+import { authenticate, requirePermission, HttpError } from '../middleware';
 
 const router = Router();
 router.use(authenticate);
@@ -24,7 +24,7 @@ const createSchema = z.object({
   sort_order: z.number().int().optional(),
 });
 
-router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.post('/', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const input = createSchema.parse(req.body);
     const { rows } = await pool.query(
@@ -43,7 +43,7 @@ router.post('/', requireRole(['owner', 'admin']), async (req, res, next) => {
 
 const updateSchema = createSchema.partial();
 
-router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.patch('/:id', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const input = updateSchema.parse(req.body);
     const fields: string[] = [];
@@ -67,7 +67,7 @@ router.patch('/:id', requireRole(['owner', 'admin']), async (req, res, next) => 
   } catch (e) { return next(e); }
 });
 
-router.delete('/:id', requireRole(['owner', 'admin']), async (req, res, next) => {
+router.delete('/:id', requirePermission('services.manage'), async (req, res, next) => {
   try {
     const { rowCount } = await pool.query(
       `DELETE FROM salons.service_categories WHERE company_id = $1 AND id = $2`,
