@@ -3068,9 +3068,18 @@
         <!-- Панель: список каталогов -->
         <div id="catalogsListPanel">
           <div class="modal-body">
-            <p class="hint" style="margin-top:0;">
-              Каталог — подборка услуг с ценами и описаниями, которую клиент открывает по одной ссылке.
-              В него можно добавить любую услугу, даже скрытую из меню сайта.
+            <!-- Общий каталог сайта — всегда первый, без токена: его состав = «Отображать в меню» -->
+            <div class="catalog-row catalog-row-site" id="catalogSiteRow" title="Открыть состав каталога сайта">
+              <div class="row-main">
+                <div class="row-name">Каталог сайта — все услуги</div>
+                <div class="row-meta" id="catalogSiteMeta">Услуги с галочкой «Отображать в меню» · по разделам</div>
+              </div>
+              <button type="button" class="btn-ghost btn-xs" id="catalogSiteCopy" title="Скопировать ссылку">Ссылка</button>
+              <a class="btn-ghost btn-xs" id="catalogSiteOpen" href="/services" target="_blank" rel="noopener" title="Открыть страницу">↗</a>
+            </div>
+            <p class="hint">
+              Ниже — свои подборки: услуги с ценами и описаниями, которые клиент открывает по одной ссылке.
+              В подборку можно добавить любую услугу, даже скрытую из меню сайта.
             </p>
             <form id="catalogAddForm" class="positions-add">
               <input id="catalogNewName" type="text" maxlength="120" placeholder="Название, например «Уход для Марины»" required />
@@ -3091,15 +3100,17 @@
               <label for="catalogEditName">Название</label>
               <input id="catalogEditName" type="text" maxlength="120" required />
             </div>
-            <div style="margin-top:12px;">
-              <label for="catalogEditDesc">Вводный текст (необязательно)</label>
-              <textarea id="catalogEditDesc" rows="2" maxlength="2000" placeholder="Например: подобрали для вас процедуры по итогам консультации" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;resize:vertical;font-family:inherit;"></textarea>
+            <div id="catalogEditOwnFields">
+              <div style="margin-top:12px;">
+                <label for="catalogEditDesc">Вводный текст (необязательно)</label>
+                <textarea id="catalogEditDesc" rows="2" maxlength="2000" placeholder="Например: подобрали для вас процедуры по итогам консультации" style="width:100%;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;resize:vertical;font-family:inherit;"></textarea>
+              </div>
+              <label class="sal-checkbox-row" style="margin-top:12px;">
+                <input type="checkbox" id="catalogEditActive" />
+                <span>Ссылка активна</span>
+              </label>
+              <div class="muted" style="font-size:var(--fs-xs);margin-top:2px;">Выключенная ссылка открывает «Каталог не найден» — удобно, если подборка устарела.</div>
             </div>
-            <label class="sal-checkbox-row" style="margin-top:12px;">
-              <input type="checkbox" id="catalogEditActive" />
-              <span>Ссылка активна</span>
-            </label>
-            <div class="muted" style="font-size:var(--fs-xs);margin-top:2px;">Выключенная ссылка открывает «Каталог не найден» — удобно, если подборка устарела.</div>
 
             <hr style="margin:16px 0 12px;border:none;border-top:1px solid var(--border);" />
             <div style="font-weight:600;margin-bottom:4px;">Ссылка для клиента</div>
@@ -3126,7 +3137,7 @@
               <span class="counter" id="catalogSelCount">0</span>
               <input id="catalogSvcSearch" type="search" placeholder="Поиск по названию" style="margin-left:auto;max-width:220px;font-size:13px;" />
             </div>
-            <div class="muted" style="font-size:var(--fs-xs);margin-bottom:6px;">
+            <div class="muted" style="font-size:var(--fs-xs);margin-bottom:6px;" id="catalogPickerHint">
               Отметьте услуги — они появятся в каталоге в порядке добавления. Сохраняется кнопкой «Сохранить».
             </div>
             <div id="catalogServicesBox" class="promo-services-box catalog-services-box"></div>

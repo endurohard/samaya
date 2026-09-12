@@ -5316,6 +5316,8 @@ html, body { overflow-x: hidden; }
 }
 .catalog-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .catalog-row.inactive { opacity: 0.55; }
+.catalog-row-site { background: var(--primary-soft); border-color: transparent; margin-bottom: 12px; }
+.catalog-row-site:hover { border-color: var(--primary); }
 .catalog-row .row-main { flex: 1; min-width: 0; }
 .catalog-row .row-name { font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-row .row-meta { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 2px; }

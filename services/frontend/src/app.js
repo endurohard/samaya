@@ -1441,7 +1441,18 @@ import {
   // услугам не сбрасывал отметки; порядок добавления = порядок в каталоге.
   let cachedCatalogs = [];
   let catalogSel = [];            // service_id в порядке добавления
+  // 'own' — своя подборка (/c/<token>); 'site' — общий каталог сайта (/services),
+  // у него нет токена и порядка: состав = флаг show_in_menu, раскладка по разделам.
+  let catalogMode = 'own';
   const catalogLink = (token) => `${location.origin}/c/${token}`;
+  const siteCatalogLink = () => `${location.origin}/services`;
+
+  function renderCatalogSiteRow() {
+    const meta = document.getElementById('catalogSiteMeta');
+    if (!meta) return;
+    const n = cachedServices.filter((s) => s.is_active && s.show_in_menu).length;
+    meta.textContent = `${n} ${plural(n, ['услуга', 'услуги', 'услуг'])} с галочкой «Отображать в меню» · по разделам`;
+  }
 
   async function loadCatalogs() {
     const { ok, data } = await apiCall('GET', '/api/salons/catalogs', null);
@@ -1476,11 +1487,14 @@ import {
     document.getElementById('catalogsListPanel').hidden = editing;
     document.getElementById('catalogEditPanel').hidden = !editing;
     document.getElementById('catalogsBack').hidden = !editing;
-    document.getElementById('catalogsTitle').textContent = editing ? 'Каталог' : 'Каталоги по ссылке';
+    document.getElementById('catalogsTitle').textContent = !editing ? 'Каталоги по ссылке'
+      : (catalogMode === 'site' ? 'Каталог сайта' : 'Каталог');
   }
 
   async function openCatalogsModal() {
     if (!(await loadCatalogs())) { toast('Не удалось загрузить каталоги'); return; }
+    if (!cachedServices.length) await loadServices();
+    renderCatalogSiteRow();
     renderCatalogsList();
     showCatalogPanel('list');
     document.getElementById('catalogsBackdrop').hidden = false;
@@ -1534,7 +1548,8 @@ import {
       const cb = item.querySelector('.catalog-svc-check');
       const n = pos.get(cb.value);
       cb.checked = !!n;
-      item.querySelector('.catalog-svc-order').textContent = n ? `#${n}` : '';
+      // У каталога сайта порядок задают разделы, номера не нужны
+      item.querySelector('.catalog-svc-order').textContent = (n && catalogMode === 'own') ? `#${n}` : '';
     });
     document.getElementById('catalogSelCount').textContent = String(catalogSel.length);
   }
@@ -1556,7 +1571,37 @@ import {
     });
   }
 
+  // Переключение полей редактора между своей подборкой и каталогом сайта
+  function applyCatalogMode(mode) {
+    catalogMode = mode;
+    const site = mode === 'site';
+    document.getElementById('catalogEditOwnFields').hidden = site;
+    document.getElementById('catalogLinkRegen').hidden = site;
+    document.getElementById('catalogEditDelete').hidden = site;
+    document.getElementById('catalogEditViews').hidden = site;
+    document.getElementById('catalogEditName').readOnly = site;
+    document.getElementById('catalogPickerHint').textContent = site
+      ? 'Отмеченные услуги показываются на сайте (то же, что галочка «Отображать в меню» в карточке услуги). Сохраняется кнопкой «Сохранить».'
+      : 'Отметьте услуги — они появятся в каталоге в порядке добавления. Сохраняется кнопкой «Сохранить».';
+  }
+
+  async function openSiteCatalogEditor() {
+    if (!cachedServices.length) await loadServices();
+    applyCatalogMode('site');
+    catalogSel = cachedServices.filter((s) => s.is_active && s.show_in_menu).map((s) => s.id);
+    document.getElementById('catalogEditId').value = '';
+    document.getElementById('catalogEditName').value = 'Каталог сайта — все услуги';
+    document.getElementById('catalogEditLink').value = siteCatalogLink();
+    document.getElementById('catalogLinkOpen').href = siteCatalogLink();
+    document.getElementById('catalogQrWrap').hidden = true;
+    document.getElementById('catalogEditError').hidden = true;
+    document.getElementById('catalogSvcSearch').value = '';
+    renderCatalogServicesPicker();
+    showCatalogPanel('edit');
+  }
+
   function fillCatalogEditor(c) {
+    applyCatalogMode('own');
     document.getElementById('catalogEditId').value = c.id;
     document.getElementById('catalogEditName').value = c.name;
     document.getElementById('catalogEditDesc').value = c.description || '';
@@ -1581,6 +1626,14 @@ import {
   }
 
   document.getElementById('svcCatalogsBtn')?.addEventListener('click', () => { void openCatalogsModal(); });
+  document.getElementById('catalogSiteRow')?.addEventListener('click', (e) => {
+    if (e.target.closest('#catalogSiteCopy, #catalogSiteOpen')) return;
+    void openSiteCatalogEditor();
+  });
+  document.getElementById('catalogSiteCopy')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(siteCatalogLink()); toast('Ссылка на каталог сайта скопирована'); }
+    catch (_e) { toast('Не удалось скопировать — откройте каталог и скопируйте из поля'); }
+  });
   document.getElementById('catalogsClose')?.addEventListener('click', closeCatalogsModal);
   document.getElementById('catalogsDone')?.addEventListener('click', closeCatalogsModal);
   document.getElementById('catalogsBackdrop')?.addEventListener('click', closeCatalogsModal);
@@ -1685,6 +1738,24 @@ import {
     const id = document.getElementById('catalogEditId').value;
     const errEl = document.getElementById('catalogEditError');
     errEl.hidden = true;
+    if (catalogMode === 'site') {
+      // Каталог сайта: пишем только изменившиеся show_in_menu, по одной услуге
+      const sel = new Set(catalogSel);
+      const changed = cachedServices.filter((s) => s.is_active && !!s.show_in_menu !== sel.has(s.id));
+      const failed = [];
+      for (const s of changed) {
+        const r = await apiCall('PATCH', `/api/salons/services/${s.id}`, { show_in_menu: sel.has(s.id) });
+        if (r.ok) s.show_in_menu = sel.has(s.id); else failed.push(s.name);
+      }
+      if (failed.length) {
+        errEl.textContent = `Не удалось сохранить: ${failed.join(', ')}`; errEl.hidden = false; return;
+      }
+      renderServices();
+      renderCatalogSiteRow();
+      toast(changed.length ? `Каталог сайта обновлён: изменено ${changed.length}` : 'Изменений нет');
+      showCatalogPanel('list');
+      return;
+    }
     const body = {
       name: document.getElementById('catalogEditName').value.trim(),
       description: document.getElementById('catalogEditDesc').value.trim() || null,
