@@ -13,6 +13,9 @@ const schema = z.object({
   VATS_BASE_URL: z.string().url().default('https://vats05.ru/api/public'),
   VATS_API_KEY: z.string().min(8),
   VATS_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Там, где у контейнеров нет прямого выхода в интернет, наружу ходим через
+  // мост до прокси хоста (см. egress-proxy). Пусто — идём напрямую.
+  VATS_PROXY_URL: z.string().url().optional().or(z.literal('').transform(() => undefined)),
 
   // Синхронизация журнала. Окно перекрытия — не оптимизация, а необходимость:
   // запись разговора появляется в ВАТС через несколько секунд после отбоя, а

@@ -360,6 +360,25 @@ services:
     cpus: 1
     restart: unless-stopped
 
+  # Мост к прокси хоста. Нужен там, где у контейнеров нет прямого выхода в
+  # интернет (iTTEST): xray слушает только loopback хоста, из bridge-сети он не
+  # виден. Включается заданием EGRESS_BIND_HOST — на площадках с обычным
+  # выходом наружу сервис просто не поднимают.
+  egress-proxy:
+    build:
+      context: ./services/egress-proxy
+      dockerfile: Dockerfile
+    container_name: samaya-egress-proxy
+    network_mode: host
+    environment:
+      BIND_HOST: ${EGRESS_BIND_HOST:-127.0.0.1}
+      BIND_PORT: ${EGRESS_BIND_PORT:-1180}
+      TARGET_HOST: ${EGRESS_TARGET_HOST:-127.0.0.1}
+      TARGET_PORT: ${EGRESS_TARGET_PORT:-1080}
+    mem_limit: 64m
+    cpus: 0.25
+    restart: unless-stopped
+
   telephony-service:
     build:
       context: ./services/telephony-service
@@ -374,6 +393,8 @@ services:
       # Ключ организации из портала ВАТС: даёт и журнал звонков, и записи.
       VATS_BASE_URL: ${VATS_BASE_URL:-https://vats05.ru/api/public}
       VATS_API_KEY: ${VATS_API_KEY:?VATS_API_KEY required}
+      # Пусто — ходим напрямую; задано — через мост egress-proxy.
+      VATS_PROXY_URL: ${VATS_PROXY_URL:-}
       SYNC_INTERVAL_MS: ${TELEPHONY_SYNC_INTERVAL_MS:-180000}
       SYNC_INITIAL_DAYS: ${TELEPHONY_SYNC_INITIAL_DAYS:-90}
       RECORDINGS_DIR: /data/recordings
@@ -384,6 +405,10 @@ services:
       - telephony_recordings:/data/recordings
     networks:
       - samaya-network
+    # Адрес моста не зависит от подсети docker: host-gateway — это шлюз сети
+    # самого контейнера.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

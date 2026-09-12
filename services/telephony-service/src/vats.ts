@@ -1,4 +1,11 @@
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
 import { config } from './config';
+
+// fetch в Node не смотрит на переменные окружения с прокси — диспетчер нужно
+// задать явно, иначе запрос уйдёт напрямую и упрётся в отсутствие маршрута.
+if (config.VATS_PROXY_URL) {
+  setGlobalDispatcher(new ProxyAgent(config.VATS_PROXY_URL));
+}
 
 // Клиент публичного API ВАТС. Все запросы — с ключом организации в заголовке;
 // ключ никогда не уходит в URL, чтобы не оседать в логах nginx и Kong.
