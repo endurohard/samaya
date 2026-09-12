@@ -47,6 +47,7 @@ sources:
 | PUT/POST | `/api/salons/catalogs/:id/services` | services.manage (PUT — заменить состав, POST — дописать) |
 | DELETE | `/api/salons/catalogs/:id/services/:serviceId` | services.manage |
 | POST | `/api/salons/catalogs/:id/regenerate` | services.manage (новый токен ссылки) |
+| GET | `/api/salons/public/site-url` | публично — `{ site_url }` из `FRONTEND_URL`, для ссылок из админки |
 | GET | `/api/salons/public/site/c/:token[/:key]` | публично — страница каталога по ссылке (nginx: `/c/...`) |
 | GET | `/health` | внутренний |
 

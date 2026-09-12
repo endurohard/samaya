@@ -493,7 +493,7 @@ import {
       n.classList.toggle('active', n.dataset.view === view);
     });
     els.viewTitle.textContent = VIEW_TITLES[view];
-    if (view === 'services') void Promise.all([loadServices(), salLoadCommissions()]);
+    if (view === 'services') void Promise.all([loadServices(), salLoadCommissions(), ensureSiteBase()]);
     if (view === 'masters') void loadMasters();
     if (view === 'journal') {
       if (!els.journalDate.value) els.journalDate.value = todayLocalISO();
@@ -825,7 +825,7 @@ import {
     if (delBtn) delBtn.hidden = !s.image_path;
     if (linkWrap && link) {
       linkWrap.hidden = !s.slug;
-      if (s.slug) link.href = `/services/${s.slug}`;
+      if (s.slug) link.href = `${siteBase}/services/${s.slug}`;
     }
   }
 
@@ -1444,8 +1444,21 @@ import {
   // 'own' — своя подборка (/c/<token>); 'site' — общий каталог сайта (/services),
   // у него нет токена и порядка: состав = флаг show_in_menu, раскладка по разделам.
   let catalogMode = 'own';
-  const catalogLink = (token) => `${location.origin}/c/${token}`;
-  const siteCatalogLink = () => `${location.origin}/services`;
+  // Публичный адрес сайта (FRONTEND_URL сервиса). Админку могут открыть по
+  // IP:порту или с локалки — ссылки клиентам всё равно должны вести на домен.
+  let siteBase = location.origin;
+  let siteBaseLoaded = false;
+  async function ensureSiteBase() {
+    if (siteBaseLoaded) return siteBase;
+    const { ok, data } = await apiCall('GET', '/api/salons/public/site-url', null);
+    if (ok && data?.site_url) siteBase = data.site_url;
+    siteBaseLoaded = true;
+    const a = document.getElementById('svcSiteCatalogLink');
+    if (a) a.href = `${siteBase}/services`;
+    return siteBase;
+  }
+  const catalogLink = (token) => `${siteBase}/c/${token}`;
+  const siteCatalogLink = () => `${siteBase}/services`;
 
   function renderCatalogSiteRow() {
     const meta = document.getElementById('catalogSiteMeta');
@@ -1492,6 +1505,7 @@ import {
   }
 
   async function openCatalogsModal() {
+    await ensureSiteBase();
     if (!(await loadCatalogs())) { toast('Не удалось загрузить каталоги'); return; }
     if (!cachedServices.length) await loadServices();
     renderCatalogSiteRow();

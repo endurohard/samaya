@@ -126,6 +126,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3010}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MEDIA_DIR: /data/media
     expose:

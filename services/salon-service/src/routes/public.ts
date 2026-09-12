@@ -87,4 +87,10 @@ router.get('/masters/:id/services', async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// Публичный адрес сайта — админка может открываться с другого хоста
+// (IP:порт, локалка), а ссылки для клиентов должны вести на боевой домен.
+router.get('/site-url', (_req, res) => {
+  res.json({ site_url: config.FRONTEND_URL.replace(/\/+$/, '') });
+});
+
 export default router;
