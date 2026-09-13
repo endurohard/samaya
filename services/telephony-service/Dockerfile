@@ -17,6 +17,10 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=builder /app/dist ./dist
+# Каталог кэша записей создаётся в образе и сразу с нужным владельцем: docker
+# переносит права из образа в новый том, а сервис работает не от root и в чужой
+# каталог писать не сможет.
+RUN mkdir -p /data/recordings && chown -R node:node /data
 USER node
 EXPOSE 3009
 ENTRYPOINT ["/sbin/tini", "--"]
