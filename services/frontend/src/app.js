@@ -626,6 +626,9 @@ import {
       // RBAC фаза 2: гейтинг навигации по правам
       applyNavPermissions(role, perms);
 
+      // Карточка входящего: сервис сам ответит 403, если телефония не положена.
+      startCallStream();
+
       // Preload data for sidebar counters
       void loadServices();
       void loadMasters();
@@ -634,6 +637,7 @@ import {
       els.authGuest.hidden = false;
       els.authUser.hidden = true;
       els.userMini.hidden = true;
+      stopCallStream();
       cachedServices = [];
       cachedMasters = [];
       renderServices();
@@ -5373,6 +5377,198 @@ import {
       : `Номер ${ext} привязан`);
     void loadTelExtensions();
   });
+
+  // ===== Всплывающая карточка входящего =====
+  // Поток событий идёт из telephony-service по SSE (он сам подписан на ВАТС).
+  // Через fetch с Bearer, а не EventSource: тому нельзя передать заголовок
+  // авторизации. Карточка появляется на «звонит», обновляется на «ответили»
+  // и «завершён» и остаётся ещё немного после отбоя — оформить клиента часто
+  // успевают только после разговора.
+  const callPop = { abort: null, cards: new Map(), backoff: 1000, stopped: true, stack: null };
+
+  const CALLPOP_STATE = {
+    incoming: 'Входящий звонок', ringing: 'Входящий звонок', accepted: 'Входящий звонок',
+    answered: 'Разговор', ended: 'Завершён', missed: 'Пропущен',
+  };
+
+  function callPopStack() {
+    if (callPop.stack) return callPop.stack;
+    const el = document.createElement('div');
+    el.className = 'callpop-stack';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+    callPop.stack = el;
+    return el;
+  }
+
+  function callPopWho(ev) {
+    if (!ev.employee) return '';
+    return `→ ${escapeHtml(ev.master_name || '')}${ev.master_name ? ' · ' : ''}${escapeHtml(ev.employee)}`;
+  }
+
+  function renderCallPop(card) {
+    const ev = card.ev;
+    const state = card.state;
+    const known = card.client_id;
+    const title = card.client_known_name || ev.client_name || 'Новый номер';
+    card.el.className = `callpop callpop--${state}`;
+    card.el.innerHTML = `
+      <div class="callpop-head">
+        <span class="callpop-state">${CALLPOP_STATE[state] || state}</span>
+        <span class="callpop-who">${callPopWho(ev)}</span>
+        <button type="button" class="callpop-close" aria-label="Закрыть">×</button>
+      </div>
+      <div class="callpop-name">${escapeHtml(title)}</div>
+      <div class="callpop-phone">${escapeHtml(formatPhonePretty(ev.client_number || ''))}${ev.line ? ` <span class="callpop-line">· ${escapeHtml(ev.line)}</span>` : ''}</div>
+      <div class="callpop-actions">
+        ${known
+          ? '<button type="button" class="btn btn-sm" data-act="client">Карточка</button>'
+          : '<button type="button" class="btn btn-sm" data-act="create">Создать клиента</button>'}
+        <button type="button" class="btn btn-sm btn-primary" data-act="book">Записать</button>
+      </div>`;
+  }
+
+  function closeCallPop(callId) {
+    const card = callPop.cards.get(callId);
+    if (!card) return;
+    clearTimeout(card.timer);
+    card.el.remove();
+    callPop.cards.delete(callId);
+  }
+
+  async function callPopAction(card, act) {
+    const ev = card.ev;
+    if (act === 'client' && card.client_id) {
+      setView('clients');
+      await openClientModal(card.client_id);
+      return;
+    }
+    if (act === 'create') {
+      setView('clients');
+      await openClientModal(null);
+      if (els.clPhone) els.clPhone.value = ev.client_number || '';
+      return;
+    }
+    if (act === 'book') {
+      openAddBookingModal();
+      const phoneEl = document.getElementById('bPhone');
+      if (phoneEl) {
+        phoneEl.value = ev.client_number || '';
+        // подсказка клиента по номеру ищет сама — как при ручном вводе
+        phoneEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (card.client_known_name) setBookingClientName(card.client_known_name);
+    }
+  }
+
+  function onCallEvent(ev) {
+    if (!ev || !ev.call_id) return;
+    let card = callPop.cards.get(ev.call_id);
+    const isStart = ev.type === 'incoming' || ev.type === 'ringing' || ev.type === 'accepted';
+
+    if (!card) {
+      // Карточку заводим только на начало звонка: «завершён» без карточки —
+      // звонок, который нам не показывали.
+      if (!isStart) return;
+      const el = document.createElement('div');
+      card = { el, ev, state: 'ringing', client_id: ev.client_id, client_known_name: ev.client_known_name, timer: null };
+      el.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-act], .callpop-close');
+        if (!btn) return;
+        if (btn.classList.contains('callpop-close')) { closeCallPop(ev.call_id); return; }
+        void callPopAction(card, btn.dataset.act);
+      });
+      callPop.cards.set(ev.call_id, card);
+      callPopStack().prepend(el);
+    }
+
+    // «Звонит» приходит на каждого сотрудника по очереди — обновляем, у кого
+    // сейчас, но не сбрасываем состояние разговора.
+    if (isStart) {
+      if (card.state === 'ringing') card.ev = { ...card.ev, ...ev, employee: ev.employee || card.ev.employee };
+    } else if (ev.type === 'answered') {
+      card.state = 'answered';
+      card.ev = { ...card.ev, ...ev };
+    } else if (ev.type === 'ended') {
+      card.state = card.state === 'answered' ? 'ended' : 'missed';
+      card.ev = { ...card.ev, ...ev, employee: card.ev.employee };
+    } else {
+      return; // employee_ended и прочее на карточку не влияют
+    }
+    if (ev.client_id) { card.client_id = ev.client_id; card.client_known_name = ev.client_known_name; }
+    renderCallPop(card);
+
+    clearTimeout(card.timer);
+    // Незавершившийся звонок не должен висеть вечно (потеряли «завершён»).
+    const ttl = card.state === 'ringing' ? 120_000 : card.state === 'answered' ? 30 * 60_000 : 90_000;
+    card.timer = setTimeout(() => closeCallPop(ev.call_id), ttl);
+  }
+
+  async function readCallStream(res) {
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let event = 'message';
+        const data = [];
+        chunk.split('\n').forEach((line) => {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) data.push(line.slice(5).trim());
+        });
+        if (!data.length) continue; // комментарий-пинг
+        let payload = null;
+        try { payload = JSON.parse(data.join('\n')); } catch { continue; }
+        if (event === 'call') onCallEvent(payload);
+      }
+    }
+  }
+
+  async function runCallStream() {
+    while (!callPop.stopped) {
+      const ctrl = new AbortController();
+      callPop.abort = ctrl;
+      try {
+        const res = await fetch('/api/telephony/stream', {
+          headers: { Authorization: `Bearer ${store.access}`, Accept: 'text/event-stream' },
+          signal: ctrl.signal,
+        });
+        if (res.status === 401) {
+          if (!(await refreshTokens())) { callPop.stopped = true; return; }
+          continue;
+        }
+        // 403 — нет права на телефонию или номера: карточка этому пользователю не нужна
+        if (res.status === 403) { callPop.stopped = true; return; }
+        if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
+        callPop.backoff = 1000;
+        await readCallStream(res);
+      } catch (e) {
+        if (ctrl.signal.aborted) return;
+      }
+      if (callPop.stopped) return;
+      await new Promise((r) => setTimeout(r, callPop.backoff));
+      callPop.backoff = Math.min(callPop.backoff * 2, 30_000);
+    }
+  }
+
+  function startCallStream() {
+    if (!callPop.stopped) return;
+    callPop.stopped = false;
+    void runCallStream();
+  }
+
+  function stopCallStream() {
+    callPop.stopped = true;
+    if (callPop.abort) { callPop.abort.abort(); callPop.abort = null; }
+    [...callPop.cards.keys()].forEach(closeCallPop);
+  }
 
   // ===== Journal master filter (DIKIDI-style dropdown с группировкой) =====
   function jrnGroupMasters() {

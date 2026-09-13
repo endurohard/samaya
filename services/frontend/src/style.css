@@ -5450,3 +5450,43 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
   .tel-metric { min-width: 96px; padding: 8px 12px; }
   .tel-client-line { display: none; }
 }
+
+/* ===== Всплывающая карточка входящего (телефония) ===== */
+/* Выше модалок (80–81): кнопка «Записать» открывает модалку, и карточка должна
+   остаться видимой рядом с ней; ниже тостов. */
+.callpop-stack {
+  position: fixed; right: 16px; bottom: 16px; z-index: 90;
+  display: flex; flex-direction: column; gap: 10px; width: 320px; max-width: calc(100vw - 32px);
+}
+.callpop {
+  background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--primary);
+  border-radius: var(--radius-md); box-shadow: 0 10px 30px rgba(17, 24, 39, 0.18);
+  padding: 12px 14px; animation: modalFade 0.18s ease-out;
+}
+.callpop--ringing { border-left-color: var(--primary); }
+.callpop--answered { border-left-color: var(--success); }
+.callpop--ended { border-left-color: var(--muted); }
+.callpop--missed { border-left-color: var(--danger); }
+.callpop-head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--text-dim); }
+.callpop-state { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.callpop--ringing .callpop-state { color: var(--primary); }
+.callpop--answered .callpop-state { color: var(--success); }
+.callpop--missed .callpop-state { color: var(--danger); }
+.callpop-who { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.callpop-close {
+  border: none; background: none; color: var(--text-muted); font-size: 18px; line-height: 1;
+  cursor: pointer; padding: 0 0 0 6px; margin-top: -2px;
+}
+.callpop-close:hover { color: var(--text); }
+.callpop-name { margin-top: 6px; font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.callpop-phone { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 2px; }
+.callpop-line { color: var(--text-muted); }
+.callpop-actions { display: flex; gap: 8px; margin-top: 10px; }
+.callpop-actions .btn-sm { margin-top: 0; }
+.callpop-actions [data-act="client"], .callpop-actions [data-act="create"] {
+  background: var(--bg-soft); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer; font-family: inherit;
+}
+@media (max-width: 640px) {
+  .callpop-stack { right: 8px; left: 8px; bottom: 8px; width: auto; }
+}

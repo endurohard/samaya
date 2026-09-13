@@ -4,10 +4,12 @@ import pino from 'pino';
 import pinoHttp from 'pino-http';
 import callsRoutes from './routes/calls';
 import extensionsRoutes from './routes/extensions';
+import streamRoutes from './routes/stream';
 import { authenticate, errorHandler } from './middleware';
 import { config } from './config';
 import { pool } from './db';
 import { startSyncWorker, runSyncOnce } from './sync';
+import { startEvents, stopEvents } from './events';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -31,6 +33,8 @@ app.get('/health', async (_req, res) => {
 // список звонков.
 app.use('/api/telephony', authenticate, callsRoutes);
 app.use('/api/telephony', authenticate, extensionsRoutes);
+// Поток событий живьём — всплывающая карточка входящего у администратора.
+app.use('/api/telephony', authenticate, streamRoutes);
 
 // Ручной прогон синхронизации: кнопка «обновить» в интерфейсе, когда ждать
 // очередной цикл некогда.
@@ -47,10 +51,12 @@ app.use(errorHandler);
 const server = app.listen(config.PORT, () => {
   log.info({ port: config.PORT, env: config.NODE_ENV }, 'telephony-service listening');
   startSyncWorker(log);
+  startEvents(log);
 });
 
 const shutdown = (signal: string) => {
   log.info({ signal }, 'shutting down');
+  stopEvents();
   server.close(async () => {
     await pool.end();
     process.exit(0);

@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { config } from '../config';
 import { pool } from '../db';
+import { eventsStatus } from '../events';
 import { HttpError, requirePermission } from '../middleware';
 import { fetchRecording, VatsError } from '../vats';
 
@@ -79,7 +80,10 @@ router.get('/status', requirePermission('telephony.view'), async (req, res, next
          FROM telephony.sync_state WHERE company_id = $1`,
       [req.auth!.company_id],
     );
-    return res.json(rows[0] ?? { synced_until: null, last_ok_at: null, last_error: null, calls_total: 0 });
+    return res.json({
+      ...(rows[0] ?? { synced_until: null, last_ok_at: null, last_error: null, calls_total: 0 }),
+      events: eventsStatus(),
+    });
   } catch (e) { return next(e); }
 });
 
