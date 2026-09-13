@@ -5116,6 +5116,18 @@ import {
     renderTelCalls();
   }
 
+  // Дата строкой-разделителем, а не в каждой строке: за день набегает несколько
+  // десятков звонков, и повторять «12 сен» в каждом — шум, за которым теряется
+  // время разговора.
+  function telDayLabel(iso) {
+    const d = new Date(iso);
+    const today = new Date();
+    const yest = new Date(); yest.setDate(yest.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Сегодня';
+    if (d.toDateString() === yest.toDateString()) return 'Вчера';
+    return `${d.getDate()} ${MONTHS_RU_GENITIVE[d.getMonth()]}`;
+  }
+
   function renderTelCalls({ error = false } = {}) {
     const tbody = document.querySelector('#telCallsTable tbody');
     const counter = document.getElementById('telCallsCounter');
@@ -5124,43 +5136,72 @@ import {
     if (!tbody) return;
 
     if (error) {
-      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">Не удалось загрузить журнал</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Не удалось загрузить журнал</td></tr>';
       return;
     }
     if (!telState.items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">За период звонков нет</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">За период звонков нет</td></tr>';
       if (more) more.hidden = true;
       if (counter) counter.textContent = '0';
       if (summary) summary.innerHTML = '';
       return;
     }
 
-    if (counter) counter.textContent = String(telState.totals?.total ?? telState.items.length);
-    if (summary && telState.totals) {
-      summary.innerHTML = `Отвечено: <b>${telState.totals.answered}</b> · Пропущено: <b>${telState.totals.missed}</b>`;
+    const t = telState.totals;
+    if (counter) counter.textContent = String(t?.total ?? telState.items.length);
+    if (summary && t) {
+      const share = t.total ? Math.round((t.missed / t.total) * 100) : 0;
+      summary.innerHTML = `
+        <div class="tel-metric"><span class="tel-metric-val">${t.total}</span><span class="tel-metric-cap">всего</span></div>
+        <div class="tel-metric is-ok"><span class="tel-metric-val">${t.answered}</span><span class="tel-metric-cap">отвечено</span></div>
+        <div class="tel-metric ${t.missed ? 'is-miss' : ''}"><span class="tel-metric-val">${t.missed}</span><span class="tel-metric-cap">пропущено${t.missed ? ` · ${share}%` : ''}</span></div>`;
     }
 
-    tbody.innerHTML = telState.items.map((c) => {
+    let lastDay = '';
+    const rows = [];
+    telState.items.forEach((c) => {
+      const day = telDayLabel(c.started_at);
+      if (day !== lastDay) {
+        lastDay = day;
+        rows.push(`<tr class="tel-day"><td colspan="6">${escapeHtml(day)}</td></tr>`);
+      }
       const inbound = c.direction === 'inbound';
-      const who = c.client_name || c.client_name_vats || '';
-      // Номер показываем всегда: имя может быть от ВАТС, а звонить будут по номеру.
-      const client = `${who ? `<div class="row-name">${escapeHtml(who)}</div>` : ''}`
-        + `<div class="row-meta">${escapeHtml(c.client_number || '—')}</div>`;
-      const statusCls = c.status === 'answered' ? 'pill-ok' : c.status === 'missed' ? 'pill-danger' : 'pill-mute';
-      const statusLabel = c.status === 'answered' ? 'отвечен' : c.status === 'missed' ? 'пропущен' : 'отменён';
-      const master = c.master_name || (c.extension ? `доб. ${escapeHtml(c.extension)}` : '—');
-      return `<tr data-tel-call="${escapeHtml(c.id)}">
-        <td><span class="tel-dir ${inbound ? 'is-in' : 'is-out'}" title="${inbound ? 'Входящий' : 'Исходящий'}">${inbound ? '↓' : '↑'}</span> ${escapeHtml(telFmtWhen(c.started_at))}</td>
-        <td>${client}</td>
-        <td>${escapeHtml(master)}</td>
-        <td class="text-dim">${escapeHtml(c.line || '—')}</td>
-        <td class="text-right">${c.duration_sec ? telFmtDur(c.duration_sec) : '—'}</td>
-        <td><span class="pill ${statusCls}">${statusLabel}</span></td>
-        <td class="text-right">${c.has_recording ? '<button type="button" class="btn-ghost btn-xs" data-tel-play>▶ Прослушать</button>' : ''}</td>
-      </tr>`;
-    }).join('');
+      const d = new Date(c.started_at);
+      const time = `${telPad(d.getHours())}:${telPad(d.getMinutes())}`;
+      const missed = c.status === 'missed';
 
-    if (more) more.hidden = telState.items.length >= (telState.totals?.total ?? 0);
+      const name = c.client_name || c.client_name_vats;
+      const clientCell = `${name ? `<div class="tel-client-name">${escapeHtml(name)}</div>` : ''}`
+        + `<div class="tel-client-num">${escapeHtml(c.client_number || '—')}</div>`
+        // Линия интересна только у входящих и только как уточнение, куда звонили.
+        + (inbound && c.line ? `<div class="tel-client-line">${escapeHtml(c.line)}</div>` : '');
+
+      // Прочерк в «Принял» выглядел как сбой. Объясняем причину прямо в ячейке:
+      // у входящих ВАТС не сообщает ответившего, у исходящих номер может быть
+      // ещё не привязан к сотруднику.
+      let whoCell;
+      if (c.master_name) {
+        whoCell = `<span class="tel-who">${escapeHtml(c.master_name)}</span>`;
+      } else if (c.extension) {
+        whoCell = `<span class="tel-who is-raw" title="Номер ${escapeHtml(c.extension)} не привязан к сотруднику — вкладка «Номера сотрудников»">номер ${escapeHtml(c.extension)}</span>`;
+      } else if (missed) {
+        whoCell = '<span class="tel-who is-none">никто не ответил</span>';
+      } else {
+        whoCell = '<span class="tel-who is-none" title="ВАТС пока не сообщает, кто поднял трубку на входящем">не определён</span>';
+      }
+
+      rows.push(`<tr data-tel-call="${escapeHtml(c.id)}" class="${missed ? 'is-missed' : ''}">
+        <td class="tel-col-dir"><span class="tel-dir ${inbound ? 'is-in' : 'is-out'}" title="${inbound ? 'Входящий' : 'Исходящий'}">${inbound ? '↙' : '↗'}</span></td>
+        <td class="tel-col-time">${time}</td>
+        <td>${clientCell}</td>
+        <td>${whoCell}</td>
+        <td class="text-right tel-dur">${missed ? '<span class="tel-missed-mark">пропущен</span>' : telFmtDur(c.duration_sec)}</td>
+        <td class="tel-col-play">${c.has_recording ? '<button type="button" class="tel-play" data-tel-play title="Прослушать запись" aria-label="Прослушать запись">▶</button>' : ''}</td>
+      </tr>`);
+    });
+    tbody.innerHTML = rows.join('');
+
+    if (more) more.hidden = telState.items.length >= (t?.total ?? 0);
   }
 
   async function loadTelStatus() {

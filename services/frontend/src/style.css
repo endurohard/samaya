@@ -5333,3 +5333,120 @@ html, body { overflow-x: hidden; }
   font-size: var(--fs-xs); color: var(--text-muted);
   min-width: 18px; text-align: right; font-variant-numeric: tabular-nums;
 }
+
+/* ===== Телефония ===== */
+.tel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.tel-toolbar select, .tel-toolbar input { min-width: 150px; }
+.tel-sync { font-size: var(--fs-sm); color: var(--text-dim); margin-right: 10px; }
+.tel-sync.is-error { color: var(--danger); }
+
+/* Сводка периода — тремя числами: строкой «Отвечено: 95 · Пропущено: 69» она
+   терялась между фильтрами и таблицей, хотя отвечает на главный вопрос. */
+.tel-metrics { display: flex; gap: 10px; margin: 4px 0 14px; flex-wrap: wrap; }
+.tel-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 118px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  background: var(--card);
+}
+.tel-metric-val { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.tel-metric-cap { font-size: var(--fs-xs); color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
+.tel-metric.is-ok .tel-metric-val { color: #16a34a; }
+.tel-metric.is-miss .tel-metric-val { color: var(--danger); }
+
+.tel-table th { white-space: nowrap; }
+.tel-col-dir { width: 34px; }
+.tel-col-time { width: 64px; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.tel-col-play { width: 48px; text-align: right; }
+
+/* Разделитель дня: строк за сутки много, без него время без даты читается как
+   сегодняшнее, хотя может быть недельной давности. */
+.tel-day td {
+  padding: 16px 12px 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: transparent;
+  border-bottom: none;
+}
+
+/* Направление — цветным кружком: словами колонка занимала место, а голая
+   стрелка в потоке текста терялась. */
+.tel-dir {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+.tel-dir.is-in { color: #16a34a; background: rgba(22, 163, 74, .12); }
+.tel-dir.is-out { color: var(--primary); background: var(--primary-soft); }
+
+.tel-client-name { font-weight: 600; }
+.tel-client-num { font-size: var(--fs-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tel-client-line { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 2px; }
+.tel-who { font-size: var(--fs-sm); }
+.tel-who.is-raw { color: var(--text-dim); border-bottom: 1px dotted var(--border-strong); cursor: help; }
+.tel-who.is-none { color: var(--text-muted); font-style: italic; cursor: help; }
+.tel-dur { font-variant-numeric: tabular-nums; }
+
+/* Пропущенный виден полосой слева и словом вместо длительности: одинаковые
+   зелёные пилюли в каждой строке отличать одно от другого не помогали. */
+tr.is-missed { background: rgba(220, 38, 38, .05); }
+tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.tel-missed-mark { color: var(--danger); font-weight: 600; font-size: var(--fs-sm); }
+
+.tel-play {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.tel-play:hover { background: var(--primary-soft); border-color: var(--primary); }
+.tel-play:active { transform: scale(.94); }
+
+.tel-more { display: flex; justify-content: center; padding: 12px 0 4px; }
+.tel-player-info { font-size: var(--fs-sm); color: var(--text-dim); }
+
+.tel-ext-list { display: flex; flex-direction: column; gap: 8px; }
+.tel-ext-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 240px 140px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+.tel-ext-num { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 600; }
+.tel-ext-vats { color: var(--text-dim); font-size: var(--fs-sm); }
+.tel-ext-calls { text-align: right; color: var(--text-muted); font-size: var(--fs-sm); }
+
+@media (max-width: 720px) {
+  .tel-ext-row { grid-template-columns: 64px 1fr; row-gap: 8px; }
+  .tel-ext-calls { grid-column: 2; text-align: left; }
+  .tel-metric { min-width: 96px; padding: 8px 12px; }
+  .tel-client-line { display: none; }
+}

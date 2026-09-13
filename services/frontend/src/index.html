@@ -1251,21 +1251,23 @@
                 <input id="telNumber" type="search" placeholder="Номер клиента" />
               </div>
 
-              <div class="tel-summary" id="telSummary"></div>
+              <div class="tel-metrics" id="telSummary"></div>
 
-              <table class="data-table" id="telCallsTable">
+              <!-- Линию не выносим в колонку: у входящих она всегда одна и та же,
+                   у исходящих её нет — столбец повторял одно значение на всю
+                   высоту экрана. Ушла подписью под номером. -->
+              <table class="data-table tel-table" id="telCallsTable">
                 <thead>
                   <tr>
-                    <th>Когда</th>
+                    <th class="tel-col-dir"></th>
+                    <th class="tel-col-time">Время</th>
                     <th>Клиент</th>
-                    <th>Сотрудник</th>
-                    <th>Линия</th>
-                    <th class="text-right">Длительность</th>
-                    <th>Результат</th>
-                    <th></th>
+                    <th>Принял</th>
+                    <th class="text-right">Разговор</th>
+                    <th class="tel-col-play"></th>
                   </tr>
                 </thead>
-                <tbody><tr><td colspan="7" class="table-empty">Загрузка…</td></tr></tbody>
+                <tbody><tr><td colspan="6" class="table-empty">Загрузка…</td></tr></tbody>
               </table>
 
               <div class="tel-more">
