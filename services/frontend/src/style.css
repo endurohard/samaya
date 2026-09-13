@@ -5490,3 +5490,23 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 @media (max-width: 640px) {
   .callpop-stack { right: 8px; left: 8px; bottom: 8px; width: auto; }
 }
+
+/* ===== Телефония: AI-оператор ===== */
+.tel-tab-badge {
+  display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: var(--radius-pill);
+  background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 600;
+}
+.tel-who.is-ai { color: var(--primary); font-weight: 600; cursor: pointer; border-bottom: 1px dotted var(--primary); }
+.tel-ticket-kind { font-size: var(--fs-xs); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.tel-ticket-want { font-size: var(--fs-sm); }
+.tel-ticket-sum { font-size: var(--fs-xs); color: var(--text-dim); margin-top: 2px; }
+.tel-ticket-done { color: var(--success); font-size: var(--fs-sm); white-space: nowrap; }
+.tel-ai { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.tel-ai-sum { font-size: var(--fs-sm); color: var(--text); margin-bottom: 8px; }
+.tel-ai-log { max-height: 240px; overflow: auto; font-size: var(--fs-sm); display: flex; flex-direction: column; gap: 6px; }
+.tel-ai-msg { padding: 6px 10px; border-radius: var(--radius-sm); background: var(--bg-soft); max-width: 90%; }
+.tel-ai-msg.is-user { align-self: flex-end; background: var(--primary-soft); }
+.tel-ai-msg b { font-size: var(--fs-xs); color: var(--text-dim); display: block; }
+.callpop--ticket { border-left-color: #7c3aed; }
+.callpop--ticket .callpop-state { color: #7c3aed; }
+.callpop-sum { font-size: var(--fs-xs); color: var(--text-dim); margin-top: 4px; }

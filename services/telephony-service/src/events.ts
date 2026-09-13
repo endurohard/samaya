@@ -4,7 +4,8 @@ import { io as ioClient, type Socket } from 'socket.io-client';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { config } from './config';
 import { pool } from './db';
-import { runSyncOnce } from './sync';
+import { runSyncOnce, upsertTicket } from './sync';
+import type { VatsTicket } from './vats';
 
 // События звонков живьём из ВАТС.
 //
@@ -17,7 +18,7 @@ import { runSyncOnce } from './sync';
 /** Событие в том виде, как его отдаёт портал ВАТС. */
 export interface VatsEvent {
   id: string;
-  type: 'incoming' | 'accepted' | 'ringing' | 'answered' | 'employee_ended' | 'ended' | 'dialing';
+  type: 'incoming' | 'accepted' | 'ringing' | 'answered' | 'employee_ended' | 'ended' | 'dialing' | 'ai_ticket';
   call_id: string;
   direction: 'inbound' | 'outbound';
   domain: string;
@@ -28,6 +29,8 @@ export interface VatsEvent {
   hangup_cause?: string;
   duration?: number;
   recording?: boolean;
+  // только у ai_ticket: заявка, которую AI-оператор оформил после разговора
+  ticket?: Pick<VatsTicket, 'id' | 'kind' | 'status' | 'when_text' | 'service' | 'specialist' | 'comment' | 'summary'>;
   at: string;
 }
 
@@ -49,7 +52,7 @@ const active = new Map<string, ActiveCall>();
 const ACTIVE_TTL_MS = 60 * 60_000;
 
 function trackActive(ev: LiveEvent): void {
-  if (ev.direction !== 'inbound' || !ev.call_id) return;
+  if (ev.direction !== 'inbound' || !ev.call_id || ev.type === 'ai_ticket') return;
   if (ev.type === 'ended') { active.delete(ev.call_id); return; }
   const cur = active.get(ev.call_id);
   if (ev.type === 'incoming' || ev.type === 'accepted' || ev.type === 'ringing') {
@@ -147,6 +150,15 @@ async function handle(ev: VatsEvent, log: Logger): Promise<void> {
     );
   }
   if (ev.type === 'ended') scheduleSync(log);
+
+  // Заявка AI-оператора: кладём сразу, не дожидаясь синхронизации — карточка
+  // у администратора и список заявок должны совпадать с тем, что в Telegram.
+  if (ev.type === 'ai_ticket' && ev.ticket) {
+    await upsertTicket({
+      ...ev.ticket, created_at: ev.at, client_number: ev.client_number, client_name: ev.client_name,
+      call_id: ev.call_id, recording: null,
+    });
+  }
 
   const live = await enrich(ev);
   trackActive(live);

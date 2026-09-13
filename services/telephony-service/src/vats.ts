@@ -21,7 +21,33 @@ export interface VatsCall {
   employee_name: string | null;
   duration: number;           // секунды разговора
   status: 'answered' | 'missed' | 'cancelled';
+  handled_by: 'employee' | 'ai' | null; // кто реально говорил с клиентом
   recording: string | null;
+}
+
+/** Заявка AI-оператора — то, что он понял из разговора. */
+export interface VatsTicket {
+  id: string;
+  created_at: string;
+  kind: 'booking' | 'order' | 'callback' | 'question' | 'request' | string;
+  status: 'new' | 'confirmed' | 'done' | 'cancelled';
+  client_number: string | null;
+  client_name: string | null;
+  when_text: string | null;
+  service: string | null;
+  specialist: string | null;
+  comment: string | null;
+  summary: string | null;
+  call_id: string | null;
+  recording: string | null;
+}
+
+/** Разговор с AI-оператором по звонку: резюме, заявка, расшифровка. */
+export interface VatsCallAi {
+  summary: string | null;
+  replies: number;
+  ticket: VatsTicket | null;
+  transcript: { role: 'user' | 'assistant' | string; text: string; at: string }[];
 }
 
 export interface VatsEmployee {
@@ -68,9 +94,30 @@ export async function listCalls(params: {
   return body.calls ?? [];
 }
 
-export async function getCall(id: string): Promise<VatsCall> {
+export async function getCall(id: string): Promise<VatsCall & { ai: VatsCallAi | null }> {
   const res = await request(`/calls/${encodeURIComponent(id)}`);
-  return (await res.json()) as VatsCall;
+  return (await res.json()) as VatsCall & { ai: VatsCallAi | null };
+}
+
+export async function listTickets(params: {
+  from?: string; to?: string; status?: string; limit?: number; offset?: number;
+}): Promise<VatsTicket[]> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  }
+  const res = await request(`/tickets?${qs.toString()}`);
+  const body = (await res.json()) as { tickets?: VatsTicket[] };
+  return body.tickets ?? [];
+}
+
+// Статус заявки общий: закрыли у нас — закрыто в портале и в Telegram-группе,
+// иначе администратору пришлось бы закрывать одно и то же дважды.
+export async function setTicketStatus(id: string, status: VatsTicket['status']): Promise<void> {
+  await request(`/tickets/${encodeURIComponent(id)}/handled`, {
+    method: 'POST',
+    body: JSON.stringify({ status }),
+  });
 }
 
 export async function listEmployees(): Promise<VatsEmployee[]> {

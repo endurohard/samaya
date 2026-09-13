@@ -5,6 +5,7 @@ import pinoHttp from 'pino-http';
 import callsRoutes from './routes/calls';
 import extensionsRoutes from './routes/extensions';
 import streamRoutes from './routes/stream';
+import ticketsRoutes from './routes/tickets';
 import { authenticate, errorHandler } from './middleware';
 import { config } from './config';
 import { pool } from './db';
@@ -35,6 +36,8 @@ app.use('/api/telephony', authenticate, callsRoutes);
 app.use('/api/telephony', authenticate, extensionsRoutes);
 // Поток событий живьём — всплывающая карточка входящего у администратора.
 app.use('/api/telephony', authenticate, streamRoutes);
+// Заявки AI-оператора и разговор с ним по звонку.
+app.use('/api/telephony', authenticate, ticketsRoutes);
 
 // Ручной прогон синхронизации: кнопка «обновить» в интерфейсе, когда ждать
 // очередной цикл некогда.

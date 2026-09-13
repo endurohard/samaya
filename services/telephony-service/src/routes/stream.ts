@@ -50,7 +50,10 @@ router.get('/stream', requirePermission('telephony.view'), async (req, res, next
     const shown = new Set<string>();
     const onCall = (ev: LiveEvent) => {
       if (ev.direction !== 'inbound') return;
+      // Заявку AI-оператора должен увидеть каждый, кто вообще смотрит поток:
+      // она ничья, и её надо взять в работу.
       const relevant = scope === 'all'
+        || ev.type === 'ai_ticket'
         || (ev.employee != null && mine.includes(ev.employee))
         || shown.has(ev.call_id);
       if (!relevant) return;

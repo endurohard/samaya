@@ -47,7 +47,7 @@ router.get('/calls', requirePermission('telephony.view'), async (req, res, next)
     const { rows } = await pool.query(
       `SELECT c.id, c.started_at, c.direction, c.client_number, c.client_name_vats,
               c.line, c.extension, c.master_id, c.duration_sec, c.status, c.has_recording,
-              c.client_id,
+              c.client_id, c.handled_by,
               m.display_name AS master_name,
               cl.full_name AS client_name
          FROM telephony.calls c

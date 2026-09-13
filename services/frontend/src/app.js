@@ -5184,7 +5184,9 @@ import {
       // у входящих ВАТС не сообщает ответившего, у исходящих номер может быть
       // ещё не привязан к сотруднику.
       let whoCell;
-      if (c.master_name) {
+      if (c.handled_by === 'ai') {
+        whoCell = '<span class="tel-who is-ai" data-tel-ai title="Разговор вёл AI-оператор — открыть резюме и расшифровку">AI-оператор</span>';
+      } else if (c.master_name) {
         whoCell = `<span class="tel-who">${escapeHtml(c.master_name)}</span>`;
       } else if (c.extension) {
         whoCell = `<span class="tel-who is-raw" title="Номер ${escapeHtml(c.extension)} не привязан к сотруднику — вкладка «Номера сотрудников»">номер ${escapeHtml(c.extension)}</span>`;
@@ -5235,7 +5237,7 @@ import {
   async function activateTelephonyView() {
     if (!cachedMasters.length) await loadMasters();
     telFillMasters();
-    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus()]);
+    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus(), loadTelTickets()]);
   }
 
   // Запись тянем фетчем с токеном и отдаём плееру blob-ссылкой: тег <audio> не
@@ -5254,6 +5256,8 @@ import {
       + ` · ${escapeHtml(telFmtWhen(call.started_at))} · ${telFmtDur(call.duration_sec)}`
       + (call.master_name ? ` · ${escapeHtml(call.master_name)}` : '');
     audio.removeAttribute('src');
+    // Разговор с AI-оператором показываем под плеером — там же, где запись.
+    void telLoadAi(call.handled_by === 'ai' || call.ai ? call.id : null);
 
     try {
       const res = await fetch(`/api/telephony/calls/${encodeURIComponent(call.id)}/recording`, {
@@ -5314,8 +5318,10 @@ import {
     document.querySelectorAll('#telSubnav .subnav-item').forEach((b) => b.classList.toggle('active', b === btn));
     const tab = btn.dataset.telTab;
     document.getElementById('telTabCalls').hidden = tab !== 'calls';
+    document.getElementById('telTabTickets').hidden = tab !== 'tickets';
     document.getElementById('telTabExtensions').hidden = tab !== 'extensions';
     if (tab === 'extensions') void loadTelExtensions();
+    if (tab === 'tickets') void loadTelTickets();
   });
 
   document.getElementById('telPeriod')?.addEventListener('click', (e) => {
@@ -5350,11 +5356,11 @@ import {
     await apiCall('POST', '/api/telephony/sync', {});
     btn.disabled = false;
     btn.textContent = prev;
-    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus()]);
+    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus(), loadTelTickets()]);
   });
 
   document.querySelector('#telCallsTable')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-tel-play]');
+    const btn = e.target.closest('[data-tel-play], [data-tel-ai]');
     if (!btn) return;
     const id = btn.closest('[data-tel-call]')?.dataset.telCall;
     const call = telState.items.find((c) => c.id === id);
@@ -5378,6 +5384,123 @@ import {
     void loadTelExtensions();
   });
 
+  // ===== AI-оператор: заявки и разговор =====
+  // Заявка — то, что AI понял из разговора, пока никто не взял трубку.
+  // Список — зеркало из ВАТС через наш сервис; статус общий с Telegram-группой.
+  const telTicketsState = { status: 'new', items: [] };
+
+  const TEL_TICKET_KIND = {
+    booking: 'Запись', order: 'Заказ', callback: 'Перезвонить', question: 'Вопрос', request: 'Обращение',
+  };
+
+  function telTicketWant(t) {
+    const parts = [];
+    if (t.service) parts.push(t.service);
+    if (t.specialist) parts.push(t.specialist);
+    if (t.when_text) parts.push(t.when_text);
+    if (t.comment) parts.push(t.comment);
+    return parts.join(' · ');
+  }
+
+  async function loadTelTickets() {
+    const params = new URLSearchParams({ days: '30' });
+    if (telTicketsState.status) params.set('status', telTicketsState.status);
+    const { ok, data } = await apiCall('GET', `/api/telephony/tickets?${params.toString()}`);
+    telTicketsState.items = ok && data ? (data.items || []) : [];
+    telSetTicketsBadge(ok && data ? data.open : 0);
+    renderTelTickets({ error: !ok });
+  }
+
+  function telSetTicketsBadge(open) {
+    const badge = document.getElementById('telTicketsBadge');
+    if (!badge) return;
+    badge.textContent = String(open || 0);
+    badge.hidden = !open;
+  }
+
+  function renderTelTickets({ error = false } = {}) {
+    const tbody = document.querySelector('#telTicketsTable tbody');
+    const counter = document.getElementById('telTicketsCounter');
+    if (!tbody) return;
+    if (error) { tbody.innerHTML = '<tr><td colspan="5" class="table-empty">Не удалось загрузить заявки</td></tr>'; return; }
+    if (counter) counter.textContent = String(telTicketsState.items.length);
+    if (!telTicketsState.items.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="table-empty">${telTicketsState.status === 'new' ? 'Новых заявок нет' : 'Заявок нет'}</td></tr>`;
+      return;
+    }
+    let lastDay = '';
+    const rows = [];
+    telTicketsState.items.forEach((t) => {
+      const day = telDayLabel(t.created_at);
+      if (day !== lastDay) { lastDay = day; rows.push(`<tr class="tel-day"><td colspan="5">${escapeHtml(day)}</td></tr>`); }
+      const d = new Date(t.created_at);
+      const time = `${telPad(d.getHours())}:${telPad(d.getMinutes())}`;
+      const name = t.client_full_name || t.client_name;
+      const clientCell = `${name ? `<div class="tel-client-name">${escapeHtml(name)}</div>` : ''}`
+        + `<div class="tel-client-num">${escapeHtml(t.client_number || '—')}</div>`;
+      const want = telTicketWant(t);
+      const wantCell = `<div class="tel-ticket-kind">${escapeHtml(TEL_TICKET_KIND[t.kind] || t.kind)}</div>`
+        + (want ? `<div class="tel-ticket-want">${escapeHtml(want)}</div>` : '')
+        + (t.summary ? `<div class="tel-ticket-sum">${escapeHtml(t.summary)}</div>` : '');
+      const open = t.status === 'new' || t.status === 'confirmed';
+      const actions = open
+        ? `<button type="button" class="btn-secondary btn-sm" data-tel-ticket-act="book">Записать</button>
+           <button type="button" class="btn-primary btn-sm" data-tel-ticket-act="done">Обработано</button>`
+        : `<span class="tel-ticket-done">${t.status === 'cancelled' ? 'отменена' : 'обработана'}</span>`;
+      rows.push(`<tr data-tel-ticket="${escapeHtml(t.id)}" data-tel-call="${escapeHtml(t.call_id || '')}">
+        <td class="tel-col-time">${time}</td>
+        <td>${clientCell}</td>
+        <td>${wantCell}</td>
+        <td class="tel-col-play">${t.call_has_recording || t.has_recording ? '<button type="button" class="tel-play" data-tel-play title="Прослушать разговор с AI" aria-label="Прослушать">▶</button>' : ''}</td>
+        <td class="text-right" style="white-space:nowrap">${actions}</td>
+      </tr>`);
+    });
+    tbody.innerHTML = rows.join('');
+  }
+
+  async function telTicketSetStatus(id, status) {
+    const { ok, data } = await apiCall('POST', `/api/telephony/tickets/${encodeURIComponent(id)}/status`, { status });
+    if (!ok) { toast(`Не удалось: ${data?.error || 'ошибка'}`); return; }
+    toast(status === 'done' ? 'Заявка обработана' : 'Статус изменён', 'success');
+    void loadTelTickets();
+  }
+
+  document.getElementById('telTicketsStatus')?.addEventListener('change', (e) => {
+    telTicketsState.status = e.target.value;
+    void loadTelTickets();
+  });
+
+  document.querySelector('#telTicketsTable')?.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-tel-ticket]');
+    if (!row) return;
+    const t = telTicketsState.items.find((x) => x.id === row.dataset.telTicket);
+    if (!t) return;
+    if (e.target.closest('[data-tel-play]')) {
+      void telPlayRecording({ id: t.call_id, client_name: t.client_full_name || t.client_name, client_number: t.client_number, started_at: t.created_at, duration_sec: 0, ai: true });
+      return;
+    }
+    const act = e.target.closest('[data-tel-ticket-act]')?.dataset.telTicketAct;
+    if (act === 'done') void telTicketSetStatus(t.id, 'done');
+    if (act === 'book') {
+      void callPopAction({ ev: { client_number: t.client_number }, client_id: t.client_id, client_known_name: t.client_full_name || t.client_name }, 'book');
+    }
+  });
+
+  // Резюме и расшифровка разговора с AI под плеером.
+  async function telLoadAi(callId) {
+    const box = document.getElementById('telPlayerAi');
+    if (!box) return;
+    box.hidden = true; box.innerHTML = '';
+    if (!callId) return;
+    const { ok, data } = await apiCall('GET', `/api/telephony/calls/${encodeURIComponent(callId)}/ai`);
+    if (!ok || !data) return;
+    const who = { user: 'Клиент', assistant: 'AI-оператор' };
+    box.innerHTML = `${data.summary ? `<div class="tel-ai-sum"><b>Итог:</b> ${escapeHtml(data.summary)}</div>` : ''}
+      <div class="tel-ai-log">${(data.transcript || []).map((m) =>
+        `<div class="tel-ai-msg ${m.role === 'user' ? 'is-user' : ''}"><b>${who[m.role] || escapeHtml(m.role)}</b>${escapeHtml(m.text)}</div>`).join('')}</div>`;
+    box.hidden = false;
+  }
+
   // ===== Всплывающая карточка входящего =====
   // Поток событий идёт из telephony-service по SSE (он сам подписан на ВАТС).
   // Через fetch с Bearer, а не EventSource: тому нельзя передать заголовок
@@ -5388,7 +5511,7 @@ import {
 
   const CALLPOP_STATE = {
     incoming: 'Входящий звонок', ringing: 'Входящий звонок', accepted: 'Входящий звонок',
-    answered: 'Разговор', ended: 'Завершён', missed: 'Пропущен',
+    answered: 'Разговор', ended: 'Завершён', missed: 'Пропущен', ticket: 'AI-оператор принял заявку',
   };
 
   function callPopStack() {
@@ -5412,6 +5535,8 @@ import {
     const state = card.state;
     const known = card.client_id;
     const title = card.client_known_name || ev.client_name || 'Новый номер';
+    const t = ev.ticket;
+    const want = t ? [TEL_TICKET_KIND[t.kind] || t.kind, t.service, t.specialist, t.when_text].filter(Boolean).join(' · ') : '';
     card.el.className = `callpop callpop--${state}`;
     card.el.innerHTML = `
       <div class="callpop-head">
@@ -5421,11 +5546,13 @@ import {
       </div>
       <div class="callpop-name">${escapeHtml(title)}</div>
       <div class="callpop-phone">${escapeHtml(formatPhonePretty(ev.client_number || ''))}${ev.line ? ` <span class="callpop-line">· ${escapeHtml(ev.line)}</span>` : ''}</div>
+      ${t ? `<div class="callpop-phone">${escapeHtml(want)}</div>${t.summary ? `<div class="callpop-sum">${escapeHtml(t.summary)}</div>` : ''}` : ''}
       <div class="callpop-actions">
         ${known
           ? '<button type="button" class="btn btn-sm" data-act="client">Карточка</button>'
           : '<button type="button" class="btn btn-sm" data-act="create">Создать клиента</button>'}
         <button type="button" class="btn btn-sm btn-primary" data-act="book">Записать</button>
+        ${t ? '<button type="button" class="btn btn-sm" data-act="done">Обработано</button>' : ''}
       </div>`;
   }
 
@@ -5439,6 +5566,11 @@ import {
 
   async function callPopAction(card, act) {
     const ev = card.ev;
+    if (act === 'done' && ev.ticket) {
+      await telTicketSetStatus(ev.ticket.id, 'done');
+      closeCallPop(ev.call_id || ev.ticket.id);
+      return;
+    }
     if (act === 'client' && card.client_id) {
       setView('clients');
       await openClientModal(card.client_id);
@@ -5477,7 +5609,27 @@ import {
   }
 
   function onCallEvent(ev) {
-    if (!ev || !ev.call_id) return;
+    if (!ev) return;
+    // Заявка AI-оператора: своя карточка, ключ — заявка (звонка у неё может и не быть).
+    if (ev.type === 'ai_ticket' && ev.ticket) {
+      const key = ev.call_id || ev.ticket.id;
+      closeCallPop(key);
+      const el = document.createElement('div');
+      const card = { el, ev: { ...ev, call_id: key }, state: 'ticket', client_id: ev.client_id, client_known_name: ev.client_known_name, timer: null };
+      el.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-act], .callpop-close');
+        if (!btn) return;
+        if (btn.classList.contains('callpop-close')) { closeCallPop(key); return; }
+        void callPopAction(card, btn.dataset.act);
+      });
+      callPop.cards.set(key, card);
+      callPopStack().prepend(el);
+      renderCallPop(card);
+      card.timer = setTimeout(() => closeCallPop(key), 30 * 60_000);
+      telSetTicketsBadge((parseInt(document.getElementById('telTicketsBadge')?.textContent || '0', 10) || 0) + 1);
+      return;
+    }
+    if (!ev.call_id) return;
     let card = callPop.cards.get(ev.call_id);
     const isStart = ev.type === 'incoming' || ev.type === 'ringing' || ev.type === 'accepted';
 

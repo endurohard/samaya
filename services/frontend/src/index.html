@@ -1215,6 +1215,7 @@
         <section class="view" data-view="telephony" hidden>
           <nav class="subnav" id="telSubnav">
             <button type="button" class="subnav-item active" data-tel-tab="calls">Журнал звонков</button>
+            <button type="button" class="subnav-item" data-tel-tab="tickets">AI-заявки <span class="tel-tab-badge" id="telTicketsBadge" hidden>0</span></button>
             <button type="button" class="subnav-item" data-tel-tab="extensions">Номера сотрудников</button>
           </nav>
 
@@ -1276,6 +1277,38 @@
             </div>
           </div>
 
+          <!-- Tab: заявки AI-оператора -->
+          <div id="telTabTickets" class="tel-tab" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Заявки AI-оператора</h2>
+                <span class="counter" id="telTicketsCounter">0</span>
+                <div class="data-head-spacer"></div>
+                <select id="telTicketsStatus" title="Статус">
+                  <option value="new">Новые</option>
+                  <option value="">Все</option>
+                  <option value="done">Обработанные</option>
+                </select>
+              </div>
+              <p class="hint" style="margin:0 0 12px;">
+                Когда никто не взял трубку, с клиентом говорит AI-оператор. Здесь — что он понял:
+                кто звонил, что хотел и на когда. «Обработано» закрывает заявку и в Telegram-группе.
+              </p>
+              <table class="data-table tel-table" id="telTicketsTable">
+                <thead>
+                  <tr>
+                    <th class="tel-col-time">Время</th>
+                    <th>Клиент</th>
+                    <th>Что хотел</th>
+                    <th class="tel-col-play"></th>
+                    <th class="text-right"></th>
+                  </tr>
+                </thead>
+                <tbody><tr><td colspan="5" class="table-empty">Загрузка…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
           <!-- Tab: номера -->
           <div id="telTabExtensions" class="tel-tab" hidden>
             <div class="card data-card">
@@ -1302,6 +1335,8 @@
               <div id="telPlayerInfo" class="tel-player-info"></div>
               <audio id="telPlayerAudio" controls preload="auto" style="width:100%;margin-top:12px;"></audio>
               <div id="telPlayerError" class="form-error" hidden></div>
+              <!-- Разговор с AI-оператором: резюме и расшифровка, подгружаются по звонку -->
+              <div id="telPlayerAi" class="tel-ai" hidden></div>
             </div>
           </div>
         </section>
