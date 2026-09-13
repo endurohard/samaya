@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db';
 import { requirePermission } from '../middleware';
-import { bus, eventsStatus, type LiveEvent } from '../events';
+import { bus, eventsStatus, activeCalls, type LiveEvent } from '../events';
 
 const router = Router();
 
@@ -57,6 +57,8 @@ router.get('/stream', requirePermission('telephony.view'), async (req, res, next
       if (ev.type === 'ended') shown.delete(ev.call_id); else shown.add(ev.call_id);
       send('call', ev);
     };
+    // Что идёт прямо сейчас — до подписки, чтобы порядок событий сохранился.
+    activeCalls().forEach(onCall);
     bus.on('call', onCall);
 
     // Kong и nginx закрывают молчащий ответ по таймауту чтения — шлём комментарий.

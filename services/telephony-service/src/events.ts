@@ -42,6 +42,34 @@ export interface LiveEvent extends VatsEvent {
 export const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
+// Идущие сейчас звонки: браузер, открывший поток посреди разговора (обновили
+// страницу), получает их сразу и рисует карточку, не дожидаясь следующего.
+interface ActiveCall { started: LiveEvent; answered: LiveEvent | null; since: number }
+const active = new Map<string, ActiveCall>();
+const ACTIVE_TTL_MS = 60 * 60_000;
+
+function trackActive(ev: LiveEvent): void {
+  if (ev.direction !== 'inbound' || !ev.call_id) return;
+  if (ev.type === 'ended') { active.delete(ev.call_id); return; }
+  const cur = active.get(ev.call_id);
+  if (ev.type === 'incoming' || ev.type === 'accepted' || ev.type === 'ringing') {
+    if (!cur) active.set(ev.call_id, { started: ev, answered: null, since: Date.now() });
+    // «звонит» уточняет, у кого именно — запоминаем последнего
+    else if (ev.type === 'ringing' && !cur.answered) cur.started = { ...cur.started, ...ev };
+  } else if (ev.type === 'answered' && cur) {
+    cur.answered = ev;
+  }
+  // потерянный «завершён» не должен оставлять звонок висеть вечно
+  for (const [id, c] of active) if (Date.now() - c.since > ACTIVE_TTL_MS) active.delete(id);
+}
+
+/** Идущие звонки в порядке появления: сначала событие начала, затем ответ, если был. */
+export function activeCalls(): LiveEvent[] {
+  const out: LiveEvent[] = [];
+  for (const c of active.values()) { out.push(c.started); if (c.answered) out.push(c.answered); }
+  return out;
+}
+
 const companyId = config.DEFAULT_COMPANY_ID;
 
 function digits(n: string | null): string | null {
@@ -120,7 +148,9 @@ async function handle(ev: VatsEvent, log: Logger): Promise<void> {
   }
   if (ev.type === 'ended') scheduleSync(log);
 
-  bus.emit('call', await enrich(ev));
+  const live = await enrich(ev);
+  trackActive(live);
+  bus.emit('call', live);
 }
 
 let socket: Socket | null = null;
