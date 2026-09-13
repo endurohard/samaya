@@ -5451,14 +5451,28 @@ import {
       return;
     }
     if (act === 'book') {
+      // Форма записи живёт внутри раздела «Журнал» — из другого раздела она
+      // открылась бы в скрытой секции, и нажатие выглядело бы как пустое.
+      setView('journal');
+      resetBookingForm();
       openAddBookingModal();
-      const phoneEl = document.getElementById('bPhone');
-      if (phoneEl) {
-        phoneEl.value = ev.client_number || '';
-        // подсказка клиента по номеру ищет сама — как при ручном вводе
-        phoneEl.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      if (card.client_known_name) setBookingClientName(card.client_known_name);
+      if (svcRows.length === 0) addServiceRow();
+      // Поля заполняем после populateBookingForm — она перерисовывает форму.
+      setTimeout(() => {
+        const phoneEl = document.getElementById('bPhone');
+        if (phoneEl) phoneEl.value = ev.client_number || '';
+        if (card.client_known_name) {
+          setBookingClientName(card.client_known_name);
+          if (els.bClientSearch) els.bClientSearch.value = card.client_known_name;
+          if (card.client_id) {
+            void renderSelectedClient({ client_id: card.client_id, client_name: card.client_known_name, client_phone: ev.client_number });
+          }
+        } else if (els.bClientSearch) {
+          // клиента в базе нет — подставляем номер в поиск, дальше как при ручном вводе
+          els.bClientSearch.value = ev.client_number || '';
+          els.bClientSearch.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }, 0);
     }
   }
 
