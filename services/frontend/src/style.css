@@ -5487,6 +5487,21 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
   background: var(--bg-soft); color: var(--text); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer; font-family: inherit;
 }
+/* Кто звонил: две кнопки-чипа, выбранная закрашена. */
+.callpop-kind { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.callpop-kind-cap { font-size: var(--fs-xs); color: var(--text-dim); margin-right: 2px; }
+.callpop-chip {
+  font: inherit; font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border); background: var(--bg-soft); color: var(--text); cursor: pointer;
+}
+.callpop-chip:hover { border-color: var(--primary); }
+.callpop-chip.is-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.callpop-actions { flex-wrap: wrap; }
+.tel-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: var(--radius-pill);
+  font-size: 11px; line-height: 16px; vertical-align: 1px; background: var(--bg-soft); color: var(--text-dim);
+  border: 1px solid var(--border);
+}
 @media (max-width: 640px) {
   .callpop-stack { right: 8px; left: 8px; bottom: 8px; width: auto; }
 }

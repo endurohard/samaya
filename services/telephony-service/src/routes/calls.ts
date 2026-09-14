@@ -5,7 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { config } from '../config';
 import { pool } from '../db';
-import { eventsStatus } from '../events';
+import { eventsStatus, markHandled } from '../events';
 import { HttpError, requirePermission } from '../middleware';
 import { fetchRecording, VatsError } from '../vats';
 
@@ -48,11 +48,13 @@ router.get('/calls', requirePermission('telephony.view'), async (req, res, next)
       `SELECT c.id, c.started_at, c.direction, c.client_number, c.client_name_vats,
               c.line, c.extension, c.master_id, c.duration_sec, c.status, c.has_recording,
               c.client_id, c.handled_by,
+              mk.caller_kind, mk.processed_at,
               m.display_name AS master_name,
               cl.full_name AS client_name
          FROM telephony.calls c
          LEFT JOIN salons.masters m ON m.id = c.master_id
          LEFT JOIN clients.clients cl ON cl.id = c.client_id
+         LEFT JOIN telephony.call_marks mk ON mk.call_id = c.id
          ${where}
          ORDER BY c.started_at DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -90,15 +92,67 @@ router.get('/status', requirePermission('telephony.view'), async (req, res, next
 router.get('/calls/:id', requirePermission('telephony.view'), async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.*, m.display_name AS master_name, cl.full_name AS client_name
+      `SELECT c.*, m.display_name AS master_name, cl.full_name AS client_name,
+              mk.caller_kind, mk.processed_at
          FROM telephony.calls c
          LEFT JOIN salons.masters m ON m.id = c.master_id
          LEFT JOIN clients.clients cl ON cl.id = c.client_id
+         LEFT JOIN telephony.call_marks mk ON mk.call_id = c.id
         WHERE c.company_id = $1 AND c.id = $2`,
       [req.auth!.company_id, req.params.id],
     );
     if (!rows[0]) throw new HttpError(404, 'NOT_FOUND', 'call not found');
     return res.json(rows[0]);
+  } catch (e) { return next(e); }
+});
+
+const markSchema = z.object({
+  caller_kind: z.enum(['client', 'staff']).optional(),
+  processed: z.boolean().optional(),
+  // номер из карточки: звонка в calls на этот момент может ещё не быть
+  client_number: z.string().max(32).optional().nullable(),
+});
+
+/**
+ * Отметка администратора по звонку из всплывающей карточки.
+ * Ставится, пока звонок ещё идёт, поэтому не требует строки в calls
+ * (см. 053_telephony_call_marks.sql). «Обработано» необратимо и гасит
+ * карточку у всех, «кто звонил» можно переставить.
+ */
+export async function markCall(
+  companyId: string, userId: string, callId: string,
+  mark: { caller_kind?: 'client' | 'staff'; processed?: boolean; client_number?: string | null },
+) {
+  const d = mark.client_number ? mark.client_number.replace(/\D/g, '').slice(-10) : null;
+  const { rows } = await pool.query(
+    `INSERT INTO telephony.call_marks (call_id, company_id, client_digits, caller_kind, processed_at, processed_by)
+     VALUES ($1, $2,
+             COALESCE(NULLIF($3::text, ''),
+                      (SELECT client_digits FROM telephony.calls WHERE id = $1 AND company_id = $2),
+                      (SELECT client_digits FROM telephony.call_events
+                        WHERE call_id = $1 AND company_id = $2 AND client_digits IS NOT NULL LIMIT 1)),
+             $4::text, CASE WHEN $5::boolean THEN NOW() END, CASE WHEN $5::boolean THEN $6::uuid END)
+     ON CONFLICT (call_id) DO UPDATE SET
+       client_digits = COALESCE(EXCLUDED.client_digits, telephony.call_marks.client_digits),
+       caller_kind   = COALESCE(EXCLUDED.caller_kind, telephony.call_marks.caller_kind),
+       processed_at  = COALESCE(telephony.call_marks.processed_at, EXCLUDED.processed_at),
+       processed_by  = COALESCE(telephony.call_marks.processed_by, EXCLUDED.processed_by),
+       updated_at    = NOW()
+     WHERE telephony.call_marks.company_id = EXCLUDED.company_id
+     RETURNING call_id, caller_kind, processed_at`,
+    [callId, companyId, d && d.length === 10 ? d : null, mark.caller_kind ?? null, Boolean(mark.processed), userId],
+  );
+  if (!rows[0]) throw new HttpError(404, 'NOT_FOUND', 'звонок не найден');
+  if (mark.processed) markHandled(callId);
+  return rows[0] as { call_id: string; caller_kind: 'client' | 'staff' | null; processed_at: string | null };
+}
+
+router.post('/calls/:id/mark', requirePermission('telephony.view'), async (req, res, next) => {
+  try {
+    const callId = z.string().uuid().parse(req.params.id);
+    const mark = markSchema.parse(req.body);
+    const row = await markCall(req.auth!.company_id, req.auth!.sub, callId, mark);
+    return res.json(row);
   } catch (e) { return next(e); }
 });
 

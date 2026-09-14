@@ -52,12 +52,14 @@ router.get('/stream', requirePermission('telephony.view'), async (req, res, next
       if (ev.direction !== 'inbound') return;
       // Заявку AI-оператора должен увидеть каждый, кто вообще смотрит поток:
       // она ничья, и её надо взять в работу.
+      // «Обработано» — всем: закрыть карточку, которой нет, безвредно.
       const relevant = scope === 'all'
         || ev.type === 'ai_ticket'
+        || ev.type === 'handled'
         || (ev.employee != null && mine.includes(ev.employee))
         || shown.has(ev.call_id);
       if (!relevant) return;
-      if (ev.type === 'ended') shown.delete(ev.call_id); else shown.add(ev.call_id);
+      if (ev.type === 'ended' || ev.type === 'handled') shown.delete(ev.call_id); else shown.add(ev.call_id);
       send('call', ev);
     };
     // Что идёт прямо сейчас — до подписки, чтобы порядок событий сохранился.

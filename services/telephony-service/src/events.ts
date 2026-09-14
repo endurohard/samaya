@@ -18,7 +18,8 @@ import type { VatsTicket } from './vats';
 /** Событие в том виде, как его отдаёт портал ВАТС. */
 export interface VatsEvent {
   id: string;
-  type: 'incoming' | 'accepted' | 'ringing' | 'answered' | 'employee_ended' | 'ended' | 'dialing' | 'ai_ticket';
+  // handled — не из ВАТС: администратор нажал «Обработано», карточку гасим у всех
+  type: 'incoming' | 'accepted' | 'ringing' | 'answered' | 'employee_ended' | 'ended' | 'dialing' | 'ai_ticket' | 'handled';
   call_id: string;
   direction: 'inbound' | 'outbound';
   domain: string;
@@ -40,6 +41,8 @@ export interface LiveEvent extends VatsEvent {
   client_known_name: string | null;
   master_id: string | null;
   master_name: string | null;
+  // отметка администратора: кто звонил — по этому звонку или запомненная за номером
+  caller_kind: 'client' | 'staff' | null;
 }
 
 export const bus = new EventEmitter();
@@ -51,9 +54,15 @@ interface ActiveCall { started: LiveEvent; answered: LiveEvent | null; since: nu
 const active = new Map<string, ActiveCall>();
 const ACTIVE_TTL_MS = 60 * 60_000;
 
+// Звонки, по которым нажали «Обработано»: их события в браузеры больше не идут
+// и в activeCalls они не возвращаются — иначе карточка всплывала бы заново при
+// каждом переподключении потока и на каждом «звонит» у следующего сотрудника.
+const handled = new Map<string, number>();
+
 function trackActive(ev: LiveEvent): void {
-  if (ev.direction !== 'inbound' || !ev.call_id || ev.type === 'ai_ticket') return;
+  if (ev.direction !== 'inbound' || !ev.call_id || ev.type === 'ai_ticket' || ev.type === 'handled') return;
   if (ev.type === 'ended') { active.delete(ev.call_id); return; }
+  if (handled.has(ev.call_id)) return;
   const cur = active.get(ev.call_id);
   if (ev.type === 'incoming' || ev.type === 'accepted' || ev.type === 'ringing') {
     if (!cur) active.set(ev.call_id, { started: ev, answered: null, since: Date.now() });
@@ -64,6 +73,28 @@ function trackActive(ev: LiveEvent): void {
   }
   // потерянный «завершён» не должен оставлять звонок висеть вечно
   for (const [id, c] of active) if (Date.now() - c.since > ACTIVE_TTL_MS) active.delete(id);
+  for (const [id, at] of handled) if (Date.now() - at > ACTIVE_TTL_MS) handled.delete(id);
+}
+
+/**
+ * «Обработано»: звонок больше не активен, всем открытым потокам уходит событие
+ * handled — карточка закрывается и у коллег. Сам звонок ещё может идти:
+ * «ответили»/«завершён» по нему в браузеры уже не попадут.
+ */
+export function markHandled(callId: string): void {
+  active.delete(callId);
+  handled.set(callId, Date.now());
+  const ev: LiveEvent = {
+    id: `handled:${callId}:${Date.now()}`, type: 'handled', call_id: callId, direction: 'inbound',
+    domain: '', client_number: null, client_name: null, line: null, employee: null, at: new Date().toISOString(),
+    client_id: null, client_known_name: null, master_id: null, master_name: null, caller_kind: null,
+  };
+  bus.emit('call', ev);
+}
+
+/** Уже обработан — событие ВАТС по нему карточку не должно поднимать. */
+export function isHandled(callId: string): boolean {
+  return handled.has(callId);
 }
 
 /** Идущие звонки в порядке появления: сначала событие начала, затем ответ, если был. */
@@ -82,8 +113,27 @@ function digits(n: string | null): string | null {
 }
 
 async function enrich(ev: VatsEvent): Promise<LiveEvent> {
-  const live: LiveEvent = { ...ev, client_id: null, client_known_name: null, master_id: null, master_name: null };
+  const live: LiveEvent = { ...ev, client_id: null, client_known_name: null, master_id: null, master_name: null, caller_kind: null };
   const d = digits(ev.client_number);
+  if (ev.call_id) {
+    // Отметка по этому звонку (в т.ч. после рестарта сервиса, когда память пуста).
+    const { rows } = await pool.query<{ caller_kind: 'client' | 'staff' | null; processed_at: string | null }>(
+      'SELECT caller_kind, processed_at FROM telephony.call_marks WHERE call_id = $1 AND company_id = $2',
+      [ev.call_id, companyId],
+    );
+    if (rows[0]?.caller_kind) live.caller_kind = rows[0].caller_kind;
+    if (rows[0]?.processed_at && !handled.has(ev.call_id)) handled.set(ev.call_id, Date.now());
+  }
+  if (d && !live.caller_kind) {
+    // «Сотрудник» помним за номером: мастер звонит с личного телефона не один раз.
+    const { rows } = await pool.query<{ caller_kind: 'client' | 'staff' }>(
+      `SELECT caller_kind FROM telephony.call_marks
+        WHERE company_id = $1 AND client_digits = $2 AND caller_kind IS NOT NULL
+        ORDER BY updated_at DESC LIMIT 1`,
+      [companyId, d],
+    );
+    if (rows[0]) live.caller_kind = rows[0].caller_kind;
+  }
   if (d) {
     const { rows } = await pool.query<{ id: string; full_name: string | null }>(
       `SELECT id, full_name FROM clients.clients
@@ -162,6 +212,10 @@ async function handle(ev: VatsEvent, log: Logger): Promise<void> {
 
   const live = await enrich(ev);
   trackActive(live);
+  // Заявку AI-оператора показываем всегда — она приходит уже после разговора и
+  // это отдельная работа для администратора; остальное по обработанному звонку
+  // карточку поднимать не должно.
+  if (live.call_id && handled.has(live.call_id) && live.type !== 'ai_ticket') return;
   bus.emit('call', live);
 }
 

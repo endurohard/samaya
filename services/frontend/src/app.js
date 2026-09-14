@@ -5175,7 +5175,10 @@ import {
       const missed = c.status === 'missed';
 
       const name = c.client_name || c.client_name_vats;
-      const clientCell = `${name ? `<div class="tel-client-name">${escapeHtml(name)}</div>` : ''}`
+      // Отметка администратора «звонил сотрудник» — чтобы звонок с личного
+      // телефона мастера не читался как пропущенный клиент.
+      const staffTag = c.caller_kind === 'staff' ? '<span class="tel-tag is-staff">сотрудник</span>' : '';
+      const clientCell = `${name || staffTag ? `<div class="tel-client-name">${escapeHtml(name || '')}${staffTag}</div>` : ''}`
         + `<div class="tel-client-num">${escapeHtml(c.client_number || '—')}</div>`
         // Линия интересна только у входящих и только как уточнение, куда звонили.
         + (inbound && c.line ? `<div class="tel-client-line">${escapeHtml(c.line)}</div>` : '');
@@ -5507,7 +5510,10 @@ import {
   // авторизации. Карточка появляется на «звонит», обновляется на «ответили»
   // и «завершён» и остаётся ещё немного после отбоя — оформить клиента часто
   // успевают только после разговора.
-  const callPop = { abort: null, cards: new Map(), backoff: 1000, stopped: true, stack: null };
+  // dismissed — звонки, чьи карточки закрыли или обработали: их дальнейшие события
+  // («звонит» у следующего сотрудника, «ответили», повтор идущих звонков при
+  // переподключении потока) карточку не поднимают.
+  const callPop = { abort: null, cards: new Map(), backoff: 1000, stopped: true, stack: null, dismissed: new Set() };
 
   const CALLPOP_STATE = {
     incoming: 'Входящий звонок', ringing: 'Входящий звонок', accepted: 'Входящий звонок',
@@ -5534,8 +5540,17 @@ import {
     const ev = card.ev;
     const state = card.state;
     const known = card.client_id;
-    const title = card.client_known_name || ev.client_name || 'Новый номер';
+    const kind = card.kind; // 'client' | 'staff' | null — кто звонил, по отметке администратора
+    const title = card.client_known_name || ev.client_name || (kind === 'staff' ? 'Сотрудник' : 'Новый номер');
     const t = ev.ticket;
+    // Заявка AI — заведомо клиент, отметка там не нужна. У обычного звонка
+    // «Новый клиент» на незнакомом номере сразу заводит клиента.
+    const kindRow = t ? '' : `
+      <div class="callpop-kind">
+        <span class="callpop-kind-cap">Кто звонил:</span>
+        <button type="button" class="callpop-chip ${kind === 'client' ? 'is-on' : ''}" data-kind="client">${known ? 'Клиент' : 'Новый клиент'}</button>
+        <button type="button" class="callpop-chip ${kind === 'staff' ? 'is-on' : ''}" data-kind="staff">Сотрудник</button>
+      </div>`;
     const want = t ? [TEL_TICKET_KIND[t.kind] || t.kind, t.service, t.specialist, t.when_text].filter(Boolean).join(' · ') : '';
     card.el.className = `callpop callpop--${state}`;
     card.el.innerHTML = `
@@ -5547,16 +5562,19 @@ import {
       <div class="callpop-name">${escapeHtml(title)}</div>
       <div class="callpop-phone">${escapeHtml(formatPhonePretty(ev.client_number || ''))}${ev.line ? ` <span class="callpop-line">· ${escapeHtml(ev.line)}</span>` : ''}</div>
       ${t ? `<div class="callpop-phone">${escapeHtml(want)}</div>${t.summary ? `<div class="callpop-sum">${escapeHtml(t.summary)}</div>` : ''}` : ''}
+      ${kindRow}
       <div class="callpop-actions">
         ${known
           ? '<button type="button" class="btn btn-sm" data-act="client">Карточка</button>'
-          : '<button type="button" class="btn btn-sm" data-act="create">Создать клиента</button>'}
+          : (kind === 'staff' ? '' : '<button type="button" class="btn btn-sm" data-act="create">Создать клиента</button>')}
         <button type="button" class="btn btn-sm btn-primary" data-act="book">Записать</button>
-        ${t ? '<button type="button" class="btn btn-sm" data-act="done">Обработано</button>' : ''}
+        <button type="button" class="btn btn-sm" data-act="done">Обработано</button>
       </div>`;
   }
 
-  function closeCallPop(callId) {
+  // remember — больше не показывать карточку этого звонка (закрыли или обработали).
+  function closeCallPop(callId, { remember = false } = {}) {
+    if (remember) callPop.dismissed.add(callId);
     const card = callPop.cards.get(callId);
     if (!card) return;
     clearTimeout(card.timer);
@@ -5564,11 +5582,54 @@ import {
     callPop.cards.delete(callId);
   }
 
+  async function callPopMark(card, mark) {
+    const ev = card.ev;
+    if (!ev.call_id) return false;
+    const { ok, data } = await apiCall('POST', `/api/telephony/calls/${encodeURIComponent(ev.call_id)}/mark`,
+      { ...mark, client_number: ev.client_number || null });
+    if (!ok) toast(`Не удалось отметить звонок: ${data?.error || 'ошибка'}`);
+    return ok;
+  }
+
+  // Отметка «кто звонил». «Клиент» на незнакомом номере заводит клиента сразу —
+  // имя берём из подписи номера в ВАТС, если она есть; поправить можно в карточке.
+  async function callPopSetKind(card, kind) {
+    const ev = card.ev;
+    if (kind === 'client' && !card.client_id && ev.client_number) {
+      const body = { full_name: (ev.client_name || '').trim() || 'Без имени', phone: ev.client_number };
+      const res = await apiCall('POST', '/api/clients', body);
+      if (res.ok) {
+        card.client_id = res.data.id;
+        card.client_known_name = body.full_name;
+        toast('Клиент создан', 'success');
+        void loadClientsAll();
+      } else if (res.data?.code === 'phone_exists') {
+        // Номер уже в базе (завели параллельно) — просто подхватываем клиента.
+        const r = await apiCall('GET', `/api/clients?search=${encodeURIComponent(ev.client_number)}&limit=1`);
+        const found = r.ok && r.data?.items?.[0];
+        if (found) { card.client_id = found.id; card.client_known_name = found.full_name; }
+      } else {
+        toast(`Не удалось создать клиента: ${res.data?.error || 'ошибка'}`);
+        return;
+      }
+    }
+    if (!(await callPopMark(card, { caller_kind: kind }))) return;
+    card.kind = kind;
+    renderCallPop(card);
+  }
+
   async function callPopAction(card, act) {
     const ev = card.ev;
     if (act === 'done' && ev.ticket) {
       await telTicketSetStatus(ev.ticket.id, 'done');
-      closeCallPop(ev.call_id || ev.ticket.id);
+      closeCallPop(ev.call_id || ev.ticket.id, { remember: true });
+      return;
+    }
+    if (act === 'done') {
+      // Сервер гасит карточку у всех и не повторит звонок при переподключении.
+      if (!(await callPopMark(card, { processed: true }))) return;
+      closeCallPop(ev.call_id, { remember: true });
+      toast('Звонок обработан', 'success');
       return;
     }
     if (act === 'client' && card.client_id) {
@@ -5610,16 +5671,23 @@ import {
 
   function onCallEvent(ev) {
     if (!ev) return;
+    // «Обработано» у коллеги (или у нас в другой вкладке) — закрываем и забываем.
+    if (ev.type === 'handled') {
+      if (ev.call_id) closeCallPop(ev.call_id, { remember: true });
+      return;
+    }
     // Заявка AI-оператора: своя карточка, ключ — заявка (звонка у неё может и не быть).
     if (ev.type === 'ai_ticket' && ev.ticket) {
       const key = ev.call_id || ev.ticket.id;
       closeCallPop(key);
+      // Заявка — новая работа, даже если сам звонок уже обработали.
+      callPop.dismissed.delete(key);
       const el = document.createElement('div');
-      const card = { el, ev: { ...ev, call_id: key }, state: 'ticket', client_id: ev.client_id, client_known_name: ev.client_known_name, timer: null };
+      const card = { el, ev: { ...ev, call_id: key }, state: 'ticket', client_id: ev.client_id, client_known_name: ev.client_known_name, kind: 'client', timer: null };
       el.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-act], .callpop-close');
         if (!btn) return;
-        if (btn.classList.contains('callpop-close')) { closeCallPop(key); return; }
+        if (btn.classList.contains('callpop-close')) { closeCallPop(key, { remember: true }); return; }
         void callPopAction(card, btn.dataset.act);
       });
       callPop.cards.set(key, card);
@@ -5630,7 +5698,11 @@ import {
       return;
     }
     if (!ev.call_id) return;
+    if (callPop.dismissed.has(ev.call_id)) return;
     let card = callPop.cards.get(ev.call_id);
+    // Карточка заявки живёт своей жизнью: «завершён» по тому же звонку не должен
+    // превращать её в «Пропущен».
+    if (card && card.state === 'ticket') return;
     const isStart = ev.type === 'incoming' || ev.type === 'ringing' || ev.type === 'accepted';
 
     if (!card) {
@@ -5638,11 +5710,12 @@ import {
       // звонок, который нам не показывали.
       if (!isStart) return;
       const el = document.createElement('div');
-      card = { el, ev, state: 'ringing', client_id: ev.client_id, client_known_name: ev.client_known_name, timer: null };
+      card = { el, ev, state: 'ringing', client_id: ev.client_id, client_known_name: ev.client_known_name, kind: ev.caller_kind || null, timer: null };
       el.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-act], .callpop-close');
+        const btn = e.target.closest('[data-act], [data-kind], .callpop-close');
         if (!btn) return;
-        if (btn.classList.contains('callpop-close')) { closeCallPop(ev.call_id); return; }
+        if (btn.classList.contains('callpop-close')) { closeCallPop(ev.call_id, { remember: true }); return; }
+        if (btn.dataset.kind) { void callPopSetKind(card, btn.dataset.kind); return; }
         void callPopAction(card, btn.dataset.act);
       });
       callPop.cards.set(ev.call_id, card);
@@ -5663,6 +5736,7 @@ import {
       return; // employee_ended и прочее на карточку не влияют
     }
     if (ev.client_id) { card.client_id = ev.client_id; card.client_known_name = ev.client_known_name; }
+    if (ev.caller_kind && !card.kind) card.kind = ev.caller_kind;
     renderCallPop(card);
 
     clearTimeout(card.timer);

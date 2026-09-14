@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db';
 import { HttpError, requirePermission } from '../middleware';
 import { getCall, setTicketStatus, VatsError } from '../vats';
+import { markCall } from './calls';
 
 const router = Router();
 
@@ -48,8 +49,8 @@ const statusSchema = z.object({ status: z.enum(['new', 'confirmed', 'done', 'can
 router.post('/tickets/:id/status', requirePermission('telephony.view'), async (req, res, next) => {
   try {
     const { status } = statusSchema.parse(req.body);
-    const exists = await pool.query(
-      'SELECT 1 FROM telephony.ai_tickets WHERE company_id = $1 AND id = $2',
+    const exists = await pool.query<{ call_id: string | null; client_number: string | null }>(
+      'SELECT call_id, client_number FROM telephony.ai_tickets WHERE company_id = $1 AND id = $2',
       [req.auth!.company_id, req.params.id],
     );
     if (!exists.rowCount) throw new HttpError(404, 'NOT_FOUND', 'заявка не найдена');
@@ -68,6 +69,12 @@ router.post('/tickets/:id/status', requirePermission('telephony.view'), async (r
         WHERE company_id = $1 AND id = $2`,
       [req.auth!.company_id, req.params.id, status, closing, req.auth!.sub],
     );
+    // Закрытая заявка — обработанный звонок: карточка звонка не должна
+    // всплыть снова у коллег или после переподключения потока.
+    const { call_id, client_number } = exists.rows[0];
+    if (closing && call_id) {
+      await markCall(req.auth!.company_id, req.auth!.sub, call_id, { processed: true, caller_kind: 'client', client_number });
+    }
     return res.json({ id: req.params.id, status });
   } catch (e) { return next(e); }
 });
