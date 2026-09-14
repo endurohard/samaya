@@ -175,6 +175,22 @@ function scheduleSync(log: Logger): void {
 
 async function handle(ev: VatsEvent, log: Logger): Promise<void> {
   if (!ev?.id || !ev.type) return;
+  // Портал шлёт ai_ticket по последней заявке каждые 10 с, каждый раз с новым
+  // id события и даже когда заявка давно закрыта (на проде — тысячи повторов в
+  // сутки). Дедупликация по id тут не спасает: сравниваем со своей копией
+  // заявки и повтор с тем же статусом не пишем и не показываем. Карточка
+  // поднимается один раз — когда заявка для нас новая и открыта; закрытие
+  // извне (Telegram, портал) доводим до браузеров как «обработано».
+  let ticketPrev: string | null | undefined;
+  if (ev.type === 'ai_ticket') {
+    if (!ev.ticket?.id) return;
+    const { rows } = await pool.query<{ status: string }>(
+      'SELECT status FROM telephony.ai_tickets WHERE company_id = $1 AND id = $2',
+      [companyId, ev.ticket.id],
+    );
+    ticketPrev = rows[0]?.status ?? null;
+    if (ticketPrev === ev.ticket.status) return;
+  }
   // Идемпотентность по id события: при переподключении портал может отдать
   // событие повторно, второй раз карточку не показываем.
   const ins = await pool.query(
@@ -210,11 +226,20 @@ async function handle(ev: VatsEvent, log: Logger): Promise<void> {
     });
   }
 
+  if (ev.type === 'ai_ticket' && ev.ticket) {
+    const open = ev.ticket.status === 'new' || ev.ticket.status === 'confirmed';
+    // Заявку закрыли не у нас — карточку надо убрать, а не перерисовать.
+    if (!open) {
+      if (ticketPrev != null) markHandled(ev.call_id || ev.ticket.id);
+      return;
+    }
+  }
+
   const live = await enrich(ev);
   trackActive(live);
-  // Заявку AI-оператора показываем всегда — она приходит уже после разговора и
-  // это отдельная работа для администратора; остальное по обработанному звонку
-  // карточку поднимать не должно.
+  // Открытую заявку AI-оператора показываем и по обработанному звонку — она
+  // приходит уже после разговора и это отдельная работа для администратора;
+  // остальное по обработанному звонку карточку поднимать не должно.
   if (live.call_id && handled.has(live.call_id) && live.type !== 'ai_ticket') return;
   bus.emit('call', live);
 }
