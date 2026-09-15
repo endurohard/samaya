@@ -14,6 +14,19 @@ const fileUploadSchema = z.object({
   file_name: z.string().min(1).max(255),
   mime_type: z.enum(ALLOWED_MIME),
   data_base64: z.string().min(1),
+  // Мед.карта: дата сдачи и заключение. Необязательны — клиент через портал
+  // присылает файл без них, врач заполняет позже через PATCH.
+  taken_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
+  doctor_note: z.string().max(2000).nullable().optional(),
+});
+
+// Правка записи мед.карты без перезаливки файла: врач дописывает заключение
+// или проставляет дату сдачи к уже загруженному анализу.
+const fileMetaSchema = z.object({
+  taken_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
+  doctor_note: z.string().max(2000).nullable().optional(),
 });
 
 const router = Router();
@@ -233,14 +246,17 @@ router.post('/:id/regenerate-portal-token', requireRole('admin'), async (req, re
   } catch (e) { return next(e); }
 });
 
-// GET /:id/files  — list files (metadata only, no binary data)
+// GET /:id/files — файлы клиента (мед.карта): анализы, снимки, документы.
+// Сортировка по дате сдачи, новые сверху; у файлов без taken_at (прислал
+// клиент через портал, дату ещё не проставили) берётся дата загрузки.
 router.get('/:id/files', async (req, res, next) => {
   try {
     const r = await pool.query(
-      `SELECT id, file_name, mime_type, file_size, uploaded_by, created_at
+      `SELECT id, file_name, mime_type, file_size, uploaded_by, created_at,
+              taken_at, title, doctor_note
        FROM clients.client_files
        WHERE client_id = $1 AND company_id = $2
-       ORDER BY created_at DESC`,
+       ORDER BY COALESCE(taken_at, created_at::date) DESC, created_at DESC`,
       [req.params.id, req.auth!.company_id],
     );
     return res.json({ items: r.rows });
@@ -262,11 +278,14 @@ router.post('/:id/files', requireRole('admin', 'master'), async (req, res, next)
     const uploaderName = userRow.rows[0]?.full_name || req.auth!.role;
     const ins = await pool.query(
       `INSERT INTO clients.client_files
-         (company_id, client_id, file_name, mime_type, file_size, file_data, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, file_name, mime_type, file_size, created_at`,
+         (company_id, client_id, file_name, mime_type, file_size, file_data, uploaded_by,
+          taken_at, title, doctor_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING id, file_name, mime_type, file_size, created_at,
+                 taken_at, title, doctor_note`,
       [req.auth!.company_id, req.params.id, input.file_name, input.mime_type,
-       buf.length, buf, uploaderName],
+       buf.length, buf, uploaderName,
+       input.taken_at ?? null, input.title ?? null, input.doctor_note ?? null],
     );
     return res.status(201).json(ins.rows[0]);
   } catch (e) { return next(e); }
@@ -284,6 +303,32 @@ router.get('/:id/files/:fileId', async (req, res, next) => {
     res.set('Content-Type', r.rows[0].mime_type);
     res.set('Content-Disposition', `inline; filename="${r.rows[0].file_name}"`);
     return res.send(r.rows[0].file_data);
+  } catch (e) { return next(e); }
+});
+
+// PATCH /:id/files/:fileId — правка полей мед.карты (дата, название, комментарий).
+// Сам файл не трогаем: врач дописывает заключение к уже загруженному анализу.
+router.patch('/:id/files/:fileId', requireRole('admin', 'master'), async (req, res, next) => {
+  try {
+    const input = fileMetaSchema.parse(req.body);
+    // Флаг «поле пришло в теле» на каждое поле: не переданное остаётся как
+    // было, а явный null очищает — иначе нельзя было бы стереть ошибочный
+    // комментарий, а COALESCE не различает «не передано» и «передан null».
+    const r = await pool.query(
+      `UPDATE clients.client_files
+          SET taken_at    = CASE WHEN $4::boolean THEN $5::date ELSE taken_at END,
+              title       = CASE WHEN $6::boolean THEN $7::text ELSE title END,
+              doctor_note = CASE WHEN $8::boolean THEN $9::text ELSE doctor_note END
+        WHERE id = $1 AND client_id = $2 AND company_id = $3
+        RETURNING id, file_name, mime_type, file_size, created_at,
+                  taken_at, title, doctor_note`,
+      [req.params.fileId, req.params.id, req.auth!.company_id,
+       'taken_at' in input, input.taken_at ?? null,
+       'title' in input, input.title ?? null,
+       'doctor_note' in input, input.doctor_note ?? null],
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });
+    return res.json(r.rows[0]);
   } catch (e) { return next(e); }
 });
 

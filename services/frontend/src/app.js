@@ -6678,18 +6678,29 @@ import {
         return;
       }
       els.clFilesList.innerHTML = items.map((f) => {
-        const date = new Date(f.created_at);
-        const dateStr = `${String(date.getDate()).padStart(2,'0')}.${String(date.getMonth()+1).padStart(2,'0')}.${date.getFullYear()}`;
+        // В мед.карте дата сдачи важнее даты загрузки: файл нередко приносят
+        // через недели после анализа. Если её ещё не проставили — показываем
+        // дату загрузки и помечаем, что это она.
+        const taken = f.taken_at ? new Date(f.taken_at) : null;
+        const created = new Date(f.created_at);
+        const d = taken || created;
+        const dateStr = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+        const dateLabel = taken ? dateStr : `${dateStr} (загружен)`;
         const isImage = f.mime_type?.startsWith('image/');
         const icon = f.mime_type === 'application/pdf' ? '📄' : (isImage ? '🖼' : '📎');
+        const heading = f.title ? escapeHtml(f.title) : escapeHtml(f.file_name);
+        const note = f.doctor_note
+          ? `<div class="analyzes-file-note">${escapeHtml(f.doctor_note)}</div>` : '';
         return `<div class="analyzes-file-row" data-file-id="${f.id}">
           <span class="analyzes-file-icon">${icon}</span>
           <div class="analyzes-file-info">
-            <span class="analyzes-file-name">${escapeHtml(f.file_name)}</span>
-            <span class="analyzes-file-meta">${formatFileSize(f.file_size)} · ${dateStr} · ${escapeHtml(f.uploaded_by)}</span>
+            <span class="analyzes-file-name">${heading}</span>
+            <span class="analyzes-file-meta">${dateLabel} · ${formatFileSize(f.file_size)} · ${escapeHtml(f.uploaded_by)}</span>
+            ${note}
           </div>
           <div class="analyzes-file-actions">
             <a href="/api/clients/${_clCurrentId}/files/${f.id}" target="_blank" class="btn-ghost btn-sm" data-auth-link="${f.id}">Открыть</a>
+            <button type="button" class="btn-ghost btn-sm analyzes-edit-btn" data-file-id="${f.id}" title="Дата и заключение">✎</button>
             <button type="button" class="btn-ghost btn-sm analyzes-del-btn" data-file-id="${f.id}" title="Удалить">✕</button>
           </div>
         </div>`;
@@ -6709,9 +6720,69 @@ import {
           void loadClientFiles();
         });
       });
+      // Дата сдачи и заключение — форма разворачивается прямо в строке.
+      // Отдельная модалка поверх карточки клиента наложилась бы на неё и
+      // потребовала второй уровень фокус-ловушки.
+      els.clFilesList.querySelectorAll('.analyzes-edit-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('.analyzes-file-row');
+          const f = items.find((x) => x.id === btn.dataset.fileId);
+          if (!row || !f || row.querySelector('.analyzes-edit-form')) return;
+          openFileMetaForm(row, f);
+        });
+      });
     } catch {
       els.clFilesList.innerHTML = '<div class="table-empty">Ошибка загрузки</div>';
     }
+  }
+
+  // Форма правки мед.карты внутри строки файла: дата сдачи, название анализа,
+  // заключение врача. Файл не перезаливается — уходит только PATCH метаданных.
+  function openFileMetaForm(row, f) {
+    const form = document.createElement('div');
+    form.className = 'analyzes-edit-form';
+    form.innerHTML = `
+      <div class="analyzes-edit-grid">
+        <div>
+          <label>Дата сдачи</label>
+          <input type="date" class="af-taken" value="${f.taken_at ? f.taken_at.slice(0, 10) : ''}" />
+        </div>
+        <div>
+          <label>Название анализа</label>
+          <input type="text" class="af-title" maxlength="200"
+                 placeholder="Общий анализ крови" value="${f.title ? escapeHtml(f.title) : ''}" />
+        </div>
+      </div>
+      <label>Заключение врача</label>
+      <textarea class="af-note" rows="3" maxlength="2000"
+                placeholder="Показатели, динамика, рекомендации">${f.doctor_note ? escapeHtml(f.doctor_note) : ''}</textarea>
+      <div class="analyzes-edit-actions">
+        <button type="button" class="btn-ghost btn-sm af-cancel">Отмена</button>
+        <button type="button" class="btn-primary btn-sm af-save">Сохранить</button>
+      </div>`;
+    row.appendChild(form);
+    form.querySelector('.af-title').focus();
+
+    form.querySelector('.af-cancel').addEventListener('click', () => form.remove());
+    form.querySelector('.af-save').addEventListener('click', async () => {
+      const save = form.querySelector('.af-save');
+      save.disabled = true;
+      // Пустые поля шлём как null, а не '': на сервере null очищает значение,
+      // а пустая строка осела бы в базе и печаталась бы в карточке.
+      const body = {
+        taken_at: form.querySelector('.af-taken').value || null,
+        title: form.querySelector('.af-title').value.trim() || null,
+        doctor_note: form.querySelector('.af-note').value.trim() || null,
+      };
+      const res = await apiCall('PATCH', `/api/clients/${_clCurrentId}/files/${f.id}`, body);
+      if (res.ok) {
+        toast('Сохранено');
+        void loadClientFiles();
+      } else {
+        save.disabled = false;
+        toast('Не удалось сохранить');
+      }
+    });
   }
 
   async function openFileBlob(clientId, fileId) {

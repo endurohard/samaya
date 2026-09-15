@@ -3844,12 +3844,64 @@ body.guest .auth-card { margin: 32px auto 0; }
   border-radius: var(--radius-md);
   background: var(--bg-soft);
   font-size: var(--fs-base);
+  /* Форма правки разворачивается внутри строки и должна занимать всю ширину:
+     без переноса она встала бы четвёртой колонкой рядом с кнопками. */
+  flex-wrap: wrap;
 }
 .analyzes-file-icon { font-size: var(--fs-xl); flex-shrink: 0; }
 .analyzes-file-info { flex: 1; min-width: 0; }
 .analyzes-file-name { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .analyzes-file-meta { display: block; font-size: var(--fs-xs); color: var(--text-dim); margin-top: 2px; }
+/* Заключение врача — многострочное, не обрезаем по ширине как имя файла. */
+.analyzes-file-note {
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .analyzes-file-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Правка даты сдачи и заключения — прямо в строке файла */
+.analyzes-edit-form {
+  flex-basis: 100%;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.analyzes-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.analyzes-edit-form label {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.analyzes-edit-form input,
+.analyzes-edit-form textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.analyzes-edit-form textarea { resize: vertical; }
+.analyzes-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+@media (max-width: 560px) {
+  .analyzes-edit-grid { grid-template-columns: 1fr; }
+}
 
 /* ============================================================ *
  * SCHEDULE — DIKIDI-style mini-preview справа
