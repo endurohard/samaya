@@ -109,6 +109,15 @@ app.get('/api/whatsapp/broadcast/status', (_req, res) => {
   });
 });
 
+// ── Диагностика живой сессии (только чтение) ──
+app.get('/api/whatsapp/probe', async (req, res) => {
+  try {
+    return res.json(await wa.probe(req.query.phone));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Restart ──
 app.post('/api/whatsapp/restart', async (_req, res) => {
   try {

@@ -14,6 +14,34 @@ const CHROMIUM_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromiu
 const TEST_MODE = process.env.WHATSAPP_TEST_MODE === 'true';
 const SOCKS_PROXY = process.env.WHATSAPP_SOCKS_PROXY || '';
 
+// Белый список получателей — предохранитель для боевой сессии на тестовом
+// стенде. Локальная база — копия прода с настоящими телефонами клиентов, и
+// одна случайно запущенная рассылка ушла бы живым людям. Пока список задан,
+// отправка разрешена только на эти номера; пустая строка = ограничения нет
+// (обычный прод-режим).
+//
+// Номера приводятся к тому же виду, что и получатель в _normalizePhone
+// (8… → 7…, без разделителей): иначе «8916…» в списке никогда не совпало бы
+// с нормализованным «7916…», и разрешённый номер молча блокировался бы.
+function normalizeMsisdn(raw) {
+  let d = String(raw || '').replace(/[^0-9]/g, '');
+  if (d.startsWith('8')) d = '7' + d.slice(1);
+  if (d && !d.startsWith('7')) d = '7' + d;
+  return d;
+}
+
+const ALLOWLIST = (process.env.WHATSAPP_ALLOWLIST || '')
+  .split(',')
+  .map(normalizeMsisdn)
+  .filter(Boolean);
+
+// Поле ввода сообщения. Один селектор на весь файл: WhatsApp меняет вёрстку, и
+// три копии строки в разных методах разъезжаются — тогда отправка ломается
+// молча, в одном месте из трёх. Проверено probe на живой сессии: актуален
+// data-testid, запасной вариант — contenteditable с data-tab="10".
+const COMPOSE_SELECTOR =
+  '[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]';
+
 class WhatsAppManager {
   constructor() {
     this.browser = null;
@@ -47,6 +75,9 @@ class WhatsAppManager {
       test_mode: TEST_MODE,
       has_qr: !!this.qrDataUrl,
       last_error: this.lastError,
+      // Сколько номеров в белом списке (сами номера не отдаём). 0 — отправка
+      // разрешена всем.
+      allowlist_size: ALLOWLIST.length,
     };
   }
 
@@ -64,8 +95,20 @@ class WhatsAppManager {
   // ── Cleanup stale Chrome processes (iTTEST pattern) ──
   async _cleanup() {
     const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-    const hasLock = locks.some(f => fs.existsSync(path.join(SESSION_DIR, f)));
-    if (!hasLock) return;
+    // Это симлинки вида `<hostname>-<pid>`, и после пересоздания контейнера они
+    // «битые» — цель не существует. fs.existsSync идёт по ссылке и возвращает
+    // false, поэтому раньше очистка не срабатывала: Chromium видел чужой
+    // hostname в локе, считал профиль занятым «другим компьютером» и падал
+    // с Code 21, а привязанная сессия выглядела потерянной.
+    const present = locks.filter((f) => {
+      try {
+        fs.lstatSync(path.join(SESSION_DIR, f));
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (present.length === 0) return;
     console.log('[WA] Cleaning stale Chrome locks…');
     // Убиваем только процессы Chromium этой сессии (по userDataDir), а не все
     // headless-браузеры в контейнере.
@@ -73,7 +116,7 @@ class WhatsAppManager {
       await execAsync(`pkill -9 -f ${JSON.stringify('user-data-dir=' + SESSION_DIR)} 2>/dev/null`);
     } catch { /* ok */ }
     await new Promise(r => setTimeout(r, 1500));
-    for (const f of locks) {
+    for (const f of present) {
       try { fs.unlinkSync(path.join(SESSION_DIR, f)); } catch { /* ok */ }
     }
   }
@@ -212,9 +255,7 @@ class WhatsAppManager {
   // ── Phone normalization ──
   // Бросает при мусорном/слишком коротком вводе, иначе можно отправить на «7».
   _normalizePhone(raw) {
-    let d = String(raw || '').replace(/[^0-9]/g, '');
-    if (d.startsWith('8')) d = '7' + d.slice(1);
-    if (!d.startsWith('7')) d = '7' + d;
+    const d = normalizeMsisdn(raw);
     if (d.length < 11 || d.length > 15) {
       throw new Error(`invalid phone: ${raw}`);
     }
@@ -224,29 +265,36 @@ class WhatsAppManager {
   // ── Open chat then send text ──
   async _openChat(phone) {
     const url = `https://web.whatsapp.com/send?phone=${phone}`;
-    const curUrl = this.page.url();
-    if (!curUrl.includes('web.whatsapp.com')) {
-      await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
-    } else {
-      await this.page.evaluate(u => { window.location.href = u; }, url);
-      await new Promise(r => setTimeout(r, 2000));
-    }
-    // Wait for message input
-    await this.page.waitForSelector(
-      '[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]',
-      { timeout: 30_000 }
-    );
+    // Всегда goto, а не присваивание window.location: при присваивании
+    // навигация продолжается уже после возврата из evaluate, и следующий
+    // waitForSelector падает с «execution context was destroyed» через
+    // секунду-две, не дожидаясь своего таймаута. Выглядело это как «поле
+    // ввода не найдено», хотя поле на месте.
+    await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
+
+    // Чат открывается не мгновенно даже после networkidle2; даём вёрстке
+    // дорисоваться и только потом ждём поле.
+    await this.page.waitForSelector(COMPOSE_SELECTOR, { timeout: 45_000 });
     await new Promise(r => setTimeout(r, 1000));
   }
 
   async sendMessage(phone, message) {
+    // Валидируем номер до постановки в очередь, чтобы плохой ввод не занимал слот.
+    const clean = this._normalizePhone(phone);
+
+    // Предохранитель: с непустым allowlist уходят только разрешённые номера.
+    // Проверка здесь, а не в роуте, — так её не обойдёт ни /send, ни
+    // /broadcast, ни напоминания из booking-service. И до ветки TEST_MODE:
+    // иначе тестовый прогон рапортует success на номер, который в боевом
+    // режиме был бы заблокирован, и предохранитель нельзя проверить заранее.
+    if (ALLOWLIST.length > 0 && !ALLOWLIST.includes(clean)) {
+      throw new Error(`blocked by allowlist: ${clean}`);
+    }
+
     if (TEST_MODE) {
-      const clean = this._normalizePhone(phone);
       console.log(`[WA][TEST] → ${clean}: ${message.slice(0, 80)}`);
       return { success: true, test_mode: true, phone: clean };
     }
-    // Валидируем номер до постановки в очередь, чтобы плохой ввод не занимал слот.
-    const clean = this._normalizePhone(phone);
 
     // Все операции с this.page строго последовательны — см. _enqueue.
     return this._enqueue(async () => {
@@ -256,7 +304,7 @@ class WhatsAppManager {
       await this._openChat(clean);
 
       // Type and send
-      const input = await this.page.$('[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]');
+      const input = await this.page.$(COMPOSE_SELECTOR);
       await input.click();
 
       // Split message by newlines for proper Enter handling
@@ -274,10 +322,10 @@ class WhatsAppManager {
 
       // Подтверждение отправки: поле ввода должно очиститься. Если текст остался —
       // сообщение не ушло (сетевой лаг/зависание), не рапортуем ложный success.
-      const stillHasText = await this.page.evaluate(() => {
-        const el = document.querySelector('[data-testid="conversation-compose-box-input"], [contenteditable="true"][data-tab="10"]');
+      const stillHasText = await this.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
         return !!(el && el.textContent && el.textContent.trim().length > 0);
-      }).catch(() => false);
+      }, COMPOSE_SELECTOR).catch(() => false);
       if (stillHasText) {
         throw new Error('message not sent (compose box not cleared)');
       }
@@ -285,6 +333,56 @@ class WhatsAppManager {
       console.log(`[WA] Sent to ${clean}`);
       return { success: true, phone: clean };
     });
+  }
+
+  // Разведка возможностей живой сессии: сколько чатов видно и доступен ли
+  // внутренний Store WhatsApp Web. От этого зависит, как читать переписку —
+  // через Store (устойчиво к смене вёрстки) или скрапингом DOM (ломается на
+  // каждом обновлении WhatsApp). Ничего не отправляет, только читает.
+  //
+  // С параметром phone дополнительно открывает чат и возвращает фактические
+  // атрибуты поля ввода: селекторы WhatsApp меняет без предупреждения, и
+  // единственный надёжный способ узнать текущие — посмотреть на живой странице.
+  async probe(phone) {
+    if (TEST_MODE) return { test_mode: true };
+    if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
+    return this._enqueue(async () => {
+      if (phone) {
+        await this._openChatRaw(this._normalizePhone(phone));
+      }
+      return this.page.evaluate(() => {
+        const editables = [...document.querySelectorAll('[contenteditable="true"]')].map(el => ({
+          tag: el.tagName,
+          data_tab: el.getAttribute('data-tab'),
+          aria_label: el.getAttribute('aria-label'),
+          aria_placeholder: el.getAttribute('aria-placeholder'),
+          testid: el.getAttribute('data-testid'),
+          classes: (el.className || '').toString().slice(0, 60),
+        }));
+        return {
+          url: location.href,
+          has_side: !!document.querySelector('#side'),
+          chat_rows: document.querySelectorAll(
+            '[data-testid="cell-frame-container"], #pane-side [role="listitem"]',
+          ).length,
+          has_require: typeof window.require === 'function',
+          has_webpack_chunk: Array.isArray(window.webpackChunkwhatsapp_web_client),
+          has_store: !!(window.Store && window.Store.Chat),
+          editables,
+          send_buttons: [...document.querySelectorAll('button[aria-label], [data-testid*="send"]')]
+            .map(b => b.getAttribute('aria-label') || b.getAttribute('data-testid'))
+            .filter(Boolean).slice(0, 8),
+        };
+      });
+    });
+  }
+
+  // Переход в чат без ожидания поля ввода — для probe, которому нужно увидеть
+  // страницу как есть, даже если привычные селекторы больше не совпадают.
+  async _openChatRaw(phone) {
+    const url = `https://web.whatsapp.com/send?phone=${phone}`;
+    await this.page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
+    await new Promise(r => setTimeout(r, 4000));
   }
 
   async restart() {
