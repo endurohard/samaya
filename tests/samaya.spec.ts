@@ -207,7 +207,7 @@ test.describe('T3 — Clients', () => {
     await expect(modal).toBeVisible({ timeout: 5_000 });
 
     // Required form fields
-    await expect(page.locator('#clFullName')).toBeVisible();
+    await expect(page.locator('#clFio')).toBeVisible();
     await expect(page.locator('#clPhone')).toBeVisible();
 
     // Submit button present
@@ -428,9 +428,13 @@ test.describe('T10 — Client modal', () => {
     await page.click('#clientsAddBtn');
     await page.waitForSelector('#clientModal:not([hidden])', { timeout: 5_000 });
 
-    // Form is visible
+    // Form is visible.
+    // Имя вводится одной строкой в #clFio и раскладывается по
+    // clLastName/clFirstName/clMiddleName — поля видны рядом.
     await expect(page.locator('#clientForm')).toBeVisible();
-    await expect(page.locator('#clFullName')).toBeVisible();
+    await expect(page.locator('#clFio')).toBeVisible();
+    await expect(page.locator('#clLastName')).toBeVisible();
+    await expect(page.locator('#clFirstName')).toBeVisible();
     await expect(page.locator('#clPhone')).toBeVisible();
     await expect(page.locator('#clBirthday')).toBeVisible();
     await expect(page.locator('#clGender')).toBeVisible();
@@ -457,7 +461,9 @@ test.describe('T10 — Client modal', () => {
     await page.waitForSelector('#clientModal:not([hidden])', { timeout: 5_000 });
 
     const uniquePhone = `+799${Date.now().toString().slice(-8)}`;
-    await page.fill('#clFullName', 'Тест Playwright');
+    // Строка «Имя Фамилия» раскладывается по clFirstName/clLastName
+    // обработчиком input (clSpreadFio) — page.fill его вызывает.
+    await page.fill('#clFio', 'Тест Playwright');
     await page.fill('#clPhone', uniquePhone);
 
     await page.click('#clientSubmit');
@@ -471,7 +477,10 @@ test.describe('T10 — Client modal', () => {
       const el = document.getElementById('clientsList');
       return el && !el.textContent?.includes('Загрузка');
     }, undefined, { timeout: 10_000 });
-    await expect(page.locator('#clientsList')).toContainText('Тест Playwright', { timeout: 5_000 });
+    // Список печатает «Фамилия Имя», а строка ФИО вводится как «Имя Фамилия»
+    // (clSpreadFio: первое слово → clFirstName, второе → clLastName).
+    // Поэтому «Тест Playwright» на входе — «Playwright Тест» в списке.
+    await expect(page.locator('#clientsList')).toContainText('Playwright Тест', { timeout: 5_000 });
   });
 });
 
@@ -512,7 +521,7 @@ test.describe('T11 — Promotion (promo codes)', () => {
   test('Акции nav item is enabled and view loads', async ({ page }) => {
     await page.click('a.nav-item[data-view="promotion"]');
     await page.waitForSelector('section[data-view="promotion"]:not([hidden])', { timeout: 8_000 });
-    await expect(page.locator('section[data-view="promotion"] h2.card-title')).toContainText('Промокоды');
+    await expect(page.locator('section[data-view="promotion"] h2.card-title')).toContainText('Акции');
     await expect(page.locator('#promoAddBtn')).toBeVisible();
   });
 
@@ -524,7 +533,8 @@ test.describe('T11 — Promotion (promo codes)', () => {
     await page.click('#promoAddBtn');
     await page.waitForSelector('#promoModal:not([hidden])', { timeout: 5_000 });
 
-    await expect(page.locator('#promoModalTitle')).toHaveText('Новый промокод');
+    // Заголовок ставит app.js при открытии: «Новая акция» / «Редактировать акцию».
+    await expect(page.locator('#promoModalTitle')).toHaveText('Новая акция');
 
     await page.fill('#promoCode', code);
     await page.fill('#promoName', 'Playwright Test Promo');
