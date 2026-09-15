@@ -15,6 +15,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d
       - ./database/migrations:/migrations:ro
+      - ./database/migrate.sh:/migrate.sh:ro
     networks:
       - samaya-network
     healthcheck:
@@ -43,6 +44,36 @@ services:
     mem_limit: 256m
     cpus: 0.5
     restart: unless-stopped
+
+  # Догоняет миграции на каждом `up`: при первой инициализации тома их
+  # накатывает сам postgres (database/init/), но на уже живой базе init-скрипты
+  # не запускаются — раньше новую миграцию накатывали руками по инструкции из
+  # docs/DEPLOYMENT.md, и рассинхрон dev/прод был вопросом времени.
+  # Состояние — в public.schema_migrations, накат идемпотентен.
+  # Существующая база, созданная до появления журнала, требует разового
+  # MIGRATE_BASELINE — скрипт сам об этом скажет и не тронет данные.
+  migrator:
+    image: postgres:16-alpine
+    container_name: samaya-migrator
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:?POSTGRES_USER required}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB required}
+      MIGRATE_BASELINE: ${MIGRATE_BASELINE:-}
+      MIGRATE_ALLOW_DRIFT: ${MIGRATE_ALLOW_DRIFT:-}
+    volumes:
+      - ./database/migrations:/migrations:ro
+      - ./database/migrate.sh:/migrate.sh:ro
+    entrypoint: ["/migrate.sh"]
+    networks:
+      - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 128m
+    cpus: 0.5
+    restart: "no"
 
   kong:
     image: kong:3.5
@@ -105,6 +136,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -138,6 +171,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -179,6 +214,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -208,6 +245,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -241,6 +280,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -270,6 +311,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3006/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -301,6 +344,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3007/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
@@ -340,6 +385,9 @@ services:
       WHATSAPP_TEST_MODE: ${WHATSAPP_TEST_MODE:-true}
       WHATSAPP_SESSION_DIR: /data/session
       WHATSAPP_SOCKS_PROXY: ${WHATSAPP_SOCKS_PROXY:-}
+      # Белый список номеров (через запятую). Задан — отправка идёт только на
+      # них. Нужен на стенде с копией прод-базы: там реальные телефоны клиентов.
+      WHATSAPP_ALLOWLIST: ${WHATSAPP_ALLOWLIST:-}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -412,6 +460,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3009/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s

@@ -1,4 +1,4 @@
--- 051_telephony.sql
+-- 054_telephony.sql
 --
 -- Телефония: зеркало журнала звонков из ВАТС (pbx-portal поверх FusionPBX).
 --

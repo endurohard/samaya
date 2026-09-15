@@ -35,14 +35,45 @@ docker compose up -d --build
 docker compose ps                      # дождаться (healthy) у всех
 ```
 
-Миграции БД применяются автоматически из `database/migrations/` **только при первой
-инициализации** тома `postgres_data` (через `database/init/`). Для уже существующей БД
-новую миграцию применять вручную:
+### Миграции БД
+
+Накатываются автоматически на каждом `docker compose up` сервисом `migrator`
+([`database/migrate.sh`](../database/migrate.sh)). Применённое отмечается в
+`public.schema_migrations` (версия + sha256 файла), поэтому повторный запуск
+ничего не переделывает, а сервисы стартуют только после успешного наката
+(`depends_on: migrator: service_completed_successfully`). Руками накатывать
+больше не нужно.
+
+Проверить состояние:
 
 ```bash
+docker compose run --rm migrator            # догнать миграции
 docker exec -i samaya-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -v ON_ERROR_STOP=1 < database/migrations/0XX_name.sql
+  -c "SELECT version, applied_at FROM public.schema_migrations ORDER BY version"
 ```
+
+**Существующая БД, созданная до появления журнала** (журнал пуст, а таблицы
+уже есть): `migrator` откажется стартовать — повторный накат сломал бы
+неидемпотентные миграции с backfill. Разово укажите фактическое состояние:
+
+```bash
+# в базе применено всё, что лежит в database/migrations/
+MIGRATE_BASELINE=all docker compose run --rm migrator
+# или по конкретный файл включительно, если часть миграций не накатывали
+MIGRATE_BASELINE=051_service_catalogs.sql docker compose run --rm migrator
+```
+
+Baseline только помечает миграции применёнными, SQL не выполняет. После него
+уберите переменную — дальше всё идёт само.
+
+**Правки применённых миграций запрещены**: `migrator` сверяет sha256 и падает
+при расхождении — заводите новую миграцию. Если правка заведомо безобидна
+(комментарий, форматирование), разово запустите с `MIGRATE_ALLOW_DRIFT=1`,
+журнал обновит контрольную сумму.
+
+Номер новой миграции — следующий свободный по всему каталогу. Два файла с
+одним номером в разных ветках сливать нельзя: порядок применения станет
+зависеть от имени, а не от замысла.
 
 ## 4. Бэкапы PostgreSQL
 
