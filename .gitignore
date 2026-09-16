@@ -19,3 +19,7 @@ Wiki/.obsidian/workspace-mobile.json
 backups/
 tests/playwright-report/
 tests/test-results/
+
+# Архивы с дизайном и черновики — не должны уезжать в репозиторий
+*.zip
+add-booking2.html

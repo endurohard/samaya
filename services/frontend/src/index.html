@@ -31,24 +31,24 @@
   <div class="app">
     <!-- ===== Sidebar ===== -->
     <aside class="sidebar">
-      <div class="sidebar-head" hidden>
-        <div class="brand">
-          <span class="brand-mark">s</span>
-          <div>
-            <div class="brand-name">samaya</div>
-            <div class="brand-sub">Phase 0a · admin</div>
-          </div>
-        </div>
+      <!-- Шапка сайдбара: логотип, салон и кто работает — одним блоком по
+           центру. Без подложки под учёткой: она дробила шапку на две карточки,
+           хотя это единый смысловой блок «где я и кто я». -->
+      <div class="sidebar-head">
+        <a class="brand" href="#today" data-view="today">
+          <span class="brand-mark"><img src="/zb-logo.jpg" alt="" width="52" height="52"></span>
+          <span class="brand-name">Самая</span>
+        </a>
+        <a class="sidebar-who" id="sidebarWho" href="#profile" data-view="profile" hidden>
+          <span class="sidebar-who-name" id="sidebarWhoName">—</span>
+          <span class="sidebar-who-role" id="sidebarWhoRole">—</span>
+        </a>
       </div>
 
       <nav class="sidebar-nav">
         <a class="nav-item" data-view="today" href="#today">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7v5l3 3"/></svg>
           <span>Сегодня</span>
-        </a>
-        <a class="nav-item" data-view="profile" href="#profile">
-          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.1a7.5 7.5 0 0115 0A18 18 0 0112 21.75 18 18 0 014.5 20.1z"/></svg>
-          <span>Профиль</span>
         </a>
         <a class="nav-item" data-view="journal" href="#journal">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v11.25M3 18.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75M3 18.75V11.25A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>
@@ -110,16 +110,19 @@
       </nav>
 
       <div class="sidebar-foot">
-        <div class="user-mini" id="userMini" hidden>
-          <div class="user-mini-avatar" id="userMiniAvatar">?</div>
-          <div class="user-mini-info">
-            <div class="user-mini-name" id="userMiniName">—</div>
-            <div class="user-mini-role" id="userMiniRole">—</div>
-          </div>
-        </div>
-        <div class="status-mini">
+        <!-- Внизу только выход: кто вошёл — видно в шапке сайдбара. -->
+        <button type="button" class="sidebar-logout" id="sidebarLogoutBtn" hidden>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+               stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 12H4m0 0 3.5-3.5M4 12l3.5 3.5"/>
+            <path d="M10 7V5.5A1.5 1.5 0 0 1 11.5 4h6A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 10 18.5V17"/>
+          </svg>
+          <span>Выйти</span>
+        </button>
+        <!-- Показывается только при потере связи с сервером; в норме скрыт. -->
+        <div class="status-mini" hidden>
           <span class="dot dot-unknown" id="dotBackend"></span>
-          <span class="status-label" id="statusLabel">Проверяю backend…</span>
+          <span class="status-label" id="statusLabel"></span>
         </div>
       </div>
     </aside>
@@ -148,11 +151,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.85 23.85 0 005.454-1.31A8.97 8.97 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.97 8.97 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.26 24.26 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
           <span class="topbar-bell-dot"></span>
         </button>
-        <div class="topbar-user" id="topbarUser">
-          <div class="topbar-user-avatar" id="topbarUserAvatar">?</div>
-          <span class="topbar-user-name" id="topbarUserName">—</span>
-        </div>
-        <button class="topbar-action" id="apilogToggle" type="button" title="DEV: лог запросов">API лог</button>
+        <!-- Блок пользователя и кнопка «API лог» убраны из шапки: учётка уже
+             показана внизу сайдбара (там же выход и переход в профиль), а
+             «API лог» — отладочный инструмент разработчика, администратору
+             клиники он не нужен. Сама панель лога осталась в разметке и
+             открывается по Ctrl+Shift+L. -->
       </header>
       <div class="topbar-sub" id="viewTitle">Профиль</div>
 
@@ -170,6 +173,12 @@
             </div>
 
             <div class="today-kpi" id="todayKpi">
+              <!-- Выручка первой и выделенной: это главная цифра дня, а пять
+                   одинаковых плиток в ряд уравнивали её со «всего записей». -->
+              <div class="today-kpi-card is-hero">
+                <div class="today-kpi-lbl">Выручка за день</div>
+                <div class="today-kpi-val" id="tdRevenue">—</div>
+              </div>
               <div class="today-kpi-card">
                 <div class="today-kpi-val" id="tdTotal">—</div>
                 <div class="today-kpi-lbl">Всего записей</div>
@@ -181,10 +190,6 @@
               <div class="today-kpi-card accent-blue">
                 <div class="today-kpi-val" id="tdActive">—</div>
                 <div class="today-kpi-lbl">Активных</div>
-              </div>
-              <div class="today-kpi-card accent-purple">
-                <div class="today-kpi-val" id="tdRevenue">—</div>
-                <div class="today-kpi-lbl">Выручка</div>
               </div>
               <div class="today-kpi-card accent-orange">
                 <div class="today-kpi-val" id="tdCanceled">—</div>
@@ -259,16 +264,13 @@
                   <div class="user-meta" id="userMeta">—</div>
                 </div>
                 <div class="user-actions">
-                  <button id="refreshBtn" class="btn-secondary" type="button">Обновить токены</button>
                   <button id="logoutBtn" class="btn-danger" type="button">Выйти</button>
                 </div>
               </div>
-              <dl class="claims">
-                <dt>user_id</dt><dd id="claimSub">—</dd>
-                <dt>company_id</dt><dd id="claimCompany">—</dd>
-                <dt>role</dt><dd id="claimRole">—</dd>
-                <dt>expires</dt><dd id="claimExp">—</dd>
-              </dl>
+              <!-- Технические поля (user_id, company_id, срок токена) и кнопка
+                   «Обновить токены» убраны: это отладка времён Phase 0a.
+                   Сотруднику клиники они ничего не говорят, а идентификаторы
+                   компании на экране — лишнее. Токены обновляются сами. -->
               <div class="error" id="userError" hidden></div>
             </div>
           </div>
@@ -297,9 +299,12 @@
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 115 0c0 1.4-2.5 1.6-2.5 3.5"/><circle cx="12" cy="16.5" r="0.8" fill="currentColor"/></svg>
             </span>
             <div class="clients-toolbar-spacer"></div>
-            <button type="button" class="btn-success" id="clientsAddBonus" disabled
-                    title="Phase 1 — массовое начисление бонусов">→ Начислить бонусы</button>
-            <button type="button" class="btn-primary" id="clientsAddBtn">Добавить нового клиента</button>
+            <!-- Начисление бонусов — второстепенное действие и пока недоступно
+                 (Phase 1). Зелёной заливкой оно спорило за внимание с главной
+                 кнопкой и выглядело активным, хотя нажать его нельзя. -->
+            <button type="button" class="btn-secondary" id="clientsAddBonus" disabled
+                    title="Phase 1 — массовое начисление бонусов">Начислить бонусы</button>
+            <button type="button" class="btn-primary" id="clientsAddBtn">+ Новый клиент</button>
             <div class="clients-more" id="clientsMore">
               <button type="button" class="clients-more-btn" id="clientsMoreBtn" aria-label="Ещё">⋯</button>
               <div class="clients-more-menu" id="clientsMoreMenu" hidden>
@@ -2540,6 +2545,19 @@
         <section class="view view-messages" data-view="messages" hidden>
           <div class="messages-layout">
 
+            <!-- Входящие с номеров, которых нет в базе клиентов -->
+            <div class="card" id="waUnlinkedCard" hidden>
+              <div class="card-head">
+                <h2 class="card-title">Новые номера в WhatsApp</h2>
+                <span id="waUnlinkedCount" class="pill pill-mute">0</span>
+              </div>
+              <p class="wa-unlinked-hint">
+                Эти номера писали в WhatsApp, но карточки клиента у них нет.
+                Заведите нового клиента или добавьте номер существующему.
+              </p>
+              <div id="waUnlinkedList" class="wa-unlinked-list"></div>
+            </div>
+
             <!-- Broadcast form -->
             <div class="card broadcast-card">
               <div class="card-head">
@@ -3055,6 +3073,32 @@
               </div>
               <div class="error" id="clientFormError" hidden></div>
             </form>
+
+            <!-- Окно переписки WhatsApp: история из базы + ответ клиенту.
+                 Отдельная модалка поверх карточки, чтобы не раздувать форму. -->
+            <div class="modal-backdrop" id="waChatBackdrop" hidden></div>
+            <div class="modal modal--stacked" id="waChatModal" hidden
+                 role="dialog" aria-modal="true" aria-labelledby="waChatTitle">
+              <div class="modal-head">
+                <h3 id="waChatTitle">Переписка WhatsApp</h3>
+                <button type="button" class="modal-close" id="waChatClose" aria-label="Закрыть">&times;</button>
+              </div>
+              <div class="modal-body">
+                <div id="waChatStatus" class="wa-chat-status"></div>
+                <div class="wa-chat-actions">
+                  <button type="button" class="btn-ghost btn-sm" id="waChatLive">Открыть окно WhatsApp</button>
+                </div>
+                <div id="waChatLiveWrap" class="wa-chat-live" hidden>
+                  <iframe id="waChatLiveFrame" title="Экран WhatsApp"></iframe>
+                </div>
+                <div id="waChatList" class="wa-chat-list"></div>
+                <div class="wa-chat-compose">
+                  <textarea id="waChatInput" rows="2" placeholder="Сообщение клиенту…"></textarea>
+                  <button type="button" class="btn-primary" id="waChatSend">Отправить</button>
+                </div>
+              </div>
+            </div>
+
             <!-- Tab: history -->
             <div class="modal-body" id="clientHistoryTab" data-client-tab="history" hidden>
               <div id="clientHistoryList" class="cl-history-list"></div>

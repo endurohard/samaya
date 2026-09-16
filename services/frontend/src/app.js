@@ -480,9 +480,20 @@ import {
 
 
 
+  // Блок пользователя внизу сайдбара ведёт в профиль: отдельного пункта в
+  // списке разделов больше нет, а обработчик выше слушает только .nav-item.
+  document.getElementById('userMini')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    setView('profile');
+    document.body.classList.remove('sidebar-open');
+  });
+
   // ===== View switching =====
   function setView(view) {
-    if (!VIEW_TITLES[view]) view = 'profile';
+    // Профиль остаётся запасным вариантом только для неавторизованного экрана;
+    // вошедший сотрудник по умолчанию попадает на «Сегодня» — рабочую сводку
+    // дня, а не в настройки своей учётки.
+    if (!VIEW_TITLES[view]) view = store.user ? 'today' : 'profile';
     currentView = view;
     els.views.forEach((v) => {
       const match = v.dataset.view === view;
@@ -589,26 +600,23 @@ import {
       els.userAvatar.style.background = stringToColor(user.id);
 
       const claims = decodeJwt(access);
-      if (claims) {
-        els.claimSub.textContent = claims.sub || '—';
-        els.claimCompany.textContent = claims.company_id || '—';
-        els.claimRole.textContent = claims.role || '—';
-        els.claimExp.textContent = claims.exp ? new Date(claims.exp * 1000).toLocaleString() : '—';
-      }
 
-      // Sidebar mini
-      els.userMini.hidden = false;
-      els.userMiniName.textContent = name;
-      els.userMiniRole.textContent = (claims && claims.role) ? claims.role : '—';
-      els.userMiniAvatar.textContent = (name || '?')[0].toUpperCase();
-      els.userMiniAvatar.style.background = stringToColor(user.id);
-
-      // Topbar user
-      if (els.topbarUserAvatar) {
-        els.topbarUserAvatar.textContent = (name || '?')[0].toUpperCase();
-        els.topbarUserAvatar.style.background = stringToColor(user.id);
-      }
-      if (els.topbarUserName) els.topbarUserName.textContent = name;
+      // Кто сейчас работает — в шапке сайдбара, рядом с логотипом.
+      const who = document.getElementById('sidebarWho');
+      if (who) who.hidden = false;
+      // В шапке сайдбара — только имя, без почты и телефона. Если ФИО не
+      // заполнено, показываем роль одной строкой: почта вида
+      // «watest@samaya.test» ничего не говорит и выглядит как техданные.
+      const whoName = document.getElementById('sidebarWhoName');
+      const whoRole = document.getElementById('sidebarWhoRole');
+      const roleWord = { owner: 'Владелец', admin: 'Администратор',
+        master: 'Косметолог', client: 'Клиент' }[claims?.role];
+      const personName = (user.full_name || '').trim();
+      if (whoName) whoName.textContent = personName || roleWord || 'Сотрудник';
+      if (whoRole) whoRole.textContent = personName ? (roleWord || '') : '';
+      // Выход показываем вместе с учёткой: на экране входа он не нужен.
+      const sbLogout = document.getElementById('sidebarLogoutBtn');
+      if (sbLogout) sbLogout.hidden = false;
 
       // Role-based UI + RBAC фаза 2: гейтинг кнопок действий по правам
       const role = claims ? claims.role : 'client';
@@ -636,7 +644,10 @@ import {
       document.body.classList.add('guest');
       els.authGuest.hidden = false;
       els.authUser.hidden = true;
-      els.userMini.hidden = true;
+      const whoOff = document.getElementById('sidebarWho');
+      if (whoOff) whoOff.hidden = true;
+      const sbLogoutOff = document.getElementById('sidebarLogoutBtn');
+      if (sbLogoutOff) sbLogoutOff.hidden = true;
       stopCallStream();
       cachedServices = [];
       cachedMasters = [];
@@ -705,16 +716,16 @@ import {
         : '';
       return `
         <div class="row-item clickable ${s.is_active ? '' : 'inactive'}" data-svc-id="${s.id}">
-          <div class="dot-color" style="background: ${escapeHtml(s.color || '#7c3aed')}"></div>
+          <div class="dot-color" style="background: ${escapeHtml(s.color || stringToColor(s.id))}"></div>
           <div class="row-main">
             <div class="row-name">${escapeHtml(s.name)}</div>
             ${!s.is_active || commBadge
     ? `<div class="row-meta">${s.is_active ? '' : '<span class="badge">удалена</span> '}${commBadge}</div>`
     : ''}
           </div>
-          <button type="button" class="svc-menu-flag" data-menu-id="${s.id}"
+          <button type="button" class="svc-menu-flag ${s.show_in_menu ? 'is-on' : ''}" data-menu-id="${s.id}"
             title="${s.show_in_menu ? 'Отображается в меню сайта' : 'Не отображается в меню сайта'} — нажмите, чтобы переключить">
-            ${s.show_in_menu ? '✅' : '❌'}<span class="svc-menu-flag-text">в меню</span>
+            <span class="svc-menu-flag-dot" aria-hidden="true"></span><span class="svc-menu-flag-text">в меню</span>
           </button>
           <div class="row-stat">${formatPrice(s.price)} · ${s.duration_minutes} мин</div>
         </div>`;
@@ -1384,27 +1395,25 @@ import {
   });
 
   // ===== Refresh =====
-  els.refreshBtn.addEventListener('click', async () => {
-    els.userError.hidden = true;
-    if (!store.refresh) return;
-    const { ok, status, data } = await call('POST', '/api/auth/refresh', { refresh_token: store.refresh });
-    if (!ok) {
-      els.userError.textContent = `Не удалось обновить (${data?.code || status}). Войдите заново.`;
-      els.userError.hidden = false;
-      store.clear(); renderAuth();
-      return;
-    }
-    store.access = data.access_token;
-    store.refresh = data.refresh_token;
-    store.user = data.user;
-    renderAuth();
-  });
+  // Кнопка «Обновить токены» убрана из профиля — это отладка Phase 0a.
+  // Токен обновляется автоматически в apiCall при ответе 401.
+
 
   // ===== Logout =====
-  els.logoutBtn.addEventListener('click', async () => {
+  // Выход из аккаунта. Логика общая для кнопки в профиле и для кнопки в
+  // сайдбаре — дублировать запрос на разлогин в двух местах нельзя: забудешь
+  // поправить одно, и refresh-токен останется живым на сервере.
+  async function doLogout() {
     if (store.refresh) await call('POST', '/api/auth/logout', { refresh_token: store.refresh });
     store.clear();
     renderAuth();
+  }
+
+  els.logoutBtn.addEventListener('click', () => { void doLogout(); });
+  document.getElementById('sidebarLogoutBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // иначе клик уйдёт в блок пользователя и откроет профиль
+    void doLogout();
   });
 
   // ===== Add service =====
@@ -2044,9 +2053,18 @@ import {
     const gridHeight = totalMin * CAL_PX_PER_MIN;
 
     const byMaster = new Map(masters.map((m) => [m.id, []]));
+    // Какой день показывает сетка. Нужен и здесь, и ниже для блоков времени,
+    // поэтому считаем один раз до цикла.
+    const dayISO = (els.journalDate && els.journalDate.value) || todayLocalISO();
     cachedBookings.forEach((b) => {
       // Отменённые и «не пришёл» не показываем в журнале — они доступны через фильтр по статусу / историю действий
       if (b.status === 'canceled' || b.status === 'no_show') return;
+      // Сетка календаря — это ОДИН день: блок позиционируется по часам от
+      // начала суток. В режимах «Неделя»/«Месяц» сервер отдаёт записи за весь
+      // период, и без фильтра по дате запись 9-го на 10:00 ложилась поверх
+      // записи 16-го на 10:00 — имена и телефоны наезжали друг на друга.
+      // Блоки времени (выше) так фильтруются с самого начала, записи — нет.
+      if (dateToISO(new Date(b.starts_at)) !== dayISO) return;
       const arr = byMaster.get(b.master_id);
       if (arr) arr.push(b);
     });
@@ -2124,7 +2142,6 @@ import {
       });
 
       // Занятое время мастера — серой штриховкой под записями.
-      const dayISO = (els.journalDate && els.journalDate.value) || todayLocalISO();
       cachedTimeBlocks
         .filter((tb) => tb.master_id === m.id && dateToISO(new Date(tb.starts_at)) === dayISO)
         .forEach((tb) => {
@@ -2652,7 +2669,7 @@ import {
   }
 
   // ===== Journal charts (4 donuts in list mode) =====
-  const CHART_PALETTE = ['#7c3aed', '#22c5d8', '#22c55e', '#f59e0b', '#ec4899', '#94a3b8'];
+  const CHART_PALETTE = ['#93494b', '#22c5d8', '#22c55e', '#f59e0b', '#ec4899', '#94a3b8'];
   // Палитры по типу графика, как у DIKIDI:
   // masters — мягкие пастельные (голубой → розовый → зелёный → лавандовый → персиковый)
   // services — насыщенные разноцветные (синий, жёлтый, фиолетовый, мятный, оранжевый)
@@ -3974,15 +3991,24 @@ import {
     input.addEventListener('focus', () => {
       moveSuggestHere();
       const v = input.value.trim();
+      // По клику в пустое поле список не показываем: первые 10 клиентов из
+      // базы (у нас их 7454) — это случайные люди, выбрать среди них некого,
+      // а выпадашка закрывает форму. Подсказки появляются с началом ввода.
       // Если в поле стоит метка уже выбранного клиента («Имя · телефон»),
-      // искать по ней бессмысленно — показываем список целиком.
-      void showClientSuggest(v && v === _clientSelectedLabel ? '' : v);
+      // повторный поиск по ней тоже не нужен.
+      if (!v || v === _clientSelectedLabel) { closeClientSuggest(); return; }
+      void showClientSuggest(v);
     });
 
     input.addEventListener('input', () => {
       moveSuggestHere();
       const q = input.value.trim();
       clearTimeout(_clientSuggestTimer);
+      // Пустое поле — прячем список, а не показываем всех подряд.
+      if (!q) { closeClientSuggest(); return; }
+      // Одна буква отбирает сотни совпадений — ждём минимум двух символов,
+      // цифры телефона исключение: по ним отбор точный уже с двух.
+      if (q.length < 2) { closeClientSuggest(); return; }
       _clientSuggestTimer = setTimeout(() => { void showClientSuggest(q); }, 250);
     });
 
@@ -6371,32 +6397,46 @@ import {
   });
 
   // ===== API log drawer =====
-  els.apilogToggle.addEventListener('click', () => {
-    els.apilogDrawer.hidden = !els.apilogDrawer.hidden;
+  // Кнопки «API лог» в шапке больше нет — панель открывается сочетанием
+  // Ctrl+Shift+L. Инструмент отладочный: нужен разработчику при разборе
+  // запросов, а в рабочем интерфейсе администратора только мешал.
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+      e.preventDefault();
+      if (els.apilogDrawer) els.apilogDrawer.hidden = !els.apilogDrawer.hidden;
+    }
   });
-  els.apilogClose.addEventListener('click', () => {
-    els.apilogDrawer.hidden = true;
+  els.apilogClose?.addEventListener('click', () => {
+    if (els.apilogDrawer) els.apilogDrawer.hidden = true;
   });
 
   // ===== Backend probe =====
   // Используем public /api/salons/public/services?company=DEFAULT — он 200 OK без auth,
   // не засоряет DevTools console 401-ками.
   async function probeBackend() {
+    // Блок виден только когда связь с сервером потеряна: «Backend OK» —
+    // техническая подробность, которая администратору ничего не даёт, а вот
+    // «нет связи» объясняет, почему не сохраняются записи.
+    const host = els.statusLabel?.closest('.status-mini');
+    const show = (text, cls) => {
+      if (els.dotBackend) els.dotBackend.className = `dot ${cls}`;
+      if (els.statusLabel) els.statusLabel.textContent = text;
+      if (host) host.hidden = false;
+    };
+    const hide = () => { if (host) host.hidden = true; };
+
     let res;
     try {
       // Простой OPTIONS на /api/auth — Kong отвечает на CORS preflight 200/204 без передачи в сервис.
       res = await fetch('/api/auth/login', { method: 'OPTIONS' });
     } catch {
-      els.dotBackend.className = 'dot dot-down';
-      els.statusLabel.textContent = 'Backend недоступен';
+      show('Нет связи с сервером', 'dot-down');
       return;
     }
     if (res.status >= 200 && res.status < 500) {
-      els.dotBackend.className = 'dot dot-ok';
-      els.statusLabel.textContent = 'Backend OK';
+      hide();
     } else {
-      els.dotBackend.className = 'dot dot-down';
-      els.statusLabel.textContent = `Backend ${res.status}`;
+      show(`Сервер отвечает с ошибкой (${res.status})`, 'dot-down');
     }
   }
 
@@ -6524,6 +6564,18 @@ import {
     });
   }
 
+  // Подписи статусов в строке клиента. Отдельно от SEGMENT_LABELS рассылки:
+  // там формулировки во множественном числе и с пояснением срока («Спящие
+  // (3+ мес.)»), а в строке нужен короткий ярлык про одного человека.
+  const CLIENT_SEG_PILL = {
+    regular: 'Постоянная',
+    sleeping: 'Спящая',
+    missing: 'Потерянная',
+    new: 'Новая',
+    never: 'Ни разу',
+    blocked: 'Заблокирована',
+  };
+
   function renderClientsList() {
     if (clientsState.loading && clientsState.items.length === 0) {
       els.clientsList.innerHTML = `<div class="clients-empty">Загрузка…</div>`;
@@ -6540,17 +6592,24 @@ import {
       const tildeCls = c.full_name && c.full_name.startsWith('~') ? 'tilde' : '';
       const nameClean = c.full_name && c.full_name.startsWith('~')
         ? c.full_name.slice(1).trim() : (c.full_name || '');
+      // Статус выводим словом, а не точкой на аватаре: цветная точка ничего не
+      // говорит, пока не наведёшь курсор, а администратору нужно видеть
+      // «спящая»/«потерянная» сразу при просмотре списка.
+      const segLabel = CLIENT_SEG_PILL[seg] || '';
+      const segPill = segLabel
+        ? `<span class="client-seg-pill seg-${escapeHtml(seg)}">${escapeHtml(segLabel)}</span>`
+        : '';
       return `
         <div class="clients-row" data-id="${escapeHtml(c.id)}">
           <div class="ct-col ct-col-check"><input type="checkbox" /></div>
           <div class="ct-col ct-col-name">
             <span class="client-avatar" style="background:${escapeHtml(c.avatar_color || '#94a3b8')}">
-              <span class="seg-dot seg-${seg}" title="${escapeHtml(seg)}"></span>
               ${escapeHtml(initial)}
             </span>
             <span class="client-name-text">
               <span class="client-name ${tildeCls}">${escapeHtml(nameClean)}</span>
               <span class="client-phone-row">${escapeHtml(formatPhonePretty(c.phone))}</span>
+              ${segPill}
             </span>
           </div>
           <div class="ct-col ct-col-visits" data-label="Визиты">${c.total_visits || 0}</div>
@@ -7013,6 +7072,18 @@ import {
     }
     clientsState.page = 0;
     if (!id) fillBookingClientAfterCreate(body);
+    // Карточку завели из раздела «Новые номера» — привязываем к ней уже
+    // накопленную переписку, иначе она осталась бы висеть безымянной.
+    if (!id && _waPendingLink) {
+      const newId = res.data?.id || res.data?.client?.id;
+      const digits = _waPendingLink;
+      _waPendingLink = null;
+      if (newId) {
+        const link = await apiCall('POST', `/api/whatsapp/messages/${newId}/link`, { phone: '+' + digits });
+        if (link.ok) toast('Переписка привязана к клиенту');
+        void loadWaUnlinked();
+      }
+    }
     closeClientModal();
     await loadClientsAll();
   }
@@ -7398,23 +7469,372 @@ import {
     }
   });
 
-  document.getElementById('clWaSendBtn')?.addEventListener('click', async () => {
+// ── Переписка WhatsApp в карточке клиента ──
+// История берётся из базы (whatsapp.messages), а не из окна браузера: чтение
+// страницы занимает секунды и требует, чтобы сеанс был свободен.
+let _waChatState = { clientId: '', phone: '' };
+let _waChatTimer = null;
+let _waChatSyncAt = 0;
+// Номер, ждущий привязки после сохранения новой карточки клиента.
+let _waPendingLink = null;
+
+async function openWaChat(clientId, phone) {
+  _waChatState = { clientId, phone };
+  const backdrop = document.getElementById('waChatBackdrop');
+  const modal = document.getElementById('waChatModal');
+  const title = document.getElementById('waChatTitle');
+  // В заголовке имя клиента, а номер — второй строкой: менеджер узнаёт человека
+  // по имени, а не по цифрам.
+  const name = document.getElementById('clFio')?.value?.trim();
+  if (title) {
+    title.innerHTML = name
+      ? 'Переписка с клиентом ' + escapeHtml(name)
+        + ' <span class="wa-chat-phone">' + escapeHtml(phone) + '</span>'
+      : 'Переписка WhatsApp · ' + escapeHtml(phone);
+  }
+  if (backdrop) backdrop.hidden = false;
+  if (modal) modal.hidden = false;
+  await loadWaChat();
+  // Пока окно открыто — подтягиваем новые сообщения. Интервал короткий:
+  // администратор ведёт живой диалог и ждёт ответ клиента здесь, а не в
+  // телефоне. Нагрузки это не создаёт — читаем из базы, а не со страницы.
+  if (_waChatTimer) clearInterval(_waChatTimer);
+  _waChatTimer = setInterval(() => void loadWaChat(true), 5000);
+}
+
+function closeWaChat() {
+  const backdrop = document.getElementById('waChatBackdrop');
+  const modal = document.getElementById('waChatModal');
+  if (backdrop) backdrop.hidden = true;
+  if (modal) modal.hidden = true;
+  if (_waChatTimer) { clearInterval(_waChatTimer); _waChatTimer = null; }
+  // Останавливаем поток кадров живого окна, если он был запущен.
+  const frame = document.getElementById('waChatLiveFrame');
+  const wrap = document.getElementById('waChatLiveWrap');
+  if (frame && wrap && !wrap.hidden) {
+    frame.src = 'about:blank';
+    wrap.hidden = true;
+    const btn = document.getElementById('waChatLive');
+    if (btn) btn.textContent = 'Открыть окно WhatsApp';
+  }
+}
+
+async function loadWaChat(silent = false) {
+  const list = document.getElementById('waChatList');
+  const status = document.getElementById('waChatStatus');
+  if (!list) return;
+  // При автообновлении не мигаем «Загрузка…» — иначе переписка дёргается
+  // каждые 15 секунд.
+  if (!silent) list.innerHTML = '<div class="wa-chat-empty">Загрузка…</div>';
+
+  // Пока окно открыто, просим сервис дочитать именно этот чат: иначе ответ
+  // клиента дождётся только следующего общего обхода (до 15 минут).
+  // Синхронизация идёт реже отрисовки: чтение страницы занимает секунды и
+  // занимает единственный сеанс, а список из базы обновляем часто и дёшево.
+  const nowTs = Date.now();
+  if (_waChatState.phone && nowTs - _waChatSyncAt > 12000) {
+    _waChatSyncAt = nowTs;
+    try {
+      await apiCall('POST', '/api/whatsapp/sync', { phone: _waChatState.phone });
+    } catch { /* сеанс занят — покажем то, что уже есть в базе */ }
+  }
+
+  // Статус сеанса показываем сразу: если WhatsApp не подключён или аккаунт
+  // ограничен, администратор должен понять это до попытки ответить.
+  try {
+    const st = await apiCall('GET', '/api/whatsapp/status');
+    if (status) {
+      const ready = st.data?.ready;
+      status.textContent = ready ? 'WhatsApp подключён' : 'WhatsApp не подключён — отправка недоступна';
+      status.className = 'wa-chat-status' + (ready ? ' is-ok' : ' is-warn');
+    }
+  } catch { /* статус не критичен для показа истории */ }
+
+  if (!_waChatState.clientId) {
+    list.innerHTML = '<div class="wa-chat-empty">Сохраните клиента, чтобы вести переписку.</div>';
+    return;
+  }
+  try {
+    const r = await apiCall('GET', '/api/whatsapp/messages/' + _waChatState.clientId);
+    const items = r.data?.items || [];
+    if (!items.length) {
+      list.innerHTML = '<div class="wa-chat-empty">Сообщений пока нет.</div>';
+      return;
+    }
+    // Если администратор отлистал переписку вверх, автообновление не должно
+    // дёргать его вниз — прокручиваем только когда он и так внизу.
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+    const clientName = document.getElementById('clFio')?.value?.trim() || 'Клиент';
+
+    let lastDay = '';
+    const parts = [];
+    for (const m of items) {
+      const dt = m.sent_at ? new Date(m.sent_at) : null;
+      const day = dt ? dt.toLocaleDateString('ru-RU') : '';
+      // Разделитель дат: без него переписка за разные дни сливается.
+      if (day && day !== lastDay) {
+        parts.push('<div class="wa-day">' + escapeHtml(day) + '</div>');
+        lastDay = day;
+      }
+      const out = m.from_me;
+      const who = out ? 'Мы' : escapeHtml(clientName);
+      const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+      const body = escapeHtml(m.body || '');
+      const media = m.has_media
+        ? '<a class="wa-chat-media" href="/api/whatsapp/media/' + encodeURIComponent(m.wa_id) + '" target="_blank">вложение</a>'
+        : '';
+      parts.push(
+        '<div class="wa-msg' + (out ? ' wa-msg--out' : ' wa-msg--in') + '">'
+        + '<div class="wa-msg-who">' + who + '</div>'
+        + '<div class="wa-msg-body">' + body + media + '</div>'
+        + '<div class="wa-msg-time">' + time + '</div></div>',
+      );
+    }
+    list.innerHTML = parts.join('');
+    if (atBottom || !silent) list.scrollTop = list.scrollHeight;
+  } catch (e) {
+    list.innerHTML = '<div class="wa-chat-empty">Не удалось загрузить: ' + escapeHtml(String(e.message || e)) + '</div>';
+  }
+}
+
+async function sendWaChat() {
+  const input = document.getElementById('waChatInput');
+  const btn = document.getElementById('waChatSend');
+  const message = (input?.value || '').trim();
+  if (!message || !_waChatState.phone) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiCall('POST', '/api/whatsapp/send', { phone: _waChatState.phone, message });
+    if (r.ok) {
+      if (input) input.value = '';
+      toast('Сообщение отправлено');
+      await loadWaChat();
+    } else {
+      // Причину показываем прямо в окне, а не только всплывашкой: тост легко
+      // пропустить, и тогда нажатие выглядит как «ничего не произошло».
+      const why = r.data?.error || ('код ' + r.status);
+      const status = document.getElementById('waChatStatus');
+      if (status) {
+        status.textContent = 'Не отправлено: ' + why;
+        status.className = 'wa-chat-status is-warn';
+      }
+      toast('Не отправлено: ' + why);
+    }
+  } catch (e) {
+    const why = String(e?.message || e);
+    const status = document.getElementById('waChatStatus');
+    if (status) {
+      status.textContent = 'Не отправлено: ' + why;
+      status.className = 'wa-chat-status is-warn';
+    }
+    toast('Не отправлено: ' + why);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Уведомления о новых сообщениях WhatsApp ──
+// Опрашиваем базу, а не окно WhatsApp: опрос идёт из браузера каждого
+// менеджера, и трогать единственный сеанс на каждый такой запрос нельзя.
+let _waNotifySince = null;
+let _waNotifyTimer = null;
+
+function startWaNotifications() {
+  if (_waNotifyTimer) return;
+  // Точку отсчёта берём с момента открытия админки: иначе при входе менеджер
+  // получил бы всплывашки по всем сообщениям за день.
+  _waNotifySince = new Date().toISOString();
+  // 5 секунд — запрос идёт в нашу базу (одна строка по индексу), а не в
+  // WhatsApp, так что частый опрос ничего не стоит и не рискует сеансом.
+  _waNotifyTimer = setInterval(() => void pollWaIncoming(), 5000);
+}
+
+async function pollWaIncoming() {
+  if (document.hidden) return; // вкладка в фоне — не тратим запросы
+  try {
+    const r = await apiCall('GET', '/api/whatsapp/incoming?since=' + encodeURIComponent(_waNotifySince));
+    if (!r.ok) return;
+    const items = r.data?.items || [];
+    if (r.data?.now) _waNotifySince = r.data.now;
+    for (const m of items) {
+      // Открытую переписку не дублируем всплывашкой: менеджер и так её видит.
+      const openPhone = String(_waChatState.phone || '').replace(/[^0-9]/g, '');
+      if (openPhone && openPhone === String(m.phone_digits || '')) continue;
+      showWaNotification(m);
+    }
+  } catch { /* сеть моргнула — попробуем на следующем тике */ }
+}
+
+function showWaNotification(m) {
+  const who = m.client_name || ('+' + (m.phone_digits || ''));
+  const text = m.has_media && !m.body ? '📎 вложение' : (m.body || '').slice(0, 90);
+  const el = document.createElement('div');
+  el.className = 'wa-notify';
+  el.innerHTML =
+    '<div class="wa-notify-head">💬 ' + escapeHtml(who) + '</div>'
+    + '<div class="wa-notify-body">' + escapeHtml(text) + '</div>';
+  // Клик открывает карточку клиента сразу на переписке — без этого уведомление
+  // заставляло бы искать клиента вручную.
+  if (m.client_id) {
+    el.classList.add('is-clickable');
+    el.addEventListener('click', () => {
+      el.remove();
+      void openClientModal(m.client_id).then(() => {
+        const btn = document.getElementById('clWaSendBtn');
+        if (btn) btn.click();
+      });
+    });
+  }
+  let stack = document.getElementById('waNotifyStack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'waNotifyStack';
+    stack.className = 'wa-notify-stack';
+    document.body.appendChild(stack);
+  }
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); }, 12000);
+}
+
+// ── Новые номера в WhatsApp (нет карточки клиента) ──
+// Кто пишет с неизвестного номера, тот для CRM невидим: переписка есть, а
+// клиента нет. Здесь менеджер решает — завести карточку или дописать номер
+// тому, кто уже в базе.
+async function loadWaUnlinked() {
+  const card = document.getElementById('waUnlinkedCard');
+  const list = document.getElementById('waUnlinkedList');
+  const count = document.getElementById('waUnlinkedCount');
+  if (!card || !list) return;
+  try {
+    const r = await apiCall('GET', '/api/whatsapp/unlinked');
+    const items = r.data?.items || [];
+    card.hidden = items.length === 0;
+    if (count) count.textContent = String(items.length);
+    if (!items.length) { list.innerHTML = ''; return; }
+
+    list.innerHTML = items.map((it) => {
+      const phone = '+' + escapeHtml(it.phone_digits || '');
+      const when = it.last_at ? new Date(it.last_at).toLocaleString('ru-RU') : '';
+      const preview = escapeHtml((it.last_body || '').slice(0, 60));
+      return '<div class="wa-unlinked-row" data-phone="' + escapeHtml(it.phone_digits) + '">'
+        + '<div class="wa-unlinked-main">'
+        + '<div class="wa-unlinked-phone">' + phone + '</div>'
+        + '<div class="wa-unlinked-preview">' + preview + '</div>'
+        + '<div class="wa-unlinked-meta">' + it.messages + ' сообщ. · ' + escapeHtml(when) + '</div>'
+        + '</div>'
+        + '<div class="wa-unlinked-actions">'
+        + '<button type="button" class="btn-primary btn-sm" data-wa-create>Создать клиента</button>'
+        + '<button type="button" class="btn-ghost btn-sm" data-wa-attach>Добавить существующему</button>'
+        + '</div></div>';
+    }).join('');
+  } catch { /* раздел не критичен — покажем при следующем открытии */ }
+}
+
+async function waCreateClientFromChat(phoneDigits) {
+  // Заводим клиента через обычную форму карточки с подставленным телефоном, а
+  // не через prompt(): во встроенном браузере VS Code prompt() заблокирован, и
+  // такая кнопка просто молчит. Заодно менеджер сразу видит все поля.
+  await openClientModal(null);
+  const phoneEl = document.getElementById('clPhone');
+  if (phoneEl) {
+    phoneEl.value = '+' + phoneDigits;
+    phoneEl.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  // Запоминаем номер: после сохранения карточки привяжем к ней переписку.
+  _waPendingLink = phoneDigits;
+  document.getElementById('clFio')?.focus();
+  toast('Заполните имя и сохраните — переписка привяжется автоматически');
+}
+
+function waAttachChatToClient(phoneDigits, row) {
+  // Поиск клиента прямо в строке: без модальных окон и без prompt().
+  if (!row || row.querySelector('.wa-attach-box')) return;
+  const box = document.createElement('div');
+  box.className = 'wa-attach-box';
+  box.innerHTML =
+    '<input type="text" class="wa-attach-input" placeholder="Имя или телефон клиента">'
+    + '<div class="wa-attach-results"></div>';
+  row.appendChild(box);
+  const input = box.querySelector('.wa-attach-input');
+  const results = box.querySelector('.wa-attach-results');
+  input.focus();
+
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { results.innerHTML = ''; return; }
+    // Задержка перед запросом: иначе на каждое нажатие клавиши уходит поиск
+    // по базе с тысячами клиентов.
+    timer = setTimeout(async () => {
+      try {
+        const r = await apiCall('GET', '/api/clients?search=' + encodeURIComponent(q) + '&limit=5');
+        const found = r.data?.items || r.data?.clients || [];
+        if (!found.length) { results.innerHTML = '<div class="wa-attach-empty">Не найдено</div>'; return; }
+        results.innerHTML = found.map(c =>
+          '<button type="button" class="wa-attach-hit" data-id="' + escapeHtml(c.id) + '">'
+          + escapeHtml(c.full_name || 'Без имени')
+          + '<span>' + escapeHtml(c.phone || 'без телефона') + '</span></button>').join('');
+      } catch { results.innerHTML = '<div class="wa-attach-empty">Ошибка поиска</div>'; }
+    }, 300);
+  });
+
+  results.addEventListener('click', async (e) => {
+    const hit = e.target.closest('.wa-attach-hit');
+    if (!hit) return;
+    const name = hit.textContent || 'клиенту';
+    const link = await apiCall('POST', `/api/whatsapp/messages/${hit.dataset.id}/link`, {
+      phone: '+' + phoneDigits,
+    });
+    if (!link.ok) { toast('Не удалось привязать: ' + (link.data?.error || link.status)); return; }
+    toast('Переписка привязана к «' + name.split('+')[0].trim() + '»');
+    await loadWaUnlinked();
+  });
+}
+
+  // Кнопки в списке новых номеров: делегирование, потому что список
+  // перерисовывается после каждой привязки.
+  document.getElementById('waUnlinkedList')?.addEventListener('click', (e) => {
+    const row = e.target.closest('.wa-unlinked-row');
+    if (!row) return;
+    const phone = row.dataset.phone;
+    if (e.target.closest('[data-wa-create]')) void waCreateClientFromChat(phone);
+    else if (e.target.closest('[data-wa-attach]')) waAttachChatToClient(phone, row);
+  });
+
+  document.getElementById('waChatClose')?.addEventListener('click', closeWaChat);
+  document.getElementById('waChatBackdrop')?.addEventListener('click', closeWaChat);
+  // Живое окно WhatsApp прямо в модалке: показывает реальный чат и позволяет
+  // писать в него, когда обычная отправка недоступна.
+  document.getElementById('waChatLive')?.addEventListener('click', () => {
+    const wrap = document.getElementById('waChatLiveWrap');
+    const frame = document.getElementById('waChatLiveFrame');
+    const btn = document.getElementById('waChatLive');
+    if (!wrap || !frame) return;
+    if (wrap.hidden) {
+      const digits = String(_waChatState.phone || '').replace(/[^0-9]/g, '');
+      frame.src = '/api/whatsapp/live?phone=' + encodeURIComponent(digits);
+      wrap.hidden = false;
+      if (btn) btn.textContent = 'Скрыть окно WhatsApp';
+    } else {
+      wrap.hidden = true;
+      frame.src = 'about:blank'; // останавливаем поток кадров
+      if (btn) btn.textContent = 'Открыть окно WhatsApp';
+    }
+  });
+  document.getElementById('waChatSend')?.addEventListener('click', () => void sendWaChat());
+  // Ctrl/Cmd+Enter отправляет — привычно для поля переписки.
+  document.getElementById('waChatInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void sendWaChat(); }
+  });
+
+  document.getElementById('clWaSendBtn')?.addEventListener('click', () => {
     const btn = document.getElementById('clWaSendBtn');
     const phone = btn?.dataset.phone || '';
+    const clientId = document.getElementById('clientId')?.value || '';
     if (!phone) return;
-    const message = prompt('Сообщение для клиента (WhatsApp):', '');
-    if (!message) return;
-    btn.disabled = true;
-    try {
-      const r = await apiCall('POST', '/api/whatsapp/send', { phone, message });
-      if (r.ok) {
-        toast('Сообщение отправлено!');
-      } else {
-        toast('Ошибка: ' + (r.data?.error || r.status));
-      }
-    } finally {
-      btn.disabled = false;
-    }
+    void openWaChat(clientId, phone);
   });
 
   if (els.clientTabBar) {
@@ -7657,7 +8077,7 @@ import {
       const TYPE_INFO = {
         cash: { label: 'Наличные', color: '#3b82f6' },
         bank: { label: 'Расчётные', color: '#16a34a' },
-        personal: { label: 'Личные', color: '#a78bfa' },
+        personal: { label: 'Личные', color: '#c99799' },
         other: { label: 'Прочие', color: '#94a3b8' },
       };
       const items = Object.entries(byType).map(([k, v]) => {
@@ -11049,7 +11469,15 @@ import {
     // header
     const dayEl = document.getElementById('todayDayLabel');
     const dateEl = document.getElementById('todayDateFull');
-    if (dayEl) dayEl.textContent = 'Сегодня';
+    // Приветствие по имени вместо слова «Сегодня»: дата и так стоит строкой
+    // выше, а обращение задаёт тон рабочего дня — так в макете.
+    if (dayEl) {
+      const h = new Date().getHours();
+      const part = h < 6 ? 'Доброй ночи' : h < 12 ? 'Доброе утро'
+        : h < 18 ? 'Добрый день' : 'Добрый вечер';
+      const name = (store.user?.full_name || '').trim().split(/\s+/)[0] || '';
+      dayEl.textContent = name ? `${part}, ${name}` : part;
+    }
     if (dateEl) {
       dateEl.textContent = new Date(today + 'T12:00:00').toLocaleDateString('ru-RU', {
         weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -11362,7 +11790,7 @@ import {
             ${escapeHtml(name)}
           </td>
           <td style="padding:13px 16px;text-align:right;">${m.visits}</td>
-          <td style="padding:13px 16px;text-align:right;font-weight:600;color:#7c3aed;">${formatPrice(m.revenue)}</td>
+          <td style="padding:13px 16px;text-align:right;font-weight:600;color:#93494b;">${formatPrice(m.revenue)}</td>
           <td style="padding:13px 16px;text-align:right;">${formatPrice(m.avg_check)}</td>
           <td style="padding:13px 16px;text-align:right;">${m.unique_clients}</td>
           <td style="padding:13px 16px;text-align:right;color:${ratingColor};font-weight:600;">${rating}</td>
@@ -11434,11 +11862,11 @@ import {
       const borderTop = idx > 0 ? 'border-top:1px solid #f3f4f6;' : '';
       const replied = r.reply
         ? `<div style="margin-top:8px;padding:8px 12px;background:#f5f3ff;border-radius:8px;font-size:13px;">
-             <span style="color:#7c3aed;font-weight:600;">Ответ владельца:</span>
+             <span style="color:#93494b;font-weight:600;">Ответ владельца:</span>
              <span style="color:#374151;"> ${escapeHtml(r.reply)}</span>
            </div>` : '';
       const replyBtn = !r.reply && (currentUser?.role === 'owner' || currentUser?.role === 'admin')
-        ? `<button onclick="openReviewReply('${r.id}')" style="margin-top:8px;font-size:12px;color:#7c3aed;background:none;border:none;cursor:pointer;padding:0;">Ответить</button>`
+        ? `<button onclick="openReviewReply('${r.id}')" style="margin-top:8px;font-size:12px;color:#93494b;background:none;border:none;cursor:pointer;padding:0;">Ответить</button>`
         : '';
       return `
         <div style="padding:16px 20px;${borderTop}">
@@ -12532,6 +12960,7 @@ import {
     if (v === 'messages') {
       void loadWaBroadcastStatus();
       void loadBroadcastSegment();
+      void loadWaUnlinked();
     }
   };
 
@@ -12540,4 +12969,5 @@ import {
   setView('profile');
   probeBackend();
   setInterval(probeBackend, 10000);
+  startWaNotifications();
 })();

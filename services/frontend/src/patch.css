@@ -1,13 +1,62 @@
 /* ============================================================
-   patch.css — «премиум-полировка» поверх существующего style.css
-   ПОДКЛЮЧАТЬ ПОСЛЕ style.css (последним), НЕ трогая style.css.
-   Только косметика: фирменный сериф Fraunces на крупных
-   заголовках/цифрах + чуть глубже тени. Полностью обратимо —
-   удалить <link>, и всё вернётся как было.
-   Требует подключённых шрифтов (см. README, шаг 2).
+   patch.css — премиум-полировка + ДОБИВКА ФИОЛЕТА
+   ПОДКЛЮЧАТЬ ПОСЛЕ style.css (последним).
+
+   Зачем: tokens.css перекрашивает только то, что ходит через
+   переменные. Но style.css объявляет СВОЙ :root с фиолетовыми
+   значениями (сайдбар, карточки записей), и есть ~15 мест с
+   цветом, вписанным прямо в правило. Этот файл их перекрывает.
    ============================================================ */
 
-/* Крупные заголовки экранов и суммы — фирменным серифом */
+/* ---------- 1. ПЕРЕОПРЕДЕЛЕНИЕ :root ИЗ style.css ----------
+   Это главное. Без этого активный пункт сайдбара и карточки
+   записей остаются фиолетовыми при бордовых токенах.          */
+:root {
+  /* Сайдбар — ТЁМНЫЙ, как в макете */
+  --sb-bg: #241c1c;
+  --sb-text: #d8cfca;
+  --sb-text-dim: #8a7d76;
+  --sb-bg-hover: #332727;
+  --sb-border: #332727;
+  --sb-text-active: #ffffff;
+  --sb-bg-active: #93494b;
+
+  /* Карточки записей в журнале (были лавандовые) */
+  --bk-lavender: #f0dcdc;
+  --bk-lavender-strong: #c99799;
+  --bk-lavender-text: #7a3b3d;
+}
+
+/* Активный пункт на тёмном — фирменный градиент вместо плоской заливки */
+.nav-item.active {
+  background: linear-gradient(135deg, #93494b 0%, #7a3b3d 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 6px 16px rgba(147, 73, 75, 0.40);
+}
+.nav-item.active svg { stroke: #fff; }
+
+/* Блок пользователя внизу сайдбара */
+.user-mini-avatar { background: linear-gradient(135deg, #cfa76a, #b8894e) !important; }
+
+/* ---------- 2. Захардкоженные правила в style.css ---------- */
+.sale-bonus-balance,
+.cl-bonus-val { color: var(--primary); }
+
+.pay-online {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.callpop--ticket { border-left-color: var(--primary); }
+.callpop--ticket .callpop-state { color: var(--primary); }
+
+/* ---------- 3. Инлайн-стили в разметке (нужен !important) ----------
+   index.html: плитки статистики отзывов
+   app.js: выручка мастера в таблице, подписи ответов на отзывы   */
+#rvStatTotal,
+#rvStatAvg { color: var(--primary) !important; }
+
+/* ---------- 4. Типографика: фирменный сериф на крупном ---------- */
 .today-title,
 .today-clock,
 .today-kpi-val,
@@ -20,20 +69,478 @@ h1, h2 {
   letter-spacing: -0.01em;
 }
 
-/* Кнопка бренда — мягкая фирменная тень (премиум-сигнал) */
-.btn-primary {
-  box-shadow: var(--shadow-brand, 0 8px 20px rgba(147, 73, 75, 0.28));
+/* ---------- 5. Премиум-детали ---------- */
+.btn-primary { box-shadow: var(--shadow-brand, 0 8px 20px rgba(147, 73, 75, 0.28)); }
+.btn-primary:hover { box-shadow: 0 10px 26px rgba(147, 73, 75, 0.34); }
+
+.topbar-brand-mark { background: linear-gradient(135deg, #93494b 0%, #b3696b 100%); }
+
+/* Рамка активного пункта убрана: на тёмном сайдбаре она перебивает
+   градиент выше (правило идёт позже). При обновлении файла — убрать снова. */
+
+/* ============================================================
+   6. НОВЫЕ РАЗДЕЛЫ — приведение к общему стилю
+   Телефония, Продажи, Аналитика, Зарплата, Акции, Склад, Финансы.
+   Верстались отдельно, поэтому разъезжаются: синий активный таб,
+   свои хардкод-цвета метрик, цифры обычным сансом.
+   ============================================================ */
+
+/* ---- 6.1 Подnavi­гация разделов (табы) ----
+   Было: активный таб СИНИЙ — rgba(59,130,246,.1). Ни разу не бренд. */
+.subnav-item.active {
+  background: var(--primary-soft);
+  color: var(--primary);
 }
-.btn-primary:hover {
-  box-shadow: 0 10px 26px rgba(147, 73, 75, 0.34);
+.subnav-item:hover:not(.disabled) {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+.subnav-item.disabled { color: #cfc4bc; }
+
+/* ---- 6.2 Все метрики-цифры — единый вид ----
+   Один шрифт, один вес, выключка по цифрам. Цвет = смысл, не украшение. */
+.tel-metric-val,
+.fin-kpi-val,
+.promo-an-val,
+.today-kpi-val,
+.an-bar-val,
+.sal-pp-amount {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
-/* Логотип-плашка в топбаре — бордо-градиент под бренд */
-.topbar-brand-mark {
-  background: linear-gradient(135deg, #93494b 0%, #b3696b 100%);
+/* Приглушаем «неоновые» семантические цвета до спокойных.
+   Кислотный зелёный/красный рядом с бордо выглядит дёшево. */
+.tel-metric.is-ok .tel-metric-val { color: #2f7d52; }
+.tel-metric.is-miss .tel-metric-val { color: #b3393b; }
+
+/* ---- 6.3 Плитки метрик — одна форма во всех разделах ----
+   Было: .tel-metric на --card, .promo-an-tile на --bg-soft, .fin-kpi-card
+   со своей тенью. Сводим к карточке из дизайн-системы. */
+.tel-metric,
+.promo-an-tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
 }
 
-/* Активный пункт сайдбара — чуть заметнее */
-.nav-item.active {
-  box-shadow: inset 0 0 0 1px rgba(147, 73, 75, 0.12);
+/* ---- 6.4 Подписи метрик — единый регистр и цвет ---- */
+.tel-metric-cap,
+.fin-kpi-label,
+.promo-an-label,
+.analytics-card-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
+
+/* ---- 6.5 Чужие акцентные цвета → тёплая гамма ---- */
+.sal-row.sal-row-cleaner { border-left-color: var(--accent-gold); }
+.inv-check-table .variance-positive { color: #2f7d52; }
+.inv-check-table .variance-negative { color: #b3393b; }
+.callpop-chip.is-on { background: var(--primary); border-color: var(--primary); }
+
+/* ---- 6.6 Заголовки карточек разделов — фирменный сериф ---- */
+.finance-card-head,
+.analytics-card-head,
+.sal-settle-head-info > :first-child {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-weight: 600;
+}
+
+/* ---- 6.7 Нативные селекты в фильтрах ----
+   Браузерный вид выбивается из остальных полей. */
+select {
+  font-family: inherit;
+  font-size: var(--fs-base);
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+select:focus { outline: none; border-color: var(--primary); box-shadow: var(--ring); }
+
+/* ============================================================
+   7. КЛИЕНТЫ + КНОПКИ — разъезд на реальных данных
+   ============================================================ */
+
+/* ---- 7.1 Категории справа: активная была СИНЕЙ ----
+   .subnav-item я поправил раньше, а .client-seg пропустил — тот же синий. */
+.client-seg.active { background: var(--primary-soft); }
+.client-seg.active .client-seg-label { color: var(--primary); font-weight: 600; }
+.client-seg:hover { background: var(--bg-soft); }
+
+/* Счётчики категорий — приглушаем неон до тёплой семантики */
+.client-seg-count.col-sleeping { color: #b07a1e; }
+.client-seg-count.col-missing,
+.client-seg-count.col-blocked { color: #b3393b; }
+.client-seg-count.col-new { color: #2f7d52; }
+.client-seg-count.col-never,
+.client-seg-count.col-regular { color: var(--text-dim); }
+
+/* ---- 7.2 ГЛАВНОЕ: у кнопок не было состояния :disabled ----
+   Поэтому Phase-1 кнопка «Начислить бонусы» (disabled) кричит
+   ярко-зелёным и читается как основное действие экрана. */
+.btn-primary[disabled], .btn-success[disabled],
+.btn-secondary[disabled], .btn-danger[disabled], .btn-ghost[disabled],
+.btn-primary:disabled, .btn-success:disabled,
+.btn-secondary:disabled, .btn-danger:disabled, .btn-ghost:disabled {
+  background: var(--bg-soft) !important;
+  color: #b7aca4 !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+/* ---- 7.3 Кнопки: текст не должен переноситься ----
+   «Добавить нового клиента» ломалось на две строки и раздувало тулбар. */
+.btn-primary, .btn-secondary, .btn-danger, .btn-ghost, .btn-success {
+  white-space: nowrap;
+  border-radius: var(--radius-md);
+}
+
+/* margin-top:14px в базовом правиле сдвигает кнопки внутри тулбаров */
+.clients-toolbar .btn-primary,
+.clients-toolbar .btn-success,
+.clients-toolbar .btn-secondary,
+.subnav .btn-primary,
+.finance-card-head .btn-primary { margin-top: 0; }
+
+/* ---- 7.4 Зелёный «успех» — спокойнее рядом с бордо ---- */
+.btn-success { background: #2f7d52; }
+.btn-success:hover { background: #276a45; }
+
+/* ---- 7.5 Второе действие не должно весить как первое ----
+   Бордовая «Добавить клиента» — основное; всё рядом вторично. */
+.clients-toolbar .btn-success { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.clients-toolbar .btn-success:hover:not([disabled]) { background: var(--bg-soft); }
+
+/* ============================================================
+   8. ОБЩИЕ ПРИМИТИВЫ — подгонка дизайна под новый функционал
+   Продажи, Сообщения, Настройки, Аналитика собраны не на своих
+   классах, а на общих: .kpi-card, .page-toolbar, .period-pill,
+   .data-table, .card, .pill. Правим примитивы — подтягиваются
+   все разделы разом, включая те, что появятся дальше.
+   ============================================================ */
+
+/* ---- 8.1 KPI-цифры: главный разъезд ----
+   В блоке 6.2 я перевёл на сериф .tel-metric-val и .fin-kpi-val,
+   но ОБЩИЙ .kpi-value пропустил — а на нём Продажи и половина
+   новых разделов. Отсюда «в макете сериф, в приложении санс». */
+.kpi-value,
+.broadcast-count-num {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.kpi-value--sm { font-family: var(--font-sans); font-weight: 600; }
+
+/* ---- 8.2 Заголовки экранов и карточек — фирменный сериф ---- */
+.page-title,
+.card-title {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ---- 8.3 Таблицы данных ----
+   Шапка была бледной и в нижнем регистре — не совпадала с шапками
+   в «Клиентах»/«Зарплате». Приводим к одному виду. */
+.data-table th {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-soft);
+  padding: 11px 12px;
+}
+.data-table td { border-bottom-color: #f6f1ec; } /* был холодный #f1f5f9 */
+.data-table td:first-child { padding-left: 16px; }
+.data-table th:first-child { padding-left: 16px; }
+
+/* ---- 8.4 Пилюли-статусы: синяя выбивалась из бренда ---- */
+.pill-ok   { background: #e7f4ec; color: #2f7d52; }
+.pill-info { background: var(--primary-soft); color: var(--primary); }
+.pill-warn { background: #faf1e3; color: #8a6023; }
+.pill-mute { background: var(--bg-soft); color: var(--text-dim); }
+
+/* ---- 8.5 Тулбар экрана — выравнивание по базовой линии ---- */
+.page-toolbar { align-items: baseline; }
+.page-toolbar .toolbar-actions { margin-left: auto; }
+
+/* ---- 8.6 Поля форм — один вид во всех новых разделах ---- */
+.jf-group input,
+.jf-group select,
+.jf-group textarea {
+  border-radius: var(--radius-md);
+  font-family: inherit;
+}
+.jf-group label {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   9. УСЛУГИ / КАТАЛОГ — новый функционал, дизайн не догнал
+   ============================================================ */
+
+/* ---- 9.1 Цены выглядят как код ----
+   .row-stat (стр. 498) стоит на полном monospace, поэтому
+   «7 000 ₽ · 45 мин» читается как вывод в терминале.
+   Нужны цифры фиксированной ширины, а не моношрифт целиком. */
+.row-stat {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ---- 9.2 «Каталог на сайте ↗» выглядит сломанной ссылкой ----
+   Это <a class="btn-ghost">, но btn-ghost не сбрасывает
+   подчёркивание — кнопка в ряду с другими идёт подчёркнутой. */
+a.btn-ghost, a.btn-secondary, a.btn-primary { text-decoration: none; }
+a.btn-ghost:hover { text-decoration: none; }
+
+/* ---- 9.3 Переключатель «в меню»: состояние держится на эмодзи ----
+   В CSS оба состояния выглядят одинаково (белая пилюля с рамкой),
+   разницу несёт только ✅/❌ из app.js. Готовим настоящие состояния —
+   включается вместе с правкой JS ниже (см. УСЛУГИ-КАТАЛОГ.md). */
+.svc-menu-flag { font-weight: 600; gap: 6px; padding: 4px 11px; }
+.svc-menu-flag .svc-menu-flag-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #cfc4bc; flex-shrink: 0;
+}
+.svc-menu-flag.is-on {
+  background: #e7f4ec;
+  border-color: #bfe0cb;
+  color: #2f7d52;
+}
+.svc-menu-flag.is-on .svc-menu-flag-dot { background: #2f7d52; }
+.svc-menu-flag:not(.is-on) { color: var(--text-muted); }
+
+/* ---- 9.4 Заголовки групп услуг ---- */
+.svc-group-head {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  padding: 11px 14px;
+}
+.svc-group-count {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 1px 9px;
+  color: var(--text-dim);
+}
+
+/* ---- 9.5 Длинные названия ломали выравнивание строки ----
+   «HydraFacial… + Механическая чистка» переносится на 2 строки,
+   и цена с флагом уезжают по центру. Прижимаем к верху. */
+.row-item { align-items: flex-start; }
+.row-item .svc-menu-flag,
+.row-item .row-stat { margin-top: 1px; }
+.row-name { line-height: 1.35; text-wrap: pretty; }
+
+/* ---- 9.6 Удалённые услуги — opacity .5 съедает читаемость ---- */
+.row-item.inactive { opacity: 1; }
+.row-item.inactive .row-name { color: var(--text-muted); }
+.row-item.inactive .row-stat { color: var(--text-muted); font-weight: 500; }
+.badge { background: var(--bg-soft); color: var(--text-dim); font-weight: 600; }
+
+/* ---- Статус клиента в строке списка ----
+   Заменяет цветную точку на аватаре: точка требовала навести курсор, чтобы
+   понять смысл. Цвета приглушены под тёплую гамму. */
+.client-seg-pill {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.client-seg-pill.seg-regular  { background: #eef6f0; color: #2f7d52; }
+.client-seg-pill.seg-sleeping { background: #fdf3e2; color: #a8700f; }
+.client-seg-pill.seg-missing  { background: #fbeded; color: #b3393b; }
+.client-seg-pill.seg-new      { background: #f4e9e9; color: #93494b; }
+.client-seg-pill.seg-never    { background: #f1efec; color: #7a6f68; }
+.client-seg-pill.seg-blocked  { background: #fbeded; color: #b3393b; }
+
+/* ============================================================
+   10. СЕГОДНЯ — главная цифра дня
+   Было: пять одинаковых плиток в ряд, выручка среди них теряется,
+   а цветные полоски сверху (в т.ч. синяя #3b82f6) — не бренд.
+   ============================================================ */
+
+/* Выручка — крупная бордовая карточка, остальное вторично. */
+.today-kpi-card.is-hero {
+  background: linear-gradient(135deg, #93494b 0%, #7a3b3d 100%);
+  border: none;
+  border-top: none;
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(147, 73, 75, 0.28);
+  grid-row: span 1;
+}
+.today-kpi-card.is-hero .today-kpi-val {
+  color: #fff;
+  font-size: 30px;
+  line-height: 1.15;
+}
+.today-kpi-card.is-hero .today-kpi-lbl {
+  color: rgba(255, 255, 255, 0.82);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+/* Цветные полоски сверху: синяя и зелёная выбивались из бренда.
+   Оставляем тонкую тёплую линию — акцент есть, разнобоя нет. */
+.today-kpi-card.accent-green  { border-top-color: #2f7d52; }
+.today-kpi-card.accent-blue   { border-top-color: var(--accent-gold); }
+.today-kpi-card.accent-orange { border-top-color: #b07a1e; }
+
+/* Заголовок-приветствие и часы — фирменным серифом, как в макете. */
+.today-title { font-family: var(--font-display, "Fraunces", Georgia, serif); }
+.today-clock {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}
+
+/* ---- 10.1 Блок пользователя — вход в профиль ----
+   Стал ссылкой вместо div: отдельный пункт «Профиль» в списке разделов убран,
+   он дублировал этот блок. Снимаем подчёркивание и наследуем цвет, иначе
+   имя рисуется как обычная ссылка браузера. */
+.user-mini {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background .15s;
+}
+.user-mini:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* ---- 10.3 Выход рядом с учёткой ---- */
+.user-mini-row { display: flex; align-items: center; gap: 6px; }
+.user-mini-row .user-mini { flex: 1; min-width: 0; }
+.sidebar-logout {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  background: transparent; border: none; border-radius: 8px;
+  color: var(--sb-text-dim, #8a7d76); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.sidebar-logout:hover { background: rgba(255,255,255,.08); color: #e8b4b6; }
+
+/* ---- 10.4 Учётка внизу сайдбара: читаемость на тёмном ----
+   Цвета остались от светлого сайдбара — имя рисовалось тёмно-серым по
+   тёмному и пропадало, видна была только роль. */
+.user-mini-name {
+  color: #f0e9e5;
+  font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.user-mini-role { color: var(--sb-text-dim, #8a7d76); }
+
+/* ---- 10.5 Предупреждение о потере связи ----
+   Блок появляется только при обрыве, поэтому оформлен как тревога, а не как
+   служебная строка статуса. */
+.status-mini:not([hidden]) {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 8px; padding: 7px 10px;
+  background: rgba(179, 57, 59, .16);
+  border-radius: 8px;
+  font-size: 12px; color: #f0c3c4;
+}
+
+/* ---- 10.6 Шапка сайдбара: логотип, салон, кто работает ----
+   Один блок по центру. Аватар и подложка убраны: они дробили шапку на две
+   карточки, хотя это единый смысловой блок «где я и кто я». */
+.sidebar-head {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 18px 16px 12px; text-align: center;
+}
+.brand {
+  /* Логотип слева, название справа по центру его высоты — вертикальная
+     раскладка съедала высоту сайдбара и отодвигала меню вниз. */
+  display: flex; flex-direction: row; align-items: center; gap: 11px;
+  text-decoration: none; color: inherit;
+}
+.brand-mark {
+  /* flex: 0 0 52px, а не только width: в flex-строке ширину определяет
+     flex-basis, и без него картинка сжималась до 36px при высоте 52. */
+  flex: 0 0 52px;
+  width: 52px; height: 52px; border-radius: 50%;
+  overflow: hidden; background: #fff; display: block;
+}
+.brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.brand-name {
+  font-family: var(--font-display, "Fraunces", Georgia, serif);
+  font-size: 21px; font-weight: 600; color: #fff; line-height: 1.1;
+}
+.brand-sub { font-size: 12px; color: var(--sb-text-dim, #8a7d76); }
+
+/* Кто работает — простой текст под названием салона. */
+.sidebar-who {
+  display: flex; flex-direction: column; gap: 1px;
+  max-width: 100%; padding: 4px 6px; border-radius: 8px;
+  text-decoration: none; color: inherit; transition: background .15s;
+}
+.sidebar-who:hover { background: rgba(255,255,255,.06); }
+.sidebar-who-name {
+  font-size: 13px; font-weight: 600; color: #e8ddd6;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sidebar-who-role { font-size: 11.5px; color: var(--sb-text-dim, #8a7d76); }
+
+/* Выход внизу — теперь с подписью, на всю ширину */
+.sidebar-logout {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; height: auto; padding: 9px 11px;
+  font: inherit; font-size: 13px;
+  background: transparent; border: none; border-radius: 10px;
+  color: var(--sb-text-dim, #8a7d76); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.sidebar-logout:hover { background: rgba(255, 255, 255, .08); color: #e8b4b6; }
+
+/* ---- 10.7 Меню не должно обрезаться ----
+   У .sidebar-nav есть overflow-y:auto и flex:1, но по умолчанию flex-элемент
+   не сжимается ниже своего содержимого (min-height:auto) — прокрутка не
+   включалась, и нижние пункты («Финансы», «Склад», «Настройки») просто
+   уходили за край. Заметно на ноутбуках и после того, как шапка подросла. */
+.sidebar-nav { min-height: 0; }
+.sidebar-head, .sidebar-foot { flex: 0 0 auto; }
+
+/* Компактнее отступы: при 15 пунктах каждые сэкономленные 2px — это ещё
+   один видимый раздел без прокрутки. */
+.nav-section { padding: 16px 12px 5px; }
+
+/* ---- 10.8 Панель журнала: кнопки периодов не должны обрезаться ----
+   .journal-period — inline-flex с overflow:hidden (чтобы скруглить углы
+   группы). В flex-строке он сжимался ниже своего содержимого: при 287px
+   содержимого оставалось 112px видимых, и «Неделя»/«Месяц» уезжали под
+   обрез, наезжая визуально на переключатель даты.
+   flex:0 0 auto запрещает сжатие — этого достаточно, кнопки больше не режутся.
+   Ни wrap, ни overflow на панели применять нельзя:
+   wrap срывал кнопки действий на вторую строку даже на широком экране,
+   а overflow-x обрезал выпадающий календарь .journal-datepop — он
+   position:absolute внутри панели, и любая обрезка его прячет. */
+.journal-toolbar, .schedule-toolbar { flex-wrap: nowrap; }
+.journal-period { flex: 0 0 auto; }
+.journal-datenav, .journal-period-btn { flex: 0 0 auto; }
+.journal-period-btn { white-space: nowrap; }

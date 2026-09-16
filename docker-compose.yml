@@ -384,10 +384,26 @@ services:
       PORT: 3008
       WHATSAPP_TEST_MODE: ${WHATSAPP_TEST_MODE:-true}
       WHATSAPP_SESSION_DIR: /data/session
+      WHATSAPP_MEDIA_DIR: /data/media
       WHATSAPP_SOCKS_PROXY: ${WHATSAPP_SOCKS_PROXY:-}
+      # Хранение переписки в БД; false — только отправка, без истории.
+      WHATSAPP_STORE_MESSAGES: ${WHATSAPP_STORE_MESSAGES:-true}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
       # Белый список номеров (через запятую). Задан — отправка идёт только на
       # них. Нужен на стенде с копией прод-базы: там реальные телефоны клиентов.
       WHATSAPP_ALLOWLIST: ${WHATSAPP_ALLOWLIST:-}
+      # Монитор переписки. Два цикла с разной ценой: «дозор» только читает
+      # список чатов (дёшево и незаметно для WhatsApp — можно часто), полный
+      # обход заходит во все чаты подряд (заметно — поэтому редко).
+      # Умолчание false: монитор обходит чаты боевого номера и сохраняет
+      # переписку в базу. Это осознанное решение владельца номера, а не то,
+      # что должно включаться само при выкате. Локально включается через .env.
+      WHATSAPP_MONITOR: ${WHATSAPP_MONITOR:-false}
+      WHATSAPP_MONITOR_WATCH_MS: ${WHATSAPP_MONITOR_WATCH_MS:-8000}
+      WHATSAPP_MONITOR_FULL_MS: ${WHATSAPP_MONITOR_FULL_MS:-900000}
+      WHATSAPP_MONITOR_CHATS: ${WHATSAPP_MONITOR_CHATS:-10}
+      WHATSAPP_MONITOR_DEPTH: ${WHATSAPP_MONITOR_DEPTH:-50}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -395,8 +411,16 @@ services:
       - "3008"
     volumes:
       - whatsapp_session:/data/session
+      # Вложения переписки: фото, PDF, голосовые. На диске, а не в БД — за год
+      # это гигабайты, которые иначе попадали бы в каждый ночной pg_dump.
+      - whatsapp_media:/data/media
     networks:
       - samaya-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     shm_size: '256mb'
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3008/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
@@ -495,5 +519,6 @@ volumes:
   postgres_data:
   redis_data:
   whatsapp_session:
+  whatsapp_media:
   service-media:
   telephony_recordings:
