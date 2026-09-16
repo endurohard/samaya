@@ -416,6 +416,10 @@ services:
       - whatsapp_media:/data/media
     networks:
       - samaya-network
+    # Доступ к мостам на шлюзе docker: через них браузер WhatsApp выходит
+    # в VLESS-туннель (см. egress-proxy-vless).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -447,6 +451,31 @@ services:
       BIND_PORT: ${EGRESS_BIND_PORT:-1180}
       TARGET_HOST: ${EGRESS_TARGET_HOST:-127.0.0.1}
       TARGET_PORT: ${EGRESS_TARGET_PORT:-1080}
+    mem_limit: 64m
+    cpus: 0.25
+    restart: unless-stopped
+
+  # Второй мост — к HTTP-порту xray, через который трафик уходит в VLESS-туннель.
+  #
+  # Зачем отдельный от egress-proxy: тот ведёт на порт 1080, и с него трафик
+  # выходит прямым адресом сервера. Для телефонии это нормально, а WhatsApp
+  # видит IP датацентра в Нидерландах, хотя номер и клиника — российские.
+  # Такое расхождение — типичная причина блокировки аккаунта, поэтому браузер
+  # WhatsApp ходит через VLESS и выходит местным адресом.
+  #
+  # Порт xray проверяется так: curl -x http://127.0.0.1:1087 https://api.ipify.org
+  # должен вернуть адрес, отличный от прямого.
+  egress-proxy-vless:
+    build:
+      context: ./services/egress-proxy
+      dockerfile: Dockerfile
+    container_name: samaya-egress-proxy-vless
+    network_mode: host
+    environment:
+      BIND_HOST: ${EGRESS_VLESS_BIND_HOST:-127.0.0.1}
+      BIND_PORT: ${EGRESS_VLESS_BIND_PORT:-1181}
+      TARGET_HOST: ${EGRESS_VLESS_TARGET_HOST:-127.0.0.1}
+      TARGET_PORT: ${EGRESS_VLESS_TARGET_PORT:-1087}
     mem_limit: 64m
     cpus: 0.25
     restart: unless-stopped

@@ -166,7 +166,17 @@ class WhatsAppManager {
         '--disable-web-security',
         `--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36`,
       ];
-      if (SOCKS_PROXY) args.push(`--proxy-server=${SOCKS_PROXY}`);
+      if (SOCKS_PROXY) {
+        args.push(`--proxy-server=${SOCKS_PROXY}`);
+        // Локальные адреса мимо прокси: иначе обращения к самому мосту
+        // и к localhost внутри контейнера пошли бы по кругу через туннель.
+        args.push('--proxy-bypass-list=<-loopback>');
+        // WebRTC в обход прокси показывает настоящий IP сервера — ровно то
+        // расхождение, ради устранения которого туннель и поднимается.
+        args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
+        args.push('--webrtc-ip-handling-policy=disable_non_proxied_udp');
+        console.log(`[WA] прокси: ${SOCKS_PROXY}`);
+      }
 
       this.browser = await puppeteer.launch({
         executablePath: CHROMIUM_PATH,
