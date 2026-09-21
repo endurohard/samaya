@@ -261,24 +261,45 @@ class WhatsAppManager {
       attempts++;
       try {
         const state = await this.page.evaluate(() => {
-          const hasChats = !!document.querySelector('[data-testid="chat-list"]');
-          const hasSide  = !!document.querySelector('#side');
-          const hasUser  = !!document.querySelector('[data-testid="default-user"]');
-          const noLanding = !document.querySelector('.landing-main');
-          const hasQRCanvas = !!document.querySelector('canvas');
-          return { hasChats, hasSide, hasUser, noLanding, hasQRCanvas };
+          // Признаки рабочего окна. Ищем именно список чатов и панель слева:
+          // это то, что появляется ТОЛЬКО у привязанного аккаунта.
+          const hasChats = !!document.querySelector('[data-testid="chat-list"], [aria-label="Chat list"], [data-testid="chatlist-panel"]');
+          const hasSide  = !!document.querySelector('#side, #pane-side');
+          const hasUser  = !!document.querySelector('[data-testid="default-user"], header [data-testid="avatar"]');
+          // QR: канвас или контейнер с кодом.
+          const hasQRCanvas = !!document.querySelector('canvas, [data-ref], [data-testid="qrcode"]');
+          const text = (document.body.innerText || '').slice(0, 400);
+          return { hasChats, hasSide, hasUser, hasQRCanvas, url: location.href, text };
         });
 
-        const authScore = [state.hasChats, state.hasSide, state.hasUser, state.noLanding]
-          .filter(Boolean).length;
+        // Готовность — только по положительным признакам рабочего окна.
+        //
+        // Раньше в счёт шёл ещё и noLanding («нет посадочной страницы»), и на
+        // экране разлогина (?post_logout=1) он давал очко на пустом месте:
+        // посадочной там нет, но и аккаунта тоже. Сервис рапортовал Ready!,
+        // хотя чатов не было и отправка падала с «WhatsApp not ready».
+        const authScore = [state.hasChats, state.hasSide, state.hasUser].filter(Boolean).length;
+        const loggedOut = /[?&]post_logout=1/.test(state.url || '');
 
-        if (authScore >= 2) {
+        if (authScore >= 1 && !loggedOut) {
           clearInterval(iv);
           this.isReady = true;
           this.qrDataUrl = null;
           this.statusMsg = 'ready';
           console.log('[WA] Ready!');
           this._startHealthCheck();
+          return;
+        }
+
+        // Экран разлогина сам по себе QR не покажет: на нём висит кнопка
+        // повторного входа, а страница остаётся статичной до перезагрузки.
+        // Возвращаемся на чистый адрес, иначе ждали бы код все 10 минут.
+        if (loggedOut) {
+          this.statusMsg = 'relogin';
+          console.log('[WA] экран разлогина — открываю заново');
+          try {
+            await this.page.goto('https://web.whatsapp.com/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+          } catch { /* следующая итерация попробует снова */ }
           return;
         }
 
