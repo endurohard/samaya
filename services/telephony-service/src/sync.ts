@@ -1,7 +1,7 @@
 import type { Logger } from 'pino';
 import { config } from './config';
 import { pool } from './db';
-import { listCalls, listEmployees, listTickets, type VatsCall, type VatsTicket } from './vats';
+import { listCalls, listEmployees, listTickets, type VatsCall, type VatsTicket, pushOnShift } from './vats';
 
 // Зеркалирование журнала звонков из ВАТС.
 //
@@ -17,6 +17,22 @@ function digits(n: string | null): string | null {
   if (!n) return null;
   const d = n.replace(/\D/g, '').slice(-10);
   return d.length === 10 ? d : null;
+}
+
+/**
+ * Телефон сотрудника → 7XXXXXXXXXX, как требует приёмная сторона ВАТС.
+ *
+ * В карточках номер лежит как придётся: «+7 963 …», «8963…», «9280564492» без
+ * кода страны. ВАТС отбрасывает всё, что не подходит под ^7\d{10}$, причём
+ * молча — поэтому приводим здесь, а не надеемся на аккуратность заполнения.
+ * Десять цифр считаем российским номером и дописываем 7: иначе половина
+ * карточек осталась бы без запасного вызова.
+ */
+function mobileDigits(phone: string | null): string | null {
+  const d = String(phone ?? '').replace(/\D/g, '');
+  if (d.length === 10) return `7${d}`;
+  if (d.length === 11 && (d[0] === '7' || d[0] === '8')) return `7${d.slice(1)}`;
+  return null;
 }
 
 async function upsertCalls(calls: VatsCall[]): Promise<number> {
@@ -223,11 +239,74 @@ export async function runSyncOnce(log: Logger): Promise<void> {
     await syncExtensions(log);
     await syncCalls(log);
     await syncTickets(log);
+    await syncOnShift(log);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log.error({ err: msg }, '[sync] failed');
     await recordFailure(msg);
   }
+}
+
+/**
+ * Отдать ВАТС состав смены: кто из сотрудников с привязанным внутренним номером
+ * сейчас работает и на какой мобильный ему звонить.
+ *
+ * Зачем: когда телефон сотрудника не в сети (выключен, упал интернет), ВАТС
+ * вместо потери вызова набирает его мобильный и соединяет с клиентом. Телефон
+ * берём из карточки сотрудника, границы смены — из графика, то есть ничего
+ * дублировать в ВАТС не нужно: поменяли график здесь — там подхватится.
+ *
+ * Шлём полный список каждый раз: ВАТС снимает с запасного вызова всех, кого в
+ * списке нет, — так снятая смена перестаёт действовать сама.
+ */
+async function syncOnShift(log: Logger): Promise<void> {
+  const { rows } = await pool.query<{
+    extension: string; mobile: string | null; employee: string; ends_at: string;
+  }>(
+    `SELECT l.extension,
+            m.phone        AS mobile,
+            m.display_name AS employee,
+            (s.work_date + s.end_time) AT TIME ZONE 'Europe/Moscow' AS ends_at
+       FROM telephony.extension_links l
+       JOIN salons.masters m ON m.id = l.master_id AND m.company_id = l.company_id
+       JOIN salons.master_schedules s
+              ON s.master_id = m.id AND s.company_id = m.company_id
+             AND s.work_date = (NOW() AT TIME ZONE 'Europe/Moscow')::date
+             AND NOT s.is_day_off
+      WHERE l.company_id = $1
+        AND l.enabled
+        AND l.master_id IS NOT NULL
+        AND m.is_active AND m.dismissed_at IS NULL
+        AND m.phone IS NOT NULL AND btrim(m.phone) <> ''
+        -- только те, кто прямо сейчас на смене
+        AND (NOW() AT TIME ZONE 'Europe/Moscow')::time BETWEEN s.start_time AND s.end_time`,
+    [config.DEFAULT_COMPANY_ID],
+  );
+
+  const shift: { extension: string; mobile: string; employee: string | null; until: string }[] = [];
+  const skipped: { extension: string; employee: string | null; phone: string | null }[] = [];
+
+  for (const r of rows) {
+    const mobile = mobileDigits(r.mobile);
+    // Без пригодного телефона строку не шлём: ВАТС всё равно отбросит её молча,
+    // и мы бы не узнали, что сотрудник на смене остался без запасного вызова.
+    if (!mobile) {
+      skipped.push({ extension: r.extension, employee: r.employee ?? null, phone: r.mobile });
+      continue;
+    }
+    shift.push({
+      extension: r.extension,
+      mobile,
+      employee: r.employee ?? null,
+      until: new Date(r.ends_at).toISOString(),
+    });
+  }
+
+  await pushOnShift(shift);
+  log.info({ count: shift.length }, '[sync] смена отдана в ВАТС');
+  // Не ошибка, а работа для администратора: в карточке сотрудника не хватает
+  // телефона. Пишем предупреждением, иначе запасной вызов тихо не работает.
+  if (skipped.length) log.warn({ skipped }, '[sync] на смене без пригодного мобильного');
 }
 
 /** Воркер: первый проход сразу после старта, дальше по интервалу. */

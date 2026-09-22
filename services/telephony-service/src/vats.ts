@@ -136,6 +136,22 @@ export async function setEmployeeName(extension: string, name: string): Promise<
   });
 }
 
+/** Кто сейчас на смене: ВАТС звонит на мобильный, когда внутренний номер офлайн. */
+export interface OnShiftEntry {
+  extension: string;
+  mobile: string;
+  employee: string | null;
+  until: string;              // ISO, конец смены
+}
+
+/**
+ * Отдать ВАТС текущий состав смены. Список полный: кого в нём нет — тех ВАТС
+ * снимает с запасного вызова, поэтому посылаем его целиком, а не изменения.
+ */
+export async function pushOnShift(shift: OnShiftEntry[]): Promise<void> {
+  await request('/on-shift', { method: 'PUT', body: JSON.stringify({ shift }) });
+}
+
 // Запись отдаётся потоком: ВАТС перекодирует wav в mp3 на лету, длина заранее
 // неизвестна. Читаем целиком — дальше файл ложится в кэш, и уже оттуда браузер
 // получает его с перемоткой.

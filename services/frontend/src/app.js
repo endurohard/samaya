@@ -7577,7 +7577,12 @@ async function loadWaChat(silent = false) {
         lastDay = day;
       }
       const out = m.from_me;
-      const who = out ? 'Мы' : escapeHtml(clientName);
+      // За одним номером работают посменно: у исходящих показываем, кто
+      // ответил. Подписи нет у старых сообщений и у автонапоминаний —
+      // там остаётся нейтральное «Мы».
+      const who = out
+        ? (m.author_name ? escapeHtml(m.author_name) : 'Мы')
+        : escapeHtml(clientName);
       const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
       const body = escapeHtml(m.body || '');
       const media = m.has_media

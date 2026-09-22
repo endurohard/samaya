@@ -174,12 +174,48 @@ export async function saveScraped(phoneDigits, items) {
   return { saved, linked, clientId };
 }
 
+// Подпись автора у только что отправленного сообщения.
+//
+// Автора нельзя проставить прямо в saveScraped: та читает чат со страницы и
+// не отличает «мы отправили это секунду назад» от старой исходящей реплики —
+// при первом чтении чата подпись получили бы все прошлые сообщения разом.
+// Поэтому ищем по тексту среди свежих исходящих без автора.
+export async function markAuthor(phoneDigits, body, author) {
+  if (!COMPANY_ID || !author?.id || !body) return 0;
+  const r = await pool.query(
+    `UPDATE whatsapp.messages SET author_id = $1, author_name = $2
+      WHERE wa_id = (
+        SELECT wa_id FROM whatsapp.messages
+         WHERE company_id = $3 AND phone_digits = $4
+           AND from_me = TRUE AND author_id IS NULL AND body = $5
+           -- Окно в 10 минут: если текст повторяется (а «Добрый день» шлют
+           -- часто), без ограничения по времени подпись села бы на реплику
+           -- прошлой недели.
+           AND sent_at > NOW() - INTERVAL '10 minutes'
+         ORDER BY created_at DESC LIMIT 1
+      )`,
+    [author.id, author.name || null, COMPANY_ID, phoneDigits, body],
+  );
+  return r.rowCount;
+}
+
+// Имя сотрудника для подписи. Читаем в момент отправки и кладём копией
+// в сообщение: джойн к users потерял бы подпись после увольнения.
+export async function authorName(userId) {
+  if (!userId) return null;
+  const r = await pool.query(
+    `SELECT NULLIF(TRIM(full_name), '') AS name FROM users.users WHERE id = $1`,
+    [userId],
+  );
+  return r.rows[0]?.name || null;
+}
+
 // Диалог с клиентом. Файлы отдаются отдельным роутом по id сообщения, поэтому
 // здесь только метаданные вложения.
 export async function listByClient(clientId, limit = 200) {
   const r = await pool.query(
     `SELECT wa_id, from_me, body, msg_type, media_name, media_mime, media_size,
-            (media_path IS NOT NULL) AS has_media, ack, sent_at
+            (media_path IS NOT NULL) AS has_media, ack, sent_at, author_name
        FROM whatsapp.messages
       WHERE client_id = $1
       ORDER BY sent_at DESC, created_at DESC

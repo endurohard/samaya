@@ -39,6 +39,10 @@ export async function authenticate(req, res, next) {
     try {
       const { payload } = await jwtVerify(h.slice(7), secret);
       if (payload.type === 'access' && ADMIN_ROLES.includes(payload.role)) {
+        // Кто именно вошёл — нужно роуту отправки, чтобы подписать сообщение
+        // автором. При внутреннем токене (booking-service) автора нет: это
+        // автоматика, а не сотрудник.
+        req.user = { id: payload.sub, role: payload.role };
         return next();
       }
     } catch {

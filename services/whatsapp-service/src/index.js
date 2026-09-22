@@ -1,7 +1,7 @@
 import express from 'express';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
-import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats } from './store.js';
+import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName } from './store.js';
 import { Monitor } from './monitor.js';
 import { authenticate } from './auth.js';
 
@@ -162,6 +162,12 @@ app.post('/api/whatsapp/send', async (req, res) => {
       const digits = digitsOf(phone);
       const read = await wa.readChat(digits, 20);
       if (read?.items?.length) await saveScraped(digits, read.items);
+      // Подпись автора: за одним номером клиники работают посменно, и по
+      // истории должно быть видно, кто что обещал клиенту. У внутреннего
+      // токена автора нет — там пишет автоматика (напоминания о визите).
+      if (req.user?.id) {
+        await markAuthor(digits, message, { id: req.user.id, name: await authorName(req.user.id) });
+      }
     } catch (e) {
       // Сообщение уже отправлено — неудача с дочитыванием не повод возвращать
       // ошибку: монитор подхватит его на следующем проходе.
