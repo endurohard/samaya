@@ -316,10 +316,19 @@ class WhatsAppManager {
         }
 
         if (attempts >= MAX) {
-          clearInterval(iv);
-          this.statusMsg = 'timeout';
-          this.lastError = 'Auth timeout (10 min)';
-          console.error('[WA] Auth timeout');
+          // Раньше опрос здесь останавливался совсем: страница оставалась
+          // открытой, но QR на ней протухал каждые ~20 секунд, а обновлять
+          // его было уже некому. Человек открывал админку через час, видел
+          // мёртвую картинку и сканировал впустую.
+          // Теперь перезагружаем страницу и продолжаем ждать: сеанс нужен
+          // круглосуточно, а привязать его могут не сразу.
+          attempts = 0;
+          this.statusMsg = 'waiting_qr_scan';
+          this.lastError = null;
+          console.log('[WA] QR не отсканирован за 10 мин — обновляю код');
+          try {
+            await this.page.goto('https://web.whatsapp.com/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+          } catch { /* следующая итерация попробует снова */ }
         }
       } catch (e) {
         console.warn('[WA] Poll error:', e.message);
