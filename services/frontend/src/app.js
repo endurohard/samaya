@@ -5330,16 +5330,39 @@ import {
     }
     const options = cachedMasters.filter((m) => m.is_active);
     box.innerHTML = items.map((e) => `
-      <div class="tel-ext-row" data-tel-ext="${escapeHtml(e.extension)}">
+      <div class="tel-ext-row${e.auto ? ' is-auto' : ''}" data-tel-ext="${escapeHtml(e.extension)}">
         <span class="tel-ext-num">${escapeHtml(e.extension)}</span>
         <span class="tel-ext-vats">${escapeHtml(e.vats_name || '—')}</span>
-        <select data-tel-ext-master>
+        <label class="tel-ext-auto" title="Номер достаётся тому, кто вышел в смену: первый по времени начала получает меньший номер">
+          <input type="checkbox" data-tel-ext-auto${e.auto ? ' checked' : ''}> по смене
+        </label>
+        <select data-tel-ext-master${e.auto ? ' disabled' : ''}>
           <option value="">— не привязан —</option>
           ${options.map((m) => `<option value="${escapeHtml(m.id)}"${m.id === e.master_id ? ' selected' : ''}>${escapeHtml(m.display_name)}</option>`).join('')}
         </select>
         <span class="tel-ext-calls">${e.calls_count} ${plural(e.calls_count, ['звонок', 'звонка', 'звонков'])}</span>
       </div>`).join('');
   }
+
+  // Переключение режима номера. Список перерисовываем целиком: раздача могла
+  // передвинуть и соседние номера — сотрудники сдвигаются по порядку.
+  document.getElementById('telExtList')?.addEventListener('change', async (ev) => {
+    const cb = ev.target.closest('[data-tel-ext-auto]');
+    if (!cb) return;
+    const ext = cb.closest('[data-tel-ext]')?.dataset.telExt;
+    if (!ext) return;
+    cb.disabled = true;
+    const { ok, data } = await apiCall('PUT', `/api/telephony/extensions/${encodeURIComponent(ext)}/auto`, { auto: cb.checked });
+    cb.disabled = false;
+    if (!ok) { toast('Не удалось переключить режим'); cb.checked = !cb.checked; return; }
+    const a = data?.assignment;
+    if (a) {
+      const names = (a.assigned || []).map((x) => `${x.extension} — ${x.name}`).join(', ');
+      toast(names ? `Раздано по смене: ${names}` : 'На сегодня смен нет — номер свободен');
+      if (a.vats_errors?.length) toast('ВАТС не приняла часть имён — привязка сохранена только в CRM');
+    }
+    await renderTelExtensions();
+  });
 
   document.getElementById('telSubnav')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-tel-tab]');

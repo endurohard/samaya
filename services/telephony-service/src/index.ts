@@ -11,6 +11,7 @@ import { config } from './config';
 import { pool } from './db';
 import { startSyncWorker, runSyncOnce } from './sync';
 import { startEvents, stopEvents } from './events';
+import { startAssignWorker } from './autoAssign';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -55,6 +56,9 @@ const server = app.listen(config.PORT, () => {
   log.info({ port: config.PORT, env: config.NODE_ENV }, 'telephony-service listening');
   startSyncWorker(log);
   startEvents(log);
+  // Раздача внутренних номеров по сменам: смотрит график и переставляет
+  // привязку, когда состав смены меняется.
+  startAssignWorker(log);
 });
 
 const shutdown = (signal: string) => {

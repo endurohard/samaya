@@ -544,3 +544,25 @@ a.btn-ghost:hover { text-decoration: none; }
 .journal-period { flex: 0 0 auto; }
 .journal-datenav, .journal-period-btn { flex: 0 0 auto; }
 .journal-period-btn { white-space: nowrap; }
+
+/* ---- 11. Телефония: раздача номеров по смене ----
+   В ряду появилась колонка-переключатель, поэтому сетка из четырёх колонок
+   (номер | имя в ВАТС | выбор | звонки) стала пятиколоночной. */
+.tel-ext-row { grid-template-columns: 72px 1fr 110px 240px 140px; }
+.tel-ext-auto {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); color: var(--text-dim); cursor: pointer;
+  white-space: nowrap;
+}
+.tel-ext-auto input { cursor: pointer; accent-color: var(--primary, #93494b); }
+
+/* Автоматический номер: выбор сотрудника заблокирован — им управляет график,
+   и активный на вид select обещал бы ручное управление, которого нет. */
+.tel-ext-row.is-auto select[disabled] {
+  opacity: .55; cursor: not-allowed; background: var(--bg);
+}
+.tel-ext-row.is-auto { border-left: 3px solid var(--primary, #93494b); }
+
+@media (max-width: 720px) {
+  .tel-ext-row { grid-template-columns: 64px 1fr; }
+}
