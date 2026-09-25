@@ -4,6 +4,7 @@ import {
   discountRatio,
   bookingRevenue,
   payableDays,
+  companyDateOf,
   computeMasterSalary,
 } from '../calculate.service';
 import type { SalaryScheme } from '../calculate.service';
@@ -89,16 +90,43 @@ describe('discountRatio — разнос скидки записи по услу
 });
 
 describe('payableDays — за что платится ставка', () => {
-  it('график не заполнен — платим за календарь, а не ноль', () => {
-    expect(payableDays(undefined, 31)).toBe(31);
+  it('ни графика, ни записей — платим за календарь, а не ноль', () => {
+    expect(payableDays(undefined, [], 31)).toBe(31);
   });
 
   it('отработано 15 смен из 31 дня — платим за 15', () => {
-    expect(payableDays(15, 31)).toBe(15);
+    const d = Array.from({ length: 15 }, (_, i) => `2026-09-${String(i + 1).padStart(2, '0')}`);
+    expect(payableDays(d, [], 31)).toBe(15);
   });
 
   it('весь месяц в отпуске — ставка не начисляется', () => {
-    expect(payableDays(0, 31)).toBe(0);
+    expect(payableDays([], [], 31)).toBe(0);
+  });
+
+  it('графика нет, но есть дни с записями — платим за эти дни', () => {
+    expect(payableDays(undefined, ['2026-09-10', '2026-09-11'], 30)).toBe(2);
+  });
+
+  it('день есть и в графике, и в записях — считается один раз', () => {
+    expect(payableDays(['2026-09-10'], ['2026-09-10'], 30)).toBe(1);
+  });
+
+  it('запись в день, помеченный выходным, всё равно оплачивается', () => {
+    expect(payableDays(['2026-09-10'], ['2026-09-12'], 30)).toBe(2);
+  });
+});
+
+describe('companyDateOf — смена по местному календарю', () => {
+  it('закрытие в 21:30 UTC — это уже следующий день по МСК', () => {
+    expect(companyDateOf('2026-09-10T21:30:00.000Z')).toBe('2026-09-11');
+  });
+
+  it('закрытие в 09:00 UTC остаётся тем же днём', () => {
+    expect(companyDateOf('2026-09-10T09:00:00.000Z')).toBe('2026-09-10');
+  });
+
+  it('мусорная дата не роняет расчёт', () => {
+    expect(companyDateOf('not-a-date')).toBe('');
   });
 });
 

@@ -106,14 +106,35 @@ export function bookingRevenue(totalPrice: number, discountAmount = 0): number {
 }
 
 /**
+ * Дата (YYYY-MM-DD) момента в таймзоне компании. Сервер и БД живут в UTC,
+ * а смена считается по местному календарю: запись, закрытая в 00:30 МСК,
+ * относится к новому дню, а не к вечеру предыдущего.
+ */
+export function companyDateOf(instant: string | Date, offsetMinutes = 180): string {
+  const t = instant instanceof Date ? instant.getTime() : Date.parse(String(instant));
+  if (!Number.isFinite(t)) return '';
+  return new Date(t + offsetMinutes * 60_000).toISOString().slice(0, 10);
+}
+
+/**
  * Сколько дней оплачивать по ставке.
- * Пустой график означает «не заполняли» → платим за календарь, иначе
- * сотрудник без графика получил бы ноль. Заполненный график без рабочих
- * дней — честный ноль (отпуск, больничный).
+ *
+ * Оплачиваемый день — это день из графика (не выходной) ЛИБО день, в который
+ * у сотрудника есть завершённая запись: фактически отработанная смена, даже
+ * если график на неё не проставили. Дни объединяются как множество дат, а не
+ * складываются, иначе смена с записью оплачивалась бы дважды.
+ *
+ * Если нет ни графика, ни записей (окладные администратор, SMM, маркетолог —
+ * им записи не ставят), платим за календарь: иначе они получили бы ноль.
  */
 export function payableDays(
-  scheduledDays: number | undefined,
+  scheduleDates: string[] | undefined,
+  bookingDates: string[],
   calendarDays: number,
 ): number {
-  return scheduledDays === undefined ? calendarDays : scheduledDays;
+  const hasSchedule = scheduleDates !== undefined;
+  if (!hasSchedule && bookingDates.length === 0) return calendarDays;
+  const union = new Set<string>(scheduleDates ?? []);
+  for (const d of bookingDates) if (d) union.add(d);
+  return union.size;
 }

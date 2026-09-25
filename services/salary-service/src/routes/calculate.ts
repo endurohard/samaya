@@ -6,7 +6,7 @@ import { config } from '../config';
 import { authenticate, HttpError } from '../middleware';
 import {
   daysBetween, daysInMonthOf, computeMasterSalary,
-  splitEqually, discountRatio, bookingRevenue, payableDays,
+  splitEqually, discountRatio, bookingRevenue, payableDays, companyDateOf,
 } from '../calculate.service';
 
 const router = Router();
@@ -25,6 +25,7 @@ interface BookingRow {
   total_price: number;
   discount_amount?: number;
   status: string;
+  completed_at?: string | null;
   services?: BookingService[];
 }
 
@@ -271,23 +272,43 @@ router.get('/', async (req, res, next) => {
 
     // Отработанные дни нужны всем: ставка платится за смены, а не за
     // календарь, иначе отпуск и больничный оплачиваются как рабочие дни.
+    // Смена засчитывается по графику ИЛИ по факту завершённой записи — у
+    // врачей график часто не заполняют, но работа в этот день была.
     const allMasterIds = masters.rows.map((m) => m.id);
-    const workedDaysMap = new Map<string, number>();
+    const scheduleDates = new Map<string, string[]>();
     if (allMasterIds.length > 0) {
-      // Считаем и рабочие дни, и общее число заполненных дней. Второе нужно,
-      // чтобы отличить «график на период не заполняли» от «все дни выходные»:
-      // в первом случае откатываемся на календарь, во втором ставка = 0.
+      // Берём именно даты рабочих дней (не счётчик): их надо объединить с
+      // датами записей как множество, иначе день с записью удвоится.
       const wdRes = await pool.query(
-        `SELECT master_id,
-                COUNT(*) FILTER (WHERE is_day_off = FALSE)::int AS worked_days
+        `SELECT master_id, to_char(work_date, 'YYYY-MM-DD') AS d
          FROM salons.master_schedules
          WHERE master_id = ANY($1::uuid[])
            AND work_date >= $2::date
            AND work_date <= $3::date
-         GROUP BY master_id`,
+           AND is_day_off = FALSE`,
         [allMasterIds, q.from, q.to],
       );
-      for (const row of wdRes.rows) workedDaysMap.set(row.master_id, row.worked_days);
+      // Дни-выходные тоже помечают заполненность графика: мастер в отпуске
+      // весь месяц должен получить 0 ставки, а не откат на календарь.
+      const filledRes = await pool.query(
+        `SELECT DISTINCT master_id FROM salons.master_schedules
+         WHERE master_id = ANY($1::uuid[])
+           AND work_date >= $2::date AND work_date <= $3::date`,
+        [allMasterIds, q.from, q.to],
+      );
+      for (const row of filledRes.rows) scheduleDates.set(row.master_id, []);
+      for (const row of wdRes.rows) scheduleDates.get(row.master_id)!.push(row.d);
+    }
+
+    // Даты фактически отработанных смен по завершённым записям.
+    const bookingDates = new Map<string, Set<string>>();
+    for (const b of bookings) {
+      if (!b.completed_at) continue;
+      const d = companyDateOf(b.completed_at);
+      if (!d) continue;
+      const set = bookingDates.get(b.master_id) || new Set<string>();
+      set.add(d);
+      bookingDates.set(b.master_id, set);
     }
 
     // Уже начисленное мгновенно по оплаченным записям периода. Расчёт
@@ -345,11 +366,13 @@ router.get('/', async (req, res, next) => {
       const isManager = !m.provides_services && !isCleaner;
       const isPoolMember = !!m.in_commission_pool;
 
-      // Если график на период не заполнен вовсе, откатываемся на календарные
-      // дни: иначе сотрудник с незаполненным графиком получит ноль ставки.
-      const workedDays = workedDaysMap.get(m.id) ?? 0;
-      const hasSchedule = workedDaysMap.has(m.id);
-      const effectiveDays = payableDays(hasSchedule ? workedDays : undefined, calendarDays);
+      // Оплачиваемые дни: график ∪ дни с завершёнными записями. Если нет ни
+      // того, ни другого — календарь (окладные без записей и без графика).
+      const schedDates = scheduleDates.get(m.id);
+      const bookDates = [...(bookingDates.get(m.id) || [])];
+      const effectiveDays = payableDays(schedDates, bookDates, calendarDays);
+      const hasSchedule = schedDates !== undefined || bookDates.length > 0;
+      const workedDays = effectiveDays;
       const sales = m.provides_services ? (bookingTotals.get(m.id) || 0) : 0;
       // Выручка по товарам мастера — источника продаж товаров пока нет (0).
       const goodsTotal = 0;
