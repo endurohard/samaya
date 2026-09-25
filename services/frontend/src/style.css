@@ -2397,6 +2397,28 @@ body.guest .auth-card { margin: 32px auto 0; }
 }
 .sal-toolbar-spacer { flex: 1; }
 
+/* Произвольный период расчёта ЗП — inline-форма в тулбаре (без модалок) */
+.sal-custom-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sal-custom-range label {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.sal-custom-range input[type="date"] {
+  padding: 5px 8px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.sal-custom-range[hidden] { display: none; }
+
 /* layout: main + sticky aside */
 .sal-layout {
   display: grid;

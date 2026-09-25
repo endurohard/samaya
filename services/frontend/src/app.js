@@ -8732,6 +8732,9 @@ function waAttachChatToClient(phoneDigits, row) {
   // ============================================================ */
   const SAL_LS_SCHEMES = 'samaya_salary_schemes_v1';
   const SAL_LS_PERIOD = 'samaya_salary_period';
+  // Произвольный период («Период»): границы переживают перезагрузку вместе
+  // с выбранным пресетом, иначе после F5 фильтр молча съезжал на «сегодня».
+  const SAL_LS_CUSTOM = 'samaya_salary_custom_range';
   const SAL_SCHEME_LABELS = {
     rate: 'Ставка',
     rate_plus_percent: 'Ставка + % с продаж (- скидка)',
@@ -8739,6 +8742,15 @@ function waAttachChatToClient(phoneDigits, row) {
   };
 
   let salPeriod = localStorage.getItem(SAL_LS_PERIOD) || 'today';
+  // Границы произвольного периода. По умолчанию — текущий месяц с 1-го числа
+  // по сегодня (то же, что пресет «Месяц»), чтобы форма открывалась осмысленной.
+  let salCustomRange = (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SAL_LS_CUSTOM) || 'null');
+      if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.from || '') && /^\d{4}-\d{2}-\d{2}$/.test(v.to || '')) return v;
+    } catch { /* повреждённое значение — берём дефолт */ }
+    return rollingRange('month');
+  })();
   let salSchemes = [];
   let salActiveTab = 'payroll';
   let cachedSalCalc = null;       // {from, to, days, items: [{master_id, rate, pct_services, pct_salon, guaranteed, total}]}
@@ -8929,6 +8941,15 @@ function waAttachChatToClient(phoneDigits, row) {
     if (!list) return;
     const filter = document.getElementById('salPayrollMaster')?.value || '';
     const range = salRange(salPeriod);
+    // Подпись фактического диапазона: у «Месяца» это 1-е число по сегодня,
+    // и без явной даты «К начислению» выглядит как расчёт за весь месяц.
+    const dm = (iso) => iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4);
+    const perEl = document.getElementById('salPayrollPeriodLabel');
+    if (perEl) {
+      perEl.textContent = range.from === range.to
+        ? dm(range.from)
+        : `${dm(range.from)} — ${dm(range.to)} · ${range.days} дн.`;
+    }
     let masters = cachedMasters.filter((m) => m.is_active);
     if (filter) masters = masters.filter((m) => m.id === filter);
 
@@ -9652,14 +9673,28 @@ function waAttachChatToClient(phoneDigits, row) {
       document.querySelectorAll('#salPayrollPeriod .period-pill').forEach((x) => {
         x.classList.toggle('active', x.dataset.period === salPeriod);
       });
+      salSyncCustomRangeUI();
       await salLoadCalc(salRange(salPeriod));
       renderSalaryPayroll();
     });
+  });
+  // Применение произвольного периода: границы проверяем здесь, а не alert'ом —
+  // пользователь работает во встроенном браузере, где диалоги заблокированы.
+  document.getElementById('salPayrollRangeApply')?.addEventListener('click', async () => {
+    const from = document.getElementById('salPayrollRangeFrom')?.value || '';
+    const to = document.getElementById('salPayrollRangeTo')?.value || '';
+    if (!from || !to) { toast('Укажите обе даты периода'); return; }
+    if (from > to) { toast('Дата «с» позже даты «по»'); return; }
+    salCustomRange = { from, to };
+    localStorage.setItem(SAL_LS_CUSTOM, JSON.stringify(salCustomRange));
+    await salLoadCalc(salRange('custom'));
+    renderSalaryPayroll();
   });
   // правильно отметить сохранённый период при загрузке
   document.querySelectorAll('#salPayrollPeriod .period-pill').forEach((x) => {
     x.classList.toggle('active', x.dataset.period === salPeriod);
   });
+  salSyncCustomRangeUI();
 
   document.getElementById('salPayrollMaster')?.addEventListener('change', renderSalaryPayroll);
   document.getElementById('salSchemesMaster')?.addEventListener('change', renderSalarySchemes);
@@ -9833,10 +9868,25 @@ function waAttachChatToClient(phoneDigits, row) {
     if (!document.getElementById('salCommModalBackdrop')?.hidden) salCommCloseModal();
   });
 
-  // Зарплатный период = скользящий диапазон + число дней (база дневных ставок)
+  // Зарплатный период = скользящий диапазон + число дней (база дневных ставок).
+  // 'month' у rollingRange — с 1-го числа текущего месяца по сегодня;
+  // 'custom' — руками выставленные границы (salCustomRange).
   function salRange(period) {
-    const r = rollingRange(period);
+    const r = period === 'custom'
+      ? { from: salCustomRange.from, to: salCustomRange.to }
+      : rollingRange(period);
     return { ...r, days: daysInRange(r.from, r.to) };
+  }
+
+  // Показ/скрытие inline-формы произвольного периода и синхронизация её полей.
+  function salSyncCustomRangeUI() {
+    const box = document.getElementById('salPayrollRange');
+    if (!box) return;
+    box.hidden = salPeriod !== 'custom';
+    const f = document.getElementById('salPayrollRangeFrom');
+    const t = document.getElementById('salPayrollRangeTo');
+    if (f) f.value = salCustomRange.from;
+    if (t) t.value = salCustomRange.to;
   }
 
   // ===== Commission rules (менеджерские комиссии по услугам) =====

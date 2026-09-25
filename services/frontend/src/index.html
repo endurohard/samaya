@@ -1366,6 +1366,15 @@
                 <button type="button" class="period-pill" data-period="yesterday">Вчера</button>
                 <button type="button" class="period-pill" data-period="week">Неделя</button>
                 <button type="button" class="period-pill" data-period="month">Месяц</button>
+                <button type="button" class="period-pill" data-period="custom">Период</button>
+              </div>
+              <!-- Произвольный период: inline-форма, без браузерных диалогов -->
+              <div class="sal-custom-range" id="salPayrollRange" hidden>
+                <label for="salPayrollRangeFrom">с</label>
+                <input type="date" id="salPayrollRangeFrom" />
+                <label for="salPayrollRangeTo">по</label>
+                <input type="date" id="salPayrollRangeTo" />
+                <button type="button" class="btn-secondary btn-sm" id="salPayrollRangeApply">Показать</button>
               </div>
               <div class="sal-toolbar-spacer"></div>
               <button type="button" class="btn-primary btn-sm" id="salPayrollRun">
@@ -1392,6 +1401,7 @@
                 <div class="sal-aside-card">
                   <div class="sal-aside-label">Всего к выплате</div>
                   <div class="sal-aside-amount" id="salPayrollTotal">0 ₽</div>
+                  <div class="sal-aside-meta" id="salPayrollPeriodLabel">—</div>
                   <div class="sal-aside-meta" id="salPayrollMastersN">0 сотрудников</div>
                   <button type="button" class="btn-primary" id="salPayrollRunSticky">Начислить всё</button>
                 </div>
