@@ -11,7 +11,21 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 // ── Health ──
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'whatsapp-service' }));
+// Liveness + состояние сеанса. Раньше healthcheck смотрел только на то, что
+// HTTP-порт отвечает, и контейнер показывал healthy четверо суток с мёртвым
+// браузером. Теперь отдаём и статус сеанса, а 503 ставим только при аварии:
+// ожидание сканирования QR — штатное состояние, а не болезнь.
+app.get('/health', (_req, res) => {
+  const st = wa.getStatus();
+  const broken = st.status === 'error' || st.status === 'disconnected';
+  return res.status(broken ? 503 : 200).json({
+    ok: !broken,
+    service: 'whatsapp-service',
+    session: st.status,
+    ready: st.ready,
+    last_error: st.last_error,
+  });
+});
 
 // Все /api/whatsapp/* требуют внутренний токен или JWT админа
 // ── Живое окно: экран сеанса WhatsApp с управлением ──

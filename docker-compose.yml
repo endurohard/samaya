@@ -426,7 +426,14 @@ services:
       migrator:
         condition: service_completed_successfully
     shm_size: '256mb'
+    # Жнец зомби. PID 1 здесь — node, который не собирает осиротевшие процессы
+    # Chromium: после каждого сбоя инициализации в контейнере оставались
+    # <defunct>-записи и копились до конца жизни контейнера.
+    init: true
     healthcheck:
+      # Проверяем не только порт, но и состояние сеанса: /health отдаёт 503,
+      # когда браузер умер. Иначе контейнер показывал healthy сутками при
+      # неработающем WhatsApp, и авария не была видна вообще ничем.
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3008/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
       timeout: 5s

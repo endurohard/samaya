@@ -68,6 +68,12 @@ class WhatsAppManager {
     this.statusMsg = 'not_started';
     this.lastError = null;
     this._initPromise = null;
+    // Автоподъём после сбоя инициализации. Без него сервис оставался живым
+    // HTTP-сервером с мёртвым браузером: initialize() зовётся один раз при
+    // старте, _doInit гасит ошибку внутри себя, и повторить попытку было
+    // некому — сеанс лежал сутками при исправном окружении.
+    this._retryTimer = null;
+    this._retryAttempt = 0;
     // Единственная страница Puppeteer — все операции с ней сериализуем через эту
     // очередь, иначе параллельные отправки перемешивают ввод и сообщение уходит
     // не тому получателю.
@@ -198,6 +204,9 @@ class WhatsAppManager {
       });
 
       this._pollAuth();
+      // Успешный запуск снимает счётчик повторов: следующая авария начнёт
+      // отсчёт с короткой паузы, а не с накопленной за прошлые падения.
+      this._retryAttempt = 0;
     } catch (err) {
       this.statusMsg = 'error';
       this.lastError = err.message;
@@ -208,7 +217,29 @@ class WhatsAppManager {
       this.browser = null;
       this.page = null;
       console.error('[WA] Init error:', err.message);
+      this._scheduleRetry();
     }
+  }
+
+  // Повтор инициализации с нарастающей паузой: 30 с, 1, 2, 4, 8 мин, дальше
+  // раз в 15 мин. Верхний предел нужен, чтобы при долгой аварии (упал прокси,
+  // нет сети) сервис не долбил Chromium каждые полминуты, но и не сдавался:
+  // окружение чинится само, а без повтора сеанс не поднимется никогда.
+  _scheduleRetry() {
+    if (TEST_MODE || this._retryTimer) return;
+    const STEPS = [30_000, 60_000, 120_000, 240_000, 480_000];
+    // После исчерпания шагов — раз в 15 минут. Индекс не зажимаем в длину
+    // массива: иначе ветка «долгая авария» никогда бы не наступила.
+    const delay = STEPS[this._retryAttempt] ?? 900_000;
+    this._retryAttempt++;
+    console.warn(`[WA] Повтор инициализации через ${Math.round(delay / 1000)} с `
+      + `(попытка ${this._retryAttempt})`);
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null;
+      this.initialize().catch((e) => console.error('[WA] retry failed:', e.message));
+    }, delay);
+    // Таймер не должен держать процесс: при остановке сервиса ждать паузу незачем.
+    if (typeof this._retryTimer.unref === 'function') this._retryTimer.unref();
   }
 
   // Периодическая проверка живости веб-сессии. Если телефон разлогинил сессию,
@@ -218,7 +249,18 @@ class WhatsAppManager {
     if (this._healthIv) clearInterval(this._healthIv);
     this._healthMisses = 0;
     this._healthIv = setInterval(async () => {
-      if (!this.isReady || !this.page) return;
+      // Браузер отвалился (упал Chromium, оборвался CDP) — страницы нет, а
+      // повторов инициализации никто не заводил: раньше сеанс так и оставался
+      // мёртвым до ручного рестарта контейнера. Поднимаем сами.
+      if (!this.browser || !this.page) {
+        if (this.statusMsg !== 'initializing' && this.statusMsg !== 'restarting') {
+          console.warn('[WA] Браузер отсутствует — планирую переподъём');
+          this.isReady = false;
+          this._scheduleRetry();
+        }
+        return;
+      }
+      if (!this.isReady) return;
       // Пока идёт работа с чатами, страница переключается, и проверка ловит
       // промежуточное состояние. Занятый сеанс — сам по себе признак жизни.
       if (this._busy) return;
@@ -332,6 +374,16 @@ class WhatsAppManager {
         }
       } catch (e) {
         console.warn('[WA] Poll error:', e.message);
+        // Страница умерла под нами — дальше опрос будет сыпать одной и той же
+        // ошибкой каждые 5 с и никогда не поднимет сеанс. Останавливаемся и
+        // отдаём управление повтору инициализации.
+        if (!this.page || !this.browser || this.page.isClosed?.()) {
+          clearInterval(iv);
+          this.isReady = false;
+          this.statusMsg = 'error';
+          this.lastError = e.message;
+          this._scheduleRetry();
+        }
       }
     }, 5_000);
   }
@@ -792,6 +844,10 @@ class WhatsAppManager {
     this.statusMsg = 'restarting';
     this.qrDataUrl = null;
     this._initPromise = null;
+    // Снимаем отложенный автоповтор: иначе он сработает поверх ручного
+    // рестарта и в один профиль полезут два Chromium разом.
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    this._retryAttempt = 0;
     if (this._healthIv) { clearInterval(this._healthIv); this._healthIv = null; }
     try {
       if (this.browser) await this.browser.close();
