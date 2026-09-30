@@ -322,6 +322,14 @@ class WhatsAppManager {
         // хотя чатов не было и отправка падала с «WhatsApp not ready».
         const authScore = [state.hasChats, state.hasSide, state.hasUser].filter(Boolean).length;
         const loggedOut = /[?&]post_logout=1/.test(state.url || '');
+        // Синхронизация после долгого простоя: аккаунт привязан, но чаты ещё
+        // качаются («Загрузка чатов [72 %]», «Идет скачивание сообщений»).
+        // Признаков рабочего окна на этом экране нет, и раньше он попадал под
+        // таймер обновления QR: перезагрузка сбрасывала скачивание в ноль,
+        // и сеанс не мог подняться в принципе. Экран сам просит не закрывать
+        // окно — ждём столько, сколько нужно.
+        const syncing = /Загрузка чатов|скачивание сообщений|Downloading messages|Loading your chats/i
+          .test(state.text || '');
 
         if (authScore >= 1 && !loggedOut) {
           clearInterval(iv);
@@ -346,7 +354,7 @@ class WhatsAppManager {
         }
 
         // QR code visible — capture it
-        if (state.hasQRCanvas) {
+        if (state.hasQRCanvas && !syncing) {
           this.statusMsg = 'waiting_qr_scan';
           try {
             const dataUrl = await this.page.evaluate(() => {
@@ -358,6 +366,15 @@ class WhatsAppManager {
         }
 
         if (attempts >= MAX) {
+          // Идёт скачивание истории — перезагружать нельзя: прогресс сбросится
+          // в ноль и следующие 10 минут кончатся тем же самым. Держим счётчик
+          // взведённым и ждём: как только чаты догрузятся, сработает authScore.
+          if (syncing) {
+            attempts = MAX - 12; // ещё минута ожидания до следующей проверки
+            this.statusMsg = 'syncing';
+            console.log('[WA] Идёт загрузка истории чатов — жду, не перезагружаю');
+            return;
+          }
           // Раньше опрос здесь останавливался совсем: страница оставалась
           // открытой, но QR на ней протухал каждые ~20 секунд, а обновлять
           // его было уже некому. Человек открывал админку через час, видел
