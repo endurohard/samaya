@@ -2968,7 +2968,11 @@ import {
         if (el) el.hidden = !cond;
       };
       showIf('bFootConfirm', b.status === 'pending');
-      showIf('bFootComplete', canMoney);
+      // «Оформить продажу» только для непроведённой записи: сервер её всё
+      // равно отклонит (complete требует pending/confirmed), а администратор
+      // успевал набрать способы оплаты и получал английское «not completable»
+      // уже после ввода сумм. Оплаченная запись правится через возврат.
+      showIf('bFootComplete', canMoney && (b.status === 'pending' || b.status === 'confirmed'));
       showIf('bFootTopup', !!b.client_id && canMoney);
 
       applyBookingReadOnly(readOnly, b);

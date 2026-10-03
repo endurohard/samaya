@@ -1276,7 +1276,13 @@ router.post('/:id/complete', requireRole(['owner', 'admin', 'master']), async (r
     );
     if (!cur.rows[0] || !['confirmed', 'pending'].includes(cur.rows[0].status)) {
       await client.query('ROLLBACK');
-      return next(new HttpError(404, 'booking not found or not completable'));
+      // Текст по-русски: он доходит до администратора в окне оплаты как есть.
+      const msg = cur.rows[0]?.status === 'completed'
+        ? 'запись уже оплачена — чтобы изменить оплату, отмените её с возвратом'
+        : cur.rows[0]
+          ? 'запись отменена — оформить продажу нельзя'
+          : 'запись не найдена';
+      return next(new HttpError(409, msg, 'NOT_COMPLETABLE'));
     }
     const bk0 = cur.rows[0];
     // Мастер может завершать/списывать только по своим записям.
