@@ -3194,20 +3194,36 @@ import {
     }
   }
 
-  // Итог к оплате / оплачено / долг — как в DIKIDI. Считаем от суммы после
-  // скидки: именно её платит клиент и именно она попадает в выручку.
+  // Итог к оплате / оплачено / долг — как в DIKIDI.
+  //
+  // Считаем от ТЕКУЩИХ строк калькулятора, а не от сохранённой записи: при
+  // правке цены плашка оставалась со старой суммой, и «Итого к оплате»
+  // расходилось с итогом таблицы прямо на глазах у администратора.
+  // Сохранённая запись нужна только для факта оплаты: сколько реально
+  // проведено через кассу, правка строк не меняет.
   function renderPayBar(b) {
     const host = document.getElementById('bPayBar');
     if (!host) return;
-    const due = Math.max(0, Number(b.total_price || 0) - Number(b.discount_amount || 0));
-    const paid = b.paid_at ? due : 0;
+    // svcRows заполнены, когда модалка уже отрисовала калькулятор; при самом
+    // первом вызове берём суммы из записи.
+    const due = svcRows.length
+      ? Math.round(bookingSubtotal())
+      : Math.max(0, Number(b?.total_price || 0) - Number(b?.discount_amount || 0));
+    // Проведённая оплата: сумма записи на момент продажи, а не новый итог —
+    // иначе правка цены задним числом «дорисовывала» деньги в кассе.
+    const paid = b?.paid_at
+      ? Math.max(0, Number(b.total_price || 0) - Number(b.discount_amount || 0))
+      : 0;
     const debt = Math.max(0, due - paid);
+    const over = Math.max(0, paid - due);
     host.innerHTML = `
       <span>Итого к оплате: <b>${formatPrice(due)}</b></span>
       <span class="bk-pay-sep">/</span>
       <span>Оплачено: <span class="bk-pay-paid">${formatPrice(paid)}</span></span>
       <span class="bk-pay-sep">/</span>
       <span>Долг: <span class="bk-pay-debt">${formatPrice(debt)}</span></span>
+      ${over > 0 ? `<span class="bk-pay-sep">/</span>
+      <span>Переплата: <span class="bk-pay-debt">${formatPrice(over)}</span></span>` : ''}
     `;
   }
 
@@ -3601,6 +3617,9 @@ import {
 
     const totalEl = document.getElementById('bTotal');
     if (totalEl) totalEl.textContent = formatPrice(bookingSubtotal());
+    // Плашка «Итого к оплате / Оплачено / Долг» читает те же svcRows —
+    // без этого вызова она застывала на сумме, с которой запись открыли.
+    renderPayBar(cachedBookings.find((x) => x.id === editingBookingId) || null);
     // Кнопка «+» живёт в строке итогов; пока услуг нет, строки нет —
     // показываем запасную кнопку с подсказкой.
     const emptyFoot = document.getElementById('bSvcFootEmpty');
@@ -3936,6 +3955,11 @@ import {
     // Итоговая строка и предупреждение о наложении зависят от длительности и
     // цен — без пересчёта они показывали прежние значения.
     updateSvcSummary();
+    // И плашка «Итого к оплате»: она живёт отдельно от таблицы, и правка
+    // цены её не трогала — калькулятор показывал новую сумму, а итог к
+    // оплате старую. Перерисовка полей здесь намеренно не делается (теряется
+    // фокус), поэтому зовём плашку адресно.
+    renderPayBar(cachedBookings.find((x) => x.id === editingBookingId) || null);
     checkBookingOverlap();
   });
 
