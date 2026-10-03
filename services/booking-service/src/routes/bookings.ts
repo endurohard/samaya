@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import type { Request as ExpressRequest } from 'express';
+import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { isoDate } from '../validators';
 import { pool } from '../db';
@@ -1017,6 +1019,12 @@ const cancelSchema = z.object({
   // На зарплату/выручку не влияет (учитывается только status='completed'),
   // но нужно для статистики (no-show rate).
   no_show: z.boolean().optional(),
+  // Отмена уже оплаченной записи (status='completed'). Требует явного
+  // подтверждения от интерфейса: операция возвращает деньги из кассы,
+  // снимает начисленную зарплату и откатывает бонусы/баланс клиента.
+  // Без флага оплаченная запись по-прежнему не отменяется — чтобы случайный
+  // клик по «Отменить» не увёл выручку.
+  refund: z.boolean().optional(),
 });
 
 router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req, res, next) => {
@@ -1034,10 +1042,48 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
       if (!b.rows[0]) { await client.query('ROLLBACK'); return next(new HttpError(404, 'booking not found')); }
       await assertMasterActor(client, req.auth!.company_id, req.auth!.role, req.auth!.sub, b.rows[0].master_id);
     }
+
+    // Текущее состояние: от него зависит, обычная это отмена или возврат.
+    const cur = await client.query(
+      `SELECT id, client_id, master_id, status, bonus_spend::float8 AS bonus_spend,
+              bonus_accrual::float8 AS bonus_accrual
+       FROM bookings.bookings
+       WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+      [req.auth!.company_id, req.params.id],
+    );
+    if (!cur.rows[0]) {
+      await client.query('ROLLBACK');
+      return next(new HttpError(404, 'booking not found'));
+    }
+    const bk0 = cur.rows[0];
+    const CANCELLABLE = ['pending', 'confirmed'];
+    const isPaid = bk0.status === 'completed';
+
+    // Оплаченную запись отменяем только по явному требованию: сначала
+    // интерфейс обязан предупредить про возврат денег и снятие зарплаты.
+    if (!isPaid && !CANCELLABLE.includes(bk0.status)) {
+      await client.query('ROLLBACK');
+      return next(new HttpError(404, 'booking not found or not cancellable'));
+    }
+    if (isPaid && !input.refund) {
+      await client.query('ROLLBACK');
+      return next(new HttpError(409,
+        'запись оплачена: отмена возможна только с возвратом (refund=true)', 'PAID_NEEDS_REFUND'));
+    }
+    // Возврат — деньги, а не расписание: мастеру его не доверяем.
+    if (isPaid && req.auth!.role === 'master') {
+      await client.query('ROLLBACK');
+      return next(new HttpError(403, 'возврат по оплаченной записи оформляет администратор', 'FORBIDDEN'));
+    }
+
+    if (isPaid) {
+      await refundCompletedBooking(client, req, bk0);
+    }
+
     const upd = await client.query(
       `UPDATE bookings.bookings
        SET status = $4, canceled_at = NOW(), cancel_reason = $3
-       WHERE company_id = $1 AND id = $2 AND status IN ('pending', 'confirmed')
+       WHERE company_id = $1 AND id = $2
        RETURNING *, total_price::float8 AS total_price`,
       [req.auth!.company_id, req.params.id, input.cancel_reason ?? null, newStatus],
     );
@@ -1053,10 +1099,11 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
         canceled_by: req.auth!.sub,
         cancel_reason: input.cancel_reason ?? null,
         no_show: !!input.no_show,
+        refunded: isPaid,
       }), input.no_show ? 'booking.no_show' : 'booking.canceled'],
     );
     await client.query('COMMIT');
-    return res.json(upd.rows[0]);
+    return res.json({ ...upd.rows[0], refunded: isPaid });
   } catch (e) {
     await client.query('ROLLBACK');
     return next(e);
@@ -1064,6 +1111,126 @@ router.post('/:id/cancel', requireRole(['owner', 'admin', 'master']), async (req
     client.release();
   }
 });
+
+// Полный откат оплаченной записи: касса, зарплата, бонусы, лицевой счёт.
+//
+// Порядок обратный продаже и внутри той же транзакции, что и смена статуса:
+// частичный возврат хуже отказа — деньги вернулись бы, а запись осталась
+// проведённой. Единственное внешнее плечо (касса) идёт по HTTP, и его отказ
+// рвёт всю операцию через throw: откатится и статус.
+async function refundCompletedBooking(
+  client: PoolClient,
+  req: ExpressRequest,
+  bk: { id: string; client_id: string | null; bonus_spend: number; bonus_accrual: number },
+): Promise<void> {
+  const companyId = req.auth!.company_id;
+  const token = (req.headers.authorization || '').slice(7);
+  const auth = { Authorization: `Bearer ${token}` };
+
+  // 1. Касса. Возвращаем ровно те части, что создавали приход: оплата с
+  // баланса и сертификатом прихода не делала — ей здесь делать нечего.
+  const pays = await client.query(
+    `SELECT method, amount::float8 AS amount
+       FROM bookings.booking_payments
+      WHERE company_id = $1 AND booking_id = $2`,
+    [companyId, bk.id],
+  );
+  const cashParts = pays.rows.filter(
+    (p) => p.method === 'cash' || p.method === 'card' || p.method === 'online');
+  if (cashParts.length > 0) {
+    const accResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/accounts`, { headers: auth });
+    if (!accResp.ok) throw new HttpError(502, 'касса недоступна — возврат не проведён, повторите', 'FINANCE_DOWN');
+    const accounts = ((await accResp.json() as { items?: { id: string; type: string; is_active: boolean }[] }).items) || [];
+    for (const pp of cashParts) {
+      const wantType = pp.method === 'cash' ? 'cash' : 'bank';
+      const account = accounts.find((a) => a.type === wantType && a.is_active !== false)
+        ?? accounts.find((a) => a.is_active !== false);
+      if (!account) throw new HttpError(409, 'в финансах нет ни одного счёта для возврата', 'NO_ACCOUNT');
+      const expResp = await fetch(`${config.FINANCE_SERVICE_URL}/api/finance/operations/expense`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth },
+        body: JSON.stringify({
+          account_id: account.id,
+          amount: pp.amount,
+          op_date: new Date().toISOString().slice(0, 10),
+          note: `Возврат: запись ${bk.id.slice(0, 8)} (${pp.method})`,
+          source_type: `booking_refund:${pp.method}`,
+          source_id: bk.id,
+        }),
+      });
+      if (!expResp.ok) throw new HttpError(502, 'не удалось провести возврат в кассу — отмена не выполнена, повторите', 'FINANCE_DOWN');
+    }
+  }
+  await client.query(
+    `DELETE FROM bookings.booking_payments WHERE company_id = $1 AND booking_id = $2`,
+    [companyId, bk.id]);
+
+  // 2. Зарплата. Мгновенные начисления по этой записи сторнируем встречной
+  // строкой с минусом, а не удалением: расчёт за период суммирует accruals,
+  // и уже выплаченное начисление удалять задним числом нельзя. Снимаем и
+  // отметку booking_accrued — иначе повторное оформление записи не начислит
+  // ничего (ON CONFLICT DO NOTHING посчитает её уже обработанной).
+  await client.query(
+    `INSERT INTO salary.accruals
+       (company_id, master_id, amount, source_kind, source, period_from, period_to, note)
+     SELECT company_id, master_id, -amount, 'auto_calc', 'booking_refund',
+            period_from, period_to, 'Сторно: запись отменена с возвратом'
+       FROM salary.accruals
+      WHERE company_id = $1 AND source_booking_id = $2
+        AND source IN ('booking_executor', 'booking_manager')`,
+    [companyId, bk.id],
+  );
+  await client.query(
+    `DELETE FROM salary.booking_accrued WHERE company_id = $1 AND booking_id = $2`,
+    [companyId, bk.id]);
+
+  // 3. Бонусы клиента: возвращаем списанные, снимаем начисленные за визит.
+  if (bk.client_id && ((bk.bonus_spend || 0) > 0 || (bk.bonus_accrual || 0) > 0)) {
+    await client.query(
+      `UPDATE clients.clients
+          SET bonus_balance = bonus_balance + $1 - $2, updated_at = NOW()
+        WHERE company_id = $3 AND id = $4`,
+      [bk.bonus_spend || 0, bk.bonus_accrual || 0, companyId, bk.client_id],
+    );
+    // Журнал: 'adjust' — единственный вид, подходящий под возврат
+    // (check-ограничение знает только spend/accrual/adjust). booking_id не
+    // ставим: уникальный индекс (booking_id, kind) уже занят исходными
+    // списанием и начислением этой же записи.
+    await client.query(
+      `INSERT INTO clients.bonus_operations
+         (company_id, client_id, kind, amount, booking_id, note, created_by)
+       VALUES ($1, $2, 'adjust', $3, NULL, $4, $5)`,
+      [companyId, bk.client_id, (bk.bonus_spend || 0) - (bk.bonus_accrual || 0),
+       `Возврат бонусов: запись ${bk.id.slice(0, 8)} отменена`, req.auth!.sub],
+    );
+  }
+
+  // 4. Лицевой счёт: часть, оплаченная с баланса, возвращается на счёт.
+  const balancePart = pays.rows
+    .filter((p) => p.method === 'balance')
+    .reduce((acc, p) => acc + Number(p.amount), 0);
+  if (balancePart > 0 && bk.client_id) {
+    await client.query(
+      `UPDATE clients.clients SET balance = balance + $1, updated_at = NOW()
+        WHERE company_id = $2 AND id = $3`,
+      [balancePart, companyId, bk.client_id]);
+    await client.query(
+      `INSERT INTO clients.balance_operations
+         (company_id, client_id, kind, amount, booking_id, note, created_by)
+       VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
+      [companyId, bk.client_id, balancePart, bk.id,
+       'Возврат на лицевой счёт: запись отменена', req.auth!.sub],
+    );
+  }
+
+  // Сбрасываем платёжные поля самой записи: отменённая запись не должна
+  // выглядеть оплаченной ни в карточке, ни в выгрузках.
+  await client.query(
+    `UPDATE bookings.bookings
+        SET paid_at = NULL, payment_method = NULL, bonus_spend = 0, bonus_accrual = 0
+      WHERE company_id = $1 AND id = $2`,
+    [companyId, bk.id]);
+}
 
 // ===== Complete (оформить продажу) =====
 const paymentPartSchema = z.object({

@@ -3335,13 +3335,55 @@ import {
     if (b) repeatBooking(b);
   });
 
-  document.getElementById('bFootCancelBooking')?.addEventListener('click', async () => {
+  // Подтверждение возврата без браузерного confirm(): во встроенном браузере
+  // модальные диалоги заблокированы и кнопка выглядит «мёртвой». Рисуем
+  // панель прямо под кнопкой отмены и ждём явного выбора.
+  function confirmInline(anchorEl, text, okLabel = 'Подтвердить') {
+    return new Promise((resolve) => {
+      if (!anchorEl) { resolve(false); return; }
+      anchorEl.parentElement?.querySelectorAll('.inline-confirm').forEach((n) => n.remove());
+      const box = document.createElement('div');
+      box.className = 'inline-confirm';
+      box.innerHTML = `
+        <div class="inline-confirm-text"></div>
+        <div class="inline-confirm-actions">
+          <button type="button" class="btn-danger-outline btn-sm ic-ok"></button>
+          <button type="button" class="btn-ghost btn-sm ic-no">Нет</button>
+        </div>`;
+      box.querySelector('.inline-confirm-text').textContent = text;
+      box.querySelector('.ic-ok').textContent = okLabel;
+      anchorEl.insertAdjacentElement('afterend', box);
+      const done = (v) => { box.remove(); resolve(v); };
+      box.querySelector('.ic-ok').addEventListener('click', () => done(true));
+      box.querySelector('.ic-no').addEventListener('click', () => done(false));
+    });
+  }
+
+  // Единая отмена записи. Оплаченную сервер не отменит без refund=true —
+  // на его отказ показываем, что именно произойдёт с деньгами, и спрашиваем
+  // ещё раз. Так случайный клик не уводит выручку, а осознанный проходит
+  // за два шага без похода в кассу руками.
+  async function cancelBookingFlow(id, anchorEl, opts = {}) {
+    const body = { ...opts };
+    let r = await apiCall('POST', `/api/bookings/${id}/cancel`, body);
+    if (!r.ok && r.data?.code === 'PAID_NEEDS_REFUND') {
+      const agree = await confirmInline(anchorEl,
+        'Запись оплачена. Отмена вернёт деньги из кассы расходом, снимет '
+        + 'начисленную зарплату и вернёт бонусы клиенту. Продолжить?',
+        'Отменить с возвратом');
+      if (!agree) return { ok: false, canceled: true };
+      r = await apiCall('POST', `/api/bookings/${id}/cancel`, { ...body, refund: true });
+    }
+    if (!r.ok) { toast(`Ошибка: ${r.data?.error || r.status}`); return r; }
+    toast(r.data?.refunded ? 'Запись отменена, возврат проведён' : 'Запись отменена');
+    return r;
+  }
+
+  document.getElementById('bFootCancelBooking')?.addEventListener('click', async (e) => {
     const id = editingBookingId;
     if (!id) return;
-    if (!confirm('Отменить эту запись?')) return;
-    const { ok, data, status } = await apiCall('POST', `/api/bookings/${id}/cancel`, {});
-    if (!ok) { toast(`Ошибка: ${data?.error || status}`); return; }
-    toast('Запись отменена');
+    const r = await cancelBookingFlow(id, e.currentTarget);
+    if (!r.ok) return;
     resetBookingForm();
     closeAddBookingModal();
     await loadBookings();
@@ -3439,7 +3481,21 @@ import {
   // rows: [{ service_id, price, discountPct, duration }]
   let svcRows = [];
 
-  const activeServices = () => cachedServices.filter((s) => s.is_active);
+  // Услуги для выбора в записи. Фильтруем по выбранному мастеру: в карточке
+  // сотрудника отмечено, какие процедуры он делает (salons.master_services),
+  // и показывать весь прайс врачу, который ведёт три процедуры из полутора
+  // сотен, — прямой путь записать клиента не на то. Если у мастера не отмечено
+  // ничего, ограничивать нечем: показываем весь активный прайс, иначе
+  // ненастроенный сотрудник остался бы вообще без услуг.
+  const activeServices = () => {
+    const all = cachedServices.filter((s) => s.is_active);
+    const masterId = els.bMaster?.value || '';
+    if (!masterId) return all;
+    const master = cachedMasters.find((m) => m.id === masterId);
+    const allowed = new Set(master?.service_ids || []);
+    if (allowed.size === 0) return all;
+    return all.filter((s) => allowed.has(s.id));
+  };
 
   function serviceById(id) {
     return cachedServices.find((s) => s.id === id) || null;
@@ -3718,7 +3774,15 @@ import {
     markActiveSlot();
     scrollSlotsToCurrent();
   });
-  els.bMaster?.addEventListener('change', () => { checkBookingOverlap(); void loadBookingSlots(); });
+  els.bMaster?.addEventListener('change', () => {
+    checkBookingOverlap();
+    void loadBookingSlots();
+    // Перерисовываем строки услуг: у нового мастера свой набор процедур, и
+    // выпадающий список обязан показать именно его. Уже выбранные услуги не
+    // сбрасываем — менеджер мог сменить мастера на ту же процедуру, а молча
+    // стёртая строка выглядит как потеря данных.
+    renderServiceRows();
+  });
 
   // Делегирование: кнопка «+» живёт внутри таблицы и пересоздаётся при каждой
   // перерисовке, прямой слушатель на ней потерялся бы после первой правки.
@@ -4153,11 +4217,10 @@ import {
     if (ok) { closeBookingModal(); void loadBookings(); }
   });
 
-  document.getElementById('bkModalCancel2')?.addEventListener('click', async () => {
+  document.getElementById('bkModalCancel2')?.addEventListener('click', async (e) => {
     if (!_bkModalCurrent) return;
-    if (!confirm('Отменить эту запись?')) return;
-    const { ok } = await apiCall('POST', `/api/bookings/${_bkModalCurrent.id}/cancel`, {});
-    if (ok) { closeBookingModal(); void loadBookings(); }
+    const r = await cancelBookingFlow(_bkModalCurrent.id, e.currentTarget);
+    if (r.ok) { closeBookingModal(); void loadBookings(); }
   });
 
   // «Не пришёл» — статус no_show (клиент не явился). В расчёт зарплаты/выручки не попадает.
