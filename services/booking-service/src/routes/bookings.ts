@@ -68,6 +68,12 @@ router.get('/', async (req, res, next) => {
               b.paid_at, b.payment_method, b.color,
               b.discount_pct::float8 AS discount_pct,
               b.discount_amount::float8 AS discount_amount,
+              -- Фактически проведённая оплата. Брать total_price нельзя:
+              -- цену записи правят после продажи, и «оплачено» в карточке
+              -- менялось вместе с ней, показывая деньги, которых в кассе нет.
+              COALESCE((SELECT SUM(bp.amount)::float8
+                          FROM bookings.booking_payments bp
+                         WHERE bp.booking_id = b.id), 0) AS paid_total,
               COALESCE(m.display_name, '') AS master_name,
               COALESCE(
                 (SELECT json_agg(json_build_object(

@@ -3209,11 +3209,18 @@ import {
     const due = svcRows.length
       ? Math.round(bookingSubtotal())
       : Math.max(0, Number(b?.total_price || 0) - Number(b?.discount_amount || 0));
-    // Проведённая оплата: сумма записи на момент продажи, а не новый итог —
-    // иначе правка цены задним числом «дорисовывала» деньги в кассе.
-    const paid = b?.paid_at
-      ? Math.max(0, Number(b.total_price || 0) - Number(b.discount_amount || 0))
-      : 0;
+    // Проведённая оплата — сумма реальных платежей (bookings.booking_payments),
+    // а не цена записи. Раньше здесь был total_price, но его переписывает
+    // автосохранение при правке цены: поменяв 50 000 на 100 000 и вернув
+    // обратно, администратор видел «Оплачено: 100 000» — денег, которых в
+    // кассе нет. Платежи же правкой цены не меняются.
+    //
+    // Запасной вариант по сумме записи — только для старых продаж, у которых
+    // платежи не детализированы: иначе оплаченная запись показала бы ноль.
+    const paidRows = Number(b?.paid_total ?? 0);
+    const paid = paidRows > 0
+      ? paidRows
+      : (b?.paid_at ? Math.max(0, Number(b.total_price || 0) - Number(b.discount_amount || 0)) : 0);
     const debt = Math.max(0, due - paid);
     const over = Math.max(0, paid - due);
     host.innerHTML = `
