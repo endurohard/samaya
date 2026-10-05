@@ -2611,6 +2611,21 @@
                 <div class="broadcast-preview-text" id="broadcastPreviewText"></div>
               </div>
 
+              <!-- Темп отправки. Вынесен в интерфейс, потому что от него зависит
+                   и срок рассылки, и риск блокировки номера: быстрый темп по
+                   большой базе — главная причина бана WhatsApp. -->
+              <div class="form-group" style="margin-top:16px">
+                <label for="broadcastPace">Темп отправки</label>
+                <select id="broadcastPace">
+                  <option value="safe">Осторожный — 50 в сутки, пауза 1–3 мин (прогрев нового номера)</option>
+                  <option value="normal" selected>Обычный — 200 в сутки, пауза 25–75 с</option>
+                  <option value="fast">Быстрый — 400 в сутки, пауза 10–30 с (выше риск блокировки)</option>
+                </select>
+                <div class="broadcast-meta-row">
+                  <span class="char-count" id="broadcastEta">—</span>
+                </div>
+              </div>
+
               <div id="broadcastProgress" class="broadcast-progress" hidden>
                 <div class="broadcast-progress-track">
                   <div class="broadcast-progress-bar" id="broadcastProgressBar" style="width:0%"></div>
@@ -2623,6 +2638,7 @@
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   Отправить рассылку
                 </button>
+                <button type="button" class="btn-danger-outline" id="broadcastStopBtn" hidden>Остановить</button>
                 <span class="broadcast-disclaimer">Только клиентам с номером телефона</span>
               </div>
 

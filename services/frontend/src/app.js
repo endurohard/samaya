@@ -13012,6 +13012,7 @@ function waAttachChatToClient(phoneDigits, row) {
 
     if (countEl) countEl.textContent = String(_broadcastRecipients.length);
     updateBroadcastPreview();
+    updateBroadcastEta();
   }
 
   function updateBroadcastPreview() {
@@ -13028,6 +13029,33 @@ function waAttachChatToClient(phoneDigits, row) {
     wrap.hidden = false;
   }
 
+  // Пресеты темпа. Подбор тут важнее, чем кажется: именно скорость отправки
+  // по большой базе приводит к блокировке номера WhatsApp.
+  const BROADCAST_PACE = {
+    safe:   { daily_limit: 50,  min_delay_ms: 60_000, max_delay_ms: 180_000, batch_size: 10 },
+    normal: { daily_limit: 200, min_delay_ms: 25_000, max_delay_ms: 75_000,  batch_size: 20 },
+    fast:   { daily_limit: 400, min_delay_ms: 10_000, max_delay_ms: 30_000,  batch_size: 30 },
+  };
+
+  function currentPace() {
+    const key = document.getElementById('broadcastPace')?.value || 'normal';
+    return { key, ...BROADCAST_PACE[key] };
+  }
+
+  // Срок рассылки показываем до запуска: при безопасном темпе база в тысячи
+  // номеров растягивается на недели, и узнавать это на второй день поздно.
+  function updateBroadcastEta() {
+    const el = document.getElementById('broadcastEta');
+    if (!el) return;
+    const p = currentPace();
+    const n = _broadcastRecipients.length;
+    if (!n) { el.textContent = 'Выберите получателей'; return; }
+    const days = Math.ceil(n / p.daily_limit);
+    const avgSec = Math.round((p.min_delay_ms + p.max_delay_ms) / 2000);
+    el.textContent = `${n} получателей · ~${avgSec} с между сообщениями · `
+      + (days > 1 ? `примерно ${days} дн. (по ${p.daily_limit} в сутки)` : 'уложится за день');
+  }
+
   async function sendBroadcast() {
     const msg = document.getElementById('broadcastMessage')?.value?.trim();
     const segEl = document.getElementById('broadcastSegment');
@@ -13040,7 +13068,18 @@ function waAttachChatToClient(phoneDigits, row) {
 
     if (!msg) { toast('Напишите сообщение'); return; }
     if (_broadcastRecipients.length === 0) { toast('Нет клиентов в выбранном сегменте с номером телефона'); return; }
-    if (!confirm(`Отправить рассылку ${_broadcastRecipients.length} клиентам (${SEGMENT_LABELS[seg] || seg})?`)) return;
+
+    const pace = currentPace();
+    const days = Math.ceil(_broadcastRecipients.length / pace.daily_limit);
+    // Подтверждение — inline-панель, а не confirm(): во встроенном браузере
+    // диалоги заблокированы и кнопка выглядит нерабочей.
+    const agree = await confirmInline(btn,
+      `Отправить ${_broadcastRecipients.length} клиентам (${SEGMENT_LABELS[seg] || seg})? `
+      + (days > 1
+        ? `При выбранном темпе это займёт около ${days} дн. — рассылка идёт в фоне.`
+        : 'Рассылка идёт в фоне, окно можно закрыть.'),
+      'Запустить рассылку');
+    if (!agree) return;
 
     if (btn) { btn.disabled = true; btn.textContent = 'Отправка…'; }
     if (resultEl) resultEl.hidden = true;
@@ -13053,37 +13092,76 @@ function waAttachChatToClient(phoneDigits, row) {
       const { ok, data, status } = await apiCall('POST', '/api/whatsapp/broadcast', {
         recipients: _broadcastRecipients,
         message: msg,
+        pacing: pace,
       });
 
-      if (progressBar) progressBar.style.width = '100%';
-      if (progressLabel) {
-        progressLabel.textContent = ok
-          ? `Готово: ${data.sent} / ${data.total}`
-          : `Ошибка (${status})`;
-      }
-
-      if (resultEl) {
-        resultEl.hidden = false;
-        if (ok) {
-          const hasFail = data.failed_count > 0;
-          resultEl.className = `broadcast-result ${hasFail ? 'partial' : 'success'}`;
-          resultEl.textContent = hasFail
-            ? `Отправлено ${data.sent} из ${data.total}. Не доставлено: ${data.failed_count}.`
-            : `Рассылка завершена. Отправлено ${data.sent} сообщений.`;
-        } else {
+      if (!ok) {
+        if (progressLabel) progressLabel.textContent = `Ошибка (${status})`;
+        if (resultEl) {
+          resultEl.hidden = false;
           resultEl.className = 'broadcast-result error';
           resultEl.textContent = data?.error || data?.message || `Ошибка сервера (${status})`;
         }
+        if (btn) { btn.disabled = false; btn.textContent = 'Отправить рассылку'; }
+        return;
       }
 
-      // Append to history
-      if (ok) addBroadcastHistory(seg, _broadcastRecipients.length, data.sent, data.failed_count, startedAt);
-
+      // Сервер отвечает 202 «принято», а не «отправлено»: рассылка идёт в фоне
+      // часами. Раньше этот ответ показывался как «Рассылка завершена», хотя
+      // не ушло ещё ни одного сообщения.
+      toast(`Рассылка запущена: ${data.total} получателей`);
+      void pollBroadcast(seg, startedAt);
     } catch (e) {
       if (resultEl) { resultEl.hidden = false; resultEl.className = 'broadcast-result error'; resultEl.textContent = e.message; }
-    } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Отправить рассылку'; }
     }
+  }
+
+  // Слежение за фоновой рассылкой: прогресс, причина долгой паузы и итог.
+  let _broadcastPollTimer = null;
+
+  async function pollBroadcast(seg, startedAt) {
+    const btn = document.getElementById('broadcastSendBtn');
+    const stopBtn = document.getElementById('broadcastStopBtn');
+    const resultEl = document.getElementById('broadcastResult');
+    const progressBar = document.getElementById('broadcastProgressBar');
+    const progressLabel = document.getElementById('broadcastProgressLabel');
+    if (stopBtn) stopBtn.hidden = false;
+
+    const tick = async () => {
+      const { ok, data } = await apiCall('GET', '/api/whatsapp/broadcast/status');
+      if (!ok || !data) return;
+      const done = (data.sent || 0) + (data.failed_count || 0);
+      const total = data.total || 1;
+      if (progressBar) progressBar.style.width = `${Math.round((done / total) * 100)}%`;
+      if (progressLabel) {
+        // Долгая пауза — штатное состояние: без подписи прогресс выглядит
+        // зависшим на десятки минут, и рассылку начинают перезапускать.
+        progressLabel.textContent = data.pause_reason
+          ? `${done} / ${total} · ${data.pause_reason}`
+          : `${done} / ${total}`;
+      }
+
+      if (data.running) return;
+
+      clearInterval(_broadcastPollTimer);
+      _broadcastPollTimer = null;
+      if (stopBtn) stopBtn.hidden = true;
+      if (btn) { btn.disabled = false; btn.textContent = 'Отправить рассылку'; }
+      if (resultEl) {
+        resultEl.hidden = false;
+        const hasFail = (data.failed_count || 0) > 0;
+        resultEl.className = `broadcast-result ${hasFail ? 'partial' : 'success'}`;
+        resultEl.textContent = `Отправлено ${data.sent} из ${data.total}.`
+          + (hasFail ? ` Не доставлено: ${data.failed_count}.` : '')
+          + (data.stopped_reason ? ` ${data.stopped_reason}.` : '');
+      }
+      addBroadcastHistory(seg, data.total, data.sent, data.failed_count || 0, startedAt);
+    };
+
+    await tick();
+    if (_broadcastPollTimer) clearInterval(_broadcastPollTimer);
+    _broadcastPollTimer = setInterval(tick, 5000);
   }
 
   function addBroadcastHistory(seg, total, sent, failedCount, startedAt) {
@@ -13114,6 +13192,14 @@ function waAttachChatToClient(phoneDigits, row) {
   document.getElementById('broadcastMessage')?.addEventListener('input', updateBroadcastPreview);
   document.getElementById('broadcastPreviewBtn')?.addEventListener('click', updateBroadcastPreview);
   document.getElementById('broadcastSendBtn')?.addEventListener('click', () => { void sendBroadcast(); });
+  document.getElementById('broadcastPace')?.addEventListener('change', updateBroadcastEta);
+  document.getElementById('broadcastStopBtn')?.addEventListener('click', async (e) => {
+    const agree = await confirmInline(e.currentTarget,
+      'Остановить рассылку? Уже отправленные сообщения не отзываются.', 'Остановить');
+    if (!agree) return;
+    const { ok } = await apiCall('POST', '/api/whatsapp/broadcast/stop', {});
+    toast(ok ? 'Останавливаю рассылку…' : 'Не удалось остановить');
+  });
 
   // Load WA status badge in messages view
   async function loadWaBroadcastStatus() {
