@@ -194,36 +194,157 @@ app.post('/api/whatsapp/send', async (req, res) => {
 });
 
 // ── Broadcast (фоновый job) ──
-// Body: { recipients: [{phone, name}], message: string }
+// Body: { recipients: [{phone, name}], message: string, pacing?: {...} }
 // Поддерживает шаблон {name} → имя клиента.
 // Рассылка выполняется в фоне: POST сразу возвращает 202, прогресс — через
 // GET /api/whatsapp/broadcast/status. Иначе долгая рассылка обрывается по
 // proxy-timeout шлюза, а клиент не узнаёт результат.
-let _broadcast = { running: false, total: 0, sent: 0, failed: [], started_at: null, finished_at: null };
+//
+// ТЕМП И ПЕРЕРЫВЫ. Равномерная очередь с одинаковой паузой — сама по себе
+// примета автоматизации: человек так не пишет. Поэтому пауза случайная в
+// заданном диапазоне, после каждой пачки идёт длинный перерыв, а за сутки
+// уходит не больше дневного лимита. Это снижает риск, но НЕ делает рассылку
+// невидимой: блокировку чаще всего приносят жалобы получателей («Заблокировать
+// → Пожаловаться»), а не частота. Единственный способ не словить бан —
+// писать тем, кто вас ждёт, и давать способ отписаться.
+let _broadcast = {
+  running: false, total: 0, sent: 0, failed: [], started_at: null, finished_at: null,
+  // Пауза до следующего сообщения — чтобы интерфейс показывал «перерыв до HH:MM»,
+  // а не выглядел зависшим на несколько часов.
+  paused_until: null, pause_reason: null, stopped_reason: null,
+};
 
-async function runBroadcast(recipients, message) {
-  const DELAY = Number(process.env.BROADCAST_DELAY_MS || 2500);
-  const total = recipients.length;
-  console.log(`[WA][broadcast] Starting: ${total} recipients`);
+// Остановка рассылки снаружи (кнопка «Стоп»): длинная рассылка идёт часами,
+// и без этого её можно было прервать только перезапуском контейнера.
+let _broadcastAbort = false;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Параметры темпа. Значения по умолчанию подобраны под «тёплую» базу своих
+// клиентов; для холодной базы их надо снижать, а не повышать.
+function pacingFrom(input = {}) {
+  const num = (v, def, min, max) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+  };
+  return {
+    // Пауза между сообщениями — случайная в диапазоне.
+    minDelayMs: num(input.min_delay_ms ?? process.env.BROADCAST_DELAY_MS, 25_000, 3_000, 600_000),
+    maxDelayMs: num(input.max_delay_ms, 75_000, 3_000, 900_000),
+    // Пачка: сколько сообщений подряд, потом длинный перерыв.
+    batchSize: num(input.batch_size, 20, 1, 500),
+    batchPauseMinMs: num(input.batch_pause_min_ms, 15 * 60_000, 60_000, 6 * 3600_000),
+    batchPauseMaxMs: num(input.batch_pause_max_ms, 40 * 60_000, 60_000, 8 * 3600_000),
+    // Дневной потолок: дальше рассылка ждёт следующего дня.
+    dailyLimit: num(input.daily_limit, 200, 1, 5000),
+    // Часы отправки по местному времени клиники (МСК): ночью не пишем —
+    // ночное сообщение и раздражает, и заметно выделяется.
+    hourFrom: num(input.hour_from, 10, 0, 23),
+    hourTo: num(input.hour_to, 20, 1, 24),
+    // Авто-стоп: если подряд много отказов, продолжать опасно — обычно это
+    // уже сработавшее ограничение аккаунта.
+    abortAfterFails: num(input.abort_after_fails, 5, 1, 100),
+  };
+}
+
+const rand = (min, max) => Math.round(min + Math.random() * Math.max(0, max - min));
+
+// Текущий час в часовом поясе клиники, а не сервера: контейнер живёт в UTC,
+// и без пересчёта «10 утра» наступало бы в 13:00 по Москве.
+function localHour(tz = process.env.BROADCAST_TZ || 'Europe/Moscow') {
   try {
-    for (const { phone, name } of recipients) {
+    return Number(new Intl.DateTimeFormat('ru-RU', {
+      timeZone: tz, hour: '2-digit', hour12: false,
+    }).format(new Date()));
+  } catch { return new Date().getHours(); }
+}
+
+async function waitForSendingWindow(p) {
+  while (!_broadcastAbort) {
+    const h = localHour();
+    if (h >= p.hourFrom && h < p.hourTo) return;
+    _broadcast.pause_reason = `вне часов отправки (${p.hourFrom}:00–${p.hourTo}:00)`;
+    _broadcast.paused_until = new Date(Date.now() + 15 * 60_000).toISOString();
+    console.log(`[WA][broadcast] ${_broadcast.pause_reason} — жду`);
+    await sleep(15 * 60_000);
+  }
+}
+
+async function runBroadcast(recipients, message, pacing) {
+  const p = pacingFrom(pacing);
+  const total = recipients.length;
+  let sentToday = 0;
+  let dayStamp = new Date().toISOString().slice(0, 10);
+  let failStreak = 0;
+
+  console.log(`[WA][broadcast] Старт: получателей ${total}, пауза ${Math.round(p.minDelayMs / 1000)}–`
+    + `${Math.round(p.maxDelayMs / 1000)} с, пачка ${p.batchSize}, лимит/сутки ${p.dailyLimit}`);
+  try {
+    for (let i = 0; i < recipients.length; i++) {
+      if (_broadcastAbort) { _broadcast.stopped_reason = 'остановлено вручную'; break; }
+
+      // Сутки сменились — счётчик дневного лимита обнуляем.
+      const today = new Date().toISOString().slice(0, 10);
+      if (today !== dayStamp) { dayStamp = today; sentToday = 0; }
+
+      if (sentToday >= p.dailyLimit) {
+        _broadcast.pause_reason = `дневной лимит ${p.dailyLimit} исчерпан — продолжу завтра`;
+        _broadcast.paused_until = new Date(Date.now() + 30 * 60_000).toISOString();
+        console.log(`[WA][broadcast] ${_broadcast.pause_reason}`);
+        await sleep(30 * 60_000);
+        i--; // этого получателя ещё не отправляли
+        continue;
+      }
+
+      await waitForSendingWindow(p);
+      if (_broadcastAbort) { _broadcast.stopped_reason = 'остановлено вручную'; break; }
+      _broadcast.pause_reason = null;
+      _broadcast.paused_until = null;
+
+      const { phone, name } = recipients[i];
       const text = message.replace(/\{name\}/g, name || '');
       try {
         await wa.sendMessage(phone, text);
         _broadcast.sent++;
+        sentToday++;
+        failStreak = 0;
         console.log(`[WA][broadcast] ${_broadcast.sent}/${total} → ${phone}`);
       } catch (err) {
         console.error(`[WA][broadcast] FAIL → ${phone}: ${err.message}`);
         _broadcast.failed.push({ phone, error: err.message });
+        // Отказы allowlist'а — это настройка, а не проблема аккаунта:
+        // в серию, ведущую к авто-стопу, они не идут.
+        if (!/blocked by allowlist/i.test(err.message)) failStreak++;
+        if (failStreak >= p.abortAfterFails) {
+          _broadcast.stopped_reason = `подряд ${failStreak} ошибок отправки — рассылка остановлена, `
+            + 'проверьте аккаунт: похоже на ограничение со стороны WhatsApp';
+          console.error(`[WA][broadcast] ${_broadcast.stopped_reason}`);
+          break;
+        }
       }
-      if (_broadcast.sent + _broadcast.failed.length < total) {
-        await new Promise(r => setTimeout(r, DELAY));
+
+      const done = _broadcast.sent + _broadcast.failed.length;
+      if (done >= total) break;
+
+      // Длинный перерыв после пачки, обычная пауза — внутри пачки.
+      if (done % p.batchSize === 0) {
+        const pause = rand(p.batchPauseMinMs, p.batchPauseMaxMs);
+        _broadcast.pause_reason = `перерыв после ${p.batchSize} сообщений`;
+        _broadcast.paused_until = new Date(Date.now() + pause).toISOString();
+        console.log(`[WA][broadcast] перерыв ${Math.round(pause / 60_000)} мин`);
+        await sleep(pause);
+      } else {
+        await sleep(rand(p.minDelayMs, p.maxDelayMs));
       }
     }
   } finally {
     _broadcast.running = false;
+    _broadcast.paused_until = null;
+    _broadcast.pause_reason = null;
     _broadcast.finished_at = new Date().toISOString();
-    console.log(`[WA][broadcast] Done: sent=${_broadcast.sent} failed=${_broadcast.failed.length}`);
+    _broadcastAbort = false;
+    console.log(`[WA][broadcast] Готово: отправлено=${_broadcast.sent} ошибок=${_broadcast.failed.length}`
+      + (_broadcast.stopped_reason ? ` (${_broadcast.stopped_reason})` : ''));
   }
 }
 
@@ -231,7 +352,7 @@ app.post('/api/whatsapp/broadcast', (req, res) => {
   if (_broadcast.running) {
     return res.status(409).json({ error: 'broadcast_running', message: 'Рассылка уже идёт' });
   }
-  const { recipients, message } = req.body || {};
+  const { recipients, message, pacing } = req.body || {};
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'recipients array required' });
   }
@@ -242,12 +363,35 @@ app.post('/api/whatsapp/broadcast', (req, res) => {
   _broadcast = {
     running: true, total: recipients.length, sent: 0, failed: [],
     started_at: new Date().toISOString(), finished_at: null,
+    paused_until: null, pause_reason: null, stopped_reason: null,
   };
+  _broadcastAbort = false;
   // Запускаем в фоне; ошибки внутри уже пойманы в runBroadcast.
-  runBroadcast(recipients, message).catch(err => {
+  runBroadcast(recipients, message, pacing).catch(err => {
     console.error('[WA][broadcast] fatal:', err.message);
   });
-  return res.status(202).json({ accepted: true, total: recipients.length });
+  const p = pacingFrom(pacing);
+  // Возвращаем расчётную длительность: при темпе «как человек» рассылка на
+  // тысячи номеров идёт сутками, и это надо знать ДО запуска, а не на второй
+  // день по прогресс-бару.
+  const perMsgSec = (p.minDelayMs + p.maxDelayMs) / 2000;
+  const days = Math.ceil(recipients.length / p.dailyLimit);
+  return res.status(202).json({
+    accepted: true,
+    total: recipients.length,
+    daily_limit: p.dailyLimit,
+    est_days: days,
+    avg_delay_sec: Math.round(perMsgSec),
+  });
+});
+
+// Остановить идущую рассылку. Длинная очередь живёт часами и сутками —
+// без этого её можно было прервать только перезапуском контейнера.
+app.post('/api/whatsapp/broadcast/stop', (_req, res) => {
+  if (!_broadcast.running) return res.status(409).json({ error: 'not_running' });
+  _broadcastAbort = true;
+  console.log('[WA][broadcast] запрошена остановка');
+  return res.json({ stopping: true });
 });
 
 app.get('/api/whatsapp/broadcast/status', (_req, res) => {
@@ -259,6 +403,10 @@ app.get('/api/whatsapp/broadcast/status', (_req, res) => {
     failed: _broadcast.failed,
     started_at: _broadcast.started_at,
     finished_at: _broadcast.finished_at,
+    // Долгая пауза — штатное состояние, а не зависание: показываем причину.
+    paused_until: _broadcast.paused_until,
+    pause_reason: _broadcast.pause_reason,
+    stopped_reason: _broadcast.stopped_reason,
   });
 });
 
