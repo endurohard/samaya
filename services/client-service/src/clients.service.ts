@@ -16,13 +16,23 @@ export function pickAvatarColor(seed: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-// Нормализуем телефон до цифр + ведущий + если он есть.
-// '+7 (928) 188-98-54' → '+79281889854'
+// Нормализуем телефон к единому виду: только цифры, российские номера — к 11
+// знакам с ведущей 7.
+//
+// Раньше «+» сохранялся как есть, и один и тот же номер, введённый как
+// 89519392288 и как +79519392288, давал ДВЕ карточки клиента: уникальность
+// phone их не ловила. Для пользователя это выглядело как пропавшие деньги —
+// баланс пополняли на одну карточку, а записывали на другую.
+//   '+7 (951) 939-22-88' → '79519392288'
+//   '8 951 939-22-88'    → '79519392288'
 export function normalizePhone(raw: string): string {
-  const trimmed = raw.trim();
-  const hasPlus = trimmed.startsWith('+');
-  const digits = trimmed.replace(/\D/g, '');
-  return hasPlus ? `+${digits}` : digits;
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  // 8XXXXXXXXXX → 7XXXXXXXXXX: в России это один и тот же номер.
+  if (digits.length === 11 && digits.startsWith('8')) return `7${digits.slice(1)}`;
+  // 10 цифр без кода страны — дополняем российской семёркой.
+  if (digits.length === 10) return `7${digits}`;
+  return digits;
 }
 
 export type Segment =
@@ -299,6 +309,20 @@ export async function createClient(input: CreateClientInput) {
     throw new HttpError(400, 'invalid_phone', 'phone must contain at least 10 digits');
   }
   const color = pickAvatarColor(phone);
+  // Тот же номер в другом формате уже может лежать в базе со старых времён
+  // ('8951…' против '+7951…'): уникальный индекс по строке его не поймает, и
+  // оператор получит второго клиента вместо понятной ошибки.
+  const dup = await pool.query<{ id: string }>(
+    `SELECT id FROM clients.clients
+      WHERE company_id = $1
+        AND right(regexp_replace(phone::text, '\\D', '', 'g'), 10)
+            = right(regexp_replace($2::text, '\\D', '', 'g'), 10)
+      LIMIT 1`,
+    [input.company_id, phone],
+  );
+  if (dup.rows[0]) {
+    throw new HttpError(409, 'phone_exists', 'client with such phone already exists');
+  }
   try {
     const r = await pool.query(
       `INSERT INTO clients.clients
