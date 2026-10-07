@@ -5732,3 +5732,64 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .wa-attach-hit:hover { background: #f6fdfb; border-color: #00a884; }
 .wa-attach-hit span { color: var(--text-dim); font-size: 12px; }
 .wa-attach-empty { font-size: 13px; color: var(--text-dim); padding: 4px 2px; }
+
+/* ===== Instagram Direct =====
+   Два столбца: список диалогов и лента. Высота фиксированная, прокрутка
+   внутри каждого столбца — иначе длинная переписка растягивает карточку и
+   уводит поле ответа за пределы экрана. */
+.ig-layout { display: grid; grid-template-columns: 280px 1fr; gap: 12px; min-height: 420px; }
+.ig-threads { border: 1px solid var(--border); border-radius: 10px; overflow-y: auto;
+  max-height: 520px; background: #fafafa; }
+.ig-thread { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.ig-thread:hover { background: #f1f5f9; }
+.ig-thread.is-active { background: #e8f1fe; border-left: 3px solid #0095f6; }
+.ig-thread-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.ig-thread-top b { font-size: 13px; }
+.ig-thread-when { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.ig-thread-nick { font-size: 11px; color: var(--text-dim); margin: 2px 0; }
+.ig-thread-last { font-size: 12px; color: #475569; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.ig-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; background: #fee2e2; color: #b91c1c; }
+.ig-tag--draft { background: #dbeafe; color: #1d4ed8; }
+
+.ig-chat { display: flex; flex-direction: column; min-width: 0; }
+.ig-chat-head { font-weight: 600; font-size: 14px; padding: 0 0 8px; }
+.ig-chat-list { flex: 1; overflow-y: auto; max-height: 420px; padding: 10px;
+  background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+  display: flex; flex-direction: column; gap: 6px; }
+.ig-day { align-self: center; font-size: 11px; color: var(--text-dim);
+  background: #e2e8f0; border-radius: 8px; padding: 2px 10px; margin: 6px 0; }
+.ig-msg { max-width: 72%; padding: 6px 10px; border-radius: 10px; }
+.ig-msg--in { align-self: flex-start; background: #fff; border: 1px solid var(--border); }
+.ig-msg--out { align-self: flex-end; background: #e8f1fe; }
+.ig-msg-who { font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 2px; }
+.ig-msg-body { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.ig-msg-time { font-size: 11px; color: #94a3b8; text-align: right; margin-top: 2px; }
+.ig-empty { font-size: 13px; color: var(--text-dim); padding: 16px; text-align: center; }
+
+/* Черновик ИИ: отдельной панелью над полем ввода, с видимой рамкой — он не
+   должен выглядеть как уже отправленный текст. */
+.ig-draft { margin-top: 8px; padding: 8px; border: 1px dashed #0095f6;
+  border-radius: 10px; background: #f0f7ff; }
+.ig-draft-head { display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; font-weight: 600; color: #1d4ed8; margin-bottom: 6px; }
+.ig-draft textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 8px; font: inherit; font-size: 13px; resize: vertical; }
+.ig-draft-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+.ig-chat-form { display: flex; gap: 8px; margin-top: 8px; }
+.ig-chat-form input { flex: 1; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; font: inherit; }
+.ig-chat-status { font-size: 12px; margin-top: 6px; color: var(--text-dim); min-height: 16px; }
+.ig-chat-status.is-ok { color: #0095f6; }
+.ig-chat-status.is-warn { color: #d97706; }
+
+.ig-live-wrap { margin: 8px 0; border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; }
+.ig-live-wrap iframe { width: 100%; height: 640px; border: 0; display: block; }
+
+@media (max-width: 900px) {
+  .ig-layout { grid-template-columns: 1fr; }
+  .ig-threads { max-height: 220px; }
+}

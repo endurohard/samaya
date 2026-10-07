@@ -13266,6 +13266,271 @@ function waAttachChatToClient(phoneDigits, row) {
     } catch { badge.className = 'pill pill-danger'; badge.textContent = 'Ошибка'; }
   }
 
+  // ===== Instagram Direct =====
+  //
+  // Переписка ведётся прямо из админки: список диалогов, лента и ответ.
+  // Данные берутся из базы (instagram.threads/messages), а не со страницы
+  // Instagram — чтение страницы занимает секунды и держит единственный
+  // сеанс, который в это время не может ни отвечать, ни обходить диалоги.
+  let _igThread = null;
+  let _igTimer = null;
+
+  async function loadIgSession() {
+    const badge = document.getElementById('igSessionBadge');
+    if (!badge) return null;
+    try {
+      const r = await apiCall('GET', '/api/instagram/status');
+      if (!r.ok) { badge.className = 'pill pill-danger'; badge.textContent = 'сервис недоступен'; return null; }
+      const s = r.data;
+      // Чекпоинт и требование входа показываем отдельно от обычного «не
+      // подключён»: они лечатся не перезапуском, а человеком в живом окне,
+      // и администратор должен понимать, что именно от него требуется.
+      if (s.status === 'checkpoint') {
+        badge.className = 'pill pill-danger';
+        badge.textContent = 'Instagram просит подтвердить вход — откройте окно';
+      } else if (s.status === 'login_required') {
+        badge.className = 'pill pill-warn';
+        badge.textContent = 'нужен вход в аккаунт — откройте окно';
+      } else if (s.test_mode) {
+        badge.className = 'pill pill-mute';
+        badge.textContent = 'тест-режим: отправка выключена';
+      } else if (s.ready) {
+        badge.className = 'pill pill-success';
+        badge.textContent = s.account ? '@' + s.account : 'подключён';
+      } else {
+        badge.className = 'pill pill-warn';
+        badge.textContent = 'сеанс поднимается…';
+      }
+      return s;
+    } catch {
+      badge.className = 'pill pill-danger';
+      badge.textContent = 'ошибка связи';
+      return null;
+    }
+  }
+
+  async function loadIgThreads() {
+    const box = document.getElementById('igThreads');
+    if (!box) return;
+    try {
+      const r = await apiCall('GET', '/api/instagram/threads');
+      const items = r.data || [];
+      if (!items.length) {
+        box.innerHTML = '<div class="ig-empty">Диалогов пока нет</div>';
+        return;
+      }
+      box.innerHTML = items.map((t) => {
+        const name = t.client_name || t.full_name || t.username || 'без имени';
+        const nick = t.username ? '@' + t.username : '';
+        const when = t.last_at
+          ? new Date(t.last_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+        // Непривязанный диалог помечаем: без карточки клиента переписка не
+        // попадёт в историю клиента и потеряется при следующем визите.
+        const unlinked = t.client_id ? '' : '<span class="ig-tag">нет карточки</span>';
+        const draft = t.ai_draft ? '<span class="ig-tag ig-tag--draft">черновик</span>' : '';
+        return '<div class="ig-thread' + (t.thread_id === _igThread ? ' is-active' : '') + '"'
+          + ' data-id="' + escapeHtml(t.thread_id) + '">'
+          + '<div class="ig-thread-top"><b>' + escapeHtml(name) + '</b>'
+          + '<span class="ig-thread-when">' + escapeHtml(when) + '</span></div>'
+          + '<div class="ig-thread-nick">' + escapeHtml(nick) + unlinked + draft + '</div>'
+          + '<div class="ig-thread-last">' + escapeHtml((t.last_body || '').slice(0, 80)) + '</div>'
+          + '</div>';
+      }).join('');
+      box.querySelectorAll('.ig-thread').forEach((el) => {
+        el.addEventListener('click', () => void openIgThread(el.dataset.id));
+      });
+    } catch (e) {
+      box.innerHTML = '<div class="ig-empty">Не удалось загрузить: ' + escapeHtml(String(e.message || e)) + '</div>';
+    }
+  }
+
+  async function openIgThread(threadId) {
+    _igThread = threadId;
+    document.querySelectorAll('.ig-thread').forEach((el) => {
+      el.classList.toggle('is-active', el.dataset.id === threadId);
+    });
+    await loadIgMessages();
+    // Пока диалог открыт — подтягиваем новые сообщения. Читаем из базы,
+    // поэтому опрос дешёвый и сеанс Instagram не трогает.
+    if (_igTimer) clearInterval(_igTimer);
+    _igTimer = setInterval(() => void loadIgMessages(true), 7000);
+  }
+
+  async function loadIgMessages(silent = false) {
+    const list = document.getElementById('igChatList');
+    const head = document.getElementById('igChatHead');
+    if (!list || !_igThread) return;
+    if (!silent) list.innerHTML = '<div class="ig-empty">Загрузка…</div>';
+    try {
+      const r = await apiCall('GET', '/api/instagram/threads/' + encodeURIComponent(_igThread) + '/messages');
+      const items = r.data || [];
+      // Автообновление не должно дёргать администратора вниз, если он
+      // отлистал переписку вверх.
+      const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+      if (!items.length) {
+        list.innerHTML = '<div class="ig-empty">Сообщений нет</div>';
+      } else {
+        let lastDay = '';
+        const parts = [];
+        for (const m of items) {
+          const dt = m.sent_at ? new Date(m.sent_at) : null;
+          const day = dt ? dt.toLocaleDateString('ru-RU') : '';
+          if (day && day !== lastDay) {
+            parts.push('<div class="ig-day">' + escapeHtml(day) + '</div>');
+            lastDay = day;
+          }
+          const out = m.from_me;
+          // За аккаунтом работают посменно: у исходящих показываем, кто
+          // ответил. У автоответов подписи нет — там остаётся «Мы».
+          const who = out ? (m.author_name ? escapeHtml(m.author_name) : 'Мы') : 'Клиент';
+          const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+          const body = escapeHtml(m.body || '') || (m.has_media ? '<i>вложение</i>' : '');
+          parts.push('<div class="ig-msg' + (out ? ' ig-msg--out' : ' ig-msg--in') + '">'
+            + '<div class="ig-msg-who">' + who + '</div>'
+            + '<div class="ig-msg-body">' + body + '</div>'
+            + '<div class="ig-msg-time">' + time + '</div></div>');
+        }
+        list.innerHTML = parts.join('');
+      }
+      if (atBottom || !silent) list.scrollTop = list.scrollHeight;
+
+      if (head && !silent) {
+        const active = document.querySelector('.ig-thread.is-active b')?.textContent || 'Диалог';
+        head.textContent = active;
+      }
+      await loadIgDraft();
+    } catch (e) {
+      list.innerHTML = '<div class="ig-empty">Не удалось загрузить: ' + escapeHtml(String(e.message || e)) + '</div>';
+    }
+  }
+
+  // Черновик ИИ для текущего диалога. Берём из списка диалогов, а не
+  // отдельным запросом: он уже приходит вместе с ними.
+  async function loadIgDraft() {
+    const box = document.getElementById('igDraft');
+    const text = document.getElementById('igDraftText');
+    const safe = document.getElementById('igDraftSafe');
+    if (!box || !text) return;
+    try {
+      const r = await apiCall('GET', '/api/instagram/drafts');
+      const d = (r.data || []).find((x) => x.thread_id === _igThread);
+      if (!d?.ai_draft) { box.hidden = true; return; }
+      box.hidden = false;
+      text.value = d.ai_draft;
+      if (safe) {
+        // Показываем вердикт классификатора: администратор должен видеть,
+        // что по этой теме автоматика отвечать сама не бралась.
+        safe.className = 'pill ' + (d.ai_safe ? 'pill-success' : 'pill-warn');
+        safe.textContent = d.ai_safe ? 'простой вопрос' : 'нужен администратор';
+      }
+    } catch { box.hidden = true; }
+  }
+
+  async function sendIg(message, fromDraft = false) {
+    const status = document.getElementById('igChatStatus');
+    const text = String(message || '').trim();
+    if (!text || !_igThread) return;
+    const setErr = (why) => {
+      // Причину показываем в окне, а не только тостом: тост легко пропустить,
+      // и тогда нажатие выглядит как «ничего не произошло».
+      if (status) { status.textContent = 'Не отправлено: ' + why; status.className = 'ig-chat-status is-warn'; }
+      toast('Не отправлено: ' + why);
+    };
+    try {
+      const url = fromDraft
+        ? '/api/instagram/threads/' + encodeURIComponent(_igThread) + '/draft/send'
+        : '/api/instagram/send';
+      const body = fromDraft ? { message: text } : { thread_id: _igThread, message: text };
+      const r = await apiCall('POST', url, body);
+      if (!r.ok) { setErr(r.data?.error || ('код ' + r.status)); return false; }
+      // Сервис подтверждает, что текст появился в ленте Instagram. Без этой
+      // проверки «отправлено» означало бы только «мы нажали Enter»: Direct
+      // молча отклоняет сообщения при ограничении аккаунта.
+      if (r.data?.confirmed === false) {
+        if (status) {
+          status.textContent = 'Отправлено, но подтверждения от Instagram нет — проверьте в окне';
+          status.className = 'ig-chat-status is-warn';
+        }
+      } else if (status) {
+        status.textContent = 'Отправлено';
+        status.className = 'ig-chat-status is-ok';
+      }
+      await loadIgMessages();
+      return true;
+    } catch (e) {
+      setErr(String(e?.message || e));
+      return false;
+    }
+  }
+
+  document.getElementById('igRefresh')?.addEventListener('click', () => {
+    void loadIgSession();
+    void loadIgThreads();
+  });
+
+  document.getElementById('igLiveToggle')?.addEventListener('click', () => {
+    const wrap = document.getElementById('igLiveWrap');
+    const frame = document.getElementById('igLiveFrame');
+    const btn = document.getElementById('igLiveToggle');
+    if (!wrap || !frame) return;
+    if (wrap.hidden) {
+      frame.src = '/api/instagram/live';
+      wrap.hidden = false;
+      if (btn) btn.textContent = 'Скрыть окно';
+    } else {
+      // Гасим поток кадров: скрытый iframe продолжал бы опрашивать сервис
+      // и занимать сеанс скриншотами.
+      frame.src = 'about:blank';
+      wrap.hidden = true;
+      if (btn) btn.textContent = 'Окно Instagram';
+    }
+  });
+
+  document.getElementById('igChatSend')?.addEventListener('click', async () => {
+    const input = document.getElementById('igChatInput');
+    const btn = document.getElementById('igChatSend');
+    if (!input?.value.trim()) return;
+    if (btn) btn.disabled = true;
+    const ok = await sendIg(input.value);
+    if (ok) input.value = '';
+    if (btn) btn.disabled = false;
+  });
+
+  document.getElementById('igChatInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('igChatSend')?.click(); }
+  });
+
+  document.getElementById('igSuggest')?.addEventListener('click', async (e) => {
+    if (!_igThread) return;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await apiCall('POST', '/api/instagram/threads/' + encodeURIComponent(_igThread) + '/draft', {});
+      if (r.ok) await loadIgDraft();
+      else toast('Не удалось предложить ответ: ' + (r.data?.error || r.status));
+    } finally { btn.disabled = false; }
+  });
+
+  document.getElementById('igDraftSend')?.addEventListener('click', async () => {
+    const text = document.getElementById('igDraftText')?.value;
+    const btn = document.getElementById('igDraftSend');
+    if (btn) btn.disabled = true;
+    const ok = await sendIg(text, true);
+    if (ok) {
+      const box = document.getElementById('igDraft');
+      if (box) box.hidden = true;
+    }
+    if (btn) btn.disabled = false;
+  });
+
+  document.getElementById('igDraftDrop')?.addEventListener('click', async () => {
+    if (!_igThread) return;
+    await apiCall('DELETE', '/api/instagram/threads/' + encodeURIComponent(_igThread) + '/draft');
+    const box = document.getElementById('igDraft');
+    if (box) box.hidden = true;
+  });
+
   // Hook into setView to load data when navigating to messages
   const _origSetView = setView;
   setView = function(v) {
@@ -13274,6 +13539,13 @@ function waAttachChatToClient(phoneDigits, row) {
       void loadWaBroadcastStatus();
       void loadBroadcastSegment();
       void loadWaUnlinked();
+      void loadIgSession();
+      void loadIgThreads();
+    } else if (_igTimer) {
+      // Уходим из раздела — гасим опрос диалога: иначе он продолжает
+      // стучаться в сервис из любого другого экрана до перезагрузки страницы.
+      clearInterval(_igTimer);
+      _igTimer = null;
     }
   };
 

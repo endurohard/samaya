@@ -122,6 +122,15 @@ services:
         strip_path: false
         methods: [GET, POST, DELETE, OPTIONS]
 
+  - name: instagram-service
+    url: http://instagram-service:3010
+    routes:
+      - name: instagram
+        paths:
+          - /api/instagram
+        strip_path: false
+        methods: [GET, POST, DELETE, OPTIONS]
+
   - name: telephony-service
     url: http://telephony-service:3009
     routes:

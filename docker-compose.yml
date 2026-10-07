@@ -443,6 +443,81 @@ services:
     cpus: 1
     restart: unless-stopped
 
+  # Переписка Instagram Direct. Устроен как whatsapp-service: приватная
+  # сессия браузера вместо официального API — у клиники нет связки с
+  # Facebook-страницей и Business Manager, а App Review для Messaging API
+  # занял бы недели.
+  instagram-service:
+    build:
+      context: ./services/instagram-service
+      dockerfile: Dockerfile
+    container_name: samaya-instagram
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3010
+      INSTAGRAM_TEST_MODE: ${INSTAGRAM_TEST_MODE:-true}
+      INSTAGRAM_SESSION_DIR: /data/session
+      INSTAGRAM_MEDIA_DIR: /data/media
+      # Тот же VLESS-мост, что и у WhatsApp: сессия заведена из Каспийска, и
+      # её «переезд» на голландский адрес сервера — типовая причина
+      # чекпоинта. Выходить надо местным адресом.
+      INSTAGRAM_SOCKS_PROXY: ${INSTAGRAM_SOCKS_PROXY:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      # Белый список ников (через запятую, без @). Задан — отправка идёт
+      # только им. Нужен на стенде с копией прод-базы и на время проверки.
+      INSTAGRAM_ALLOWLIST: ${INSTAGRAM_ALLOWLIST:-}
+      # Монитор переписки. Умолчание false: обход диалогов боевого аккаунта —
+      # осознанное решение владельца, а не то, что включается само при выкате.
+      INSTAGRAM_MONITOR: ${INSTAGRAM_MONITOR:-false}
+      INSTAGRAM_MONITOR_WATCH_MS: ${INSTAGRAM_MONITOR_WATCH_MS:-20000}
+      INSTAGRAM_MONITOR_FULL_MS: ${INSTAGRAM_MONITOR_FULL_MS:-900000}
+      INSTAGRAM_MONITOR_THREADS: ${INSTAGRAM_MONITOR_THREADS:-10}
+      INSTAGRAM_MONITOR_DEPTH: ${INSTAGRAM_MONITOR_DEPTH:-40}
+      # ИИ-ответчик. Базовый URL вынесен в переменную, чтобы перевести
+      # ответы на локальную модель (Ollama, LM Studio, vLLM) сменой одного
+      # значения: протокол у них OpenAI-совместимый, код менять не нужно.
+      # Для локального сервера на хосте: http://host.docker.internal:11434/v1
+      INSTAGRAM_AI_ENABLED: ${INSTAGRAM_AI_ENABLED:-false}
+      INSTAGRAM_AI_BASE_URL: ${INSTAGRAM_AI_BASE_URL:-https://api.openai.com/v1}
+      INSTAGRAM_AI_API_KEY: ${INSTAGRAM_AI_API_KEY:-}
+      INSTAGRAM_AI_MODEL: ${INSTAGRAM_AI_MODEL:-gpt-4o-mini}
+      # Автоотправка по умолчанию выключена: клиника — медицинские услуги, и
+      # неверно названная цена или намёк на показания стоят дороже, чем
+      # минута ожидания, пока администратор нажмёт «отправить».
+      INSTAGRAM_AI_AUTOSEND: ${INSTAGRAM_AI_AUTOSEND:-false}
+      INSTAGRAM_AI_CLINIC_INFO: ${INSTAGRAM_AI_CLINIC_INFO:-}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "3010"
+    volumes:
+      - instagram_session:/data/session
+      - instagram_media:/data/media
+    networks:
+      - samaya-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    shm_size: '256mb'
+    # Жнец зомби: PID 1 здесь node, осиротевшие процессы Chromium он не
+    # собирает и они копятся после каждого сбоя до конца жизни контейнера.
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3010/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1
+    restart: unless-stopped
+
   # Мост к прокси хоста. Нужен там, где у контейнеров нет прямого выхода в
   # интернет (iTTEST): xray слушает только loopback хоста, из bridge-сети он не
   # виден. Включается заданием EGRESS_BIND_HOST — на площадках с обычным
@@ -556,5 +631,7 @@ volumes:
   redis_data:
   whatsapp_session:
   whatsapp_media:
+  instagram_session:
+  instagram_media:
   service-media:
   telephony_recordings:

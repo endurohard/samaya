@@ -2555,6 +2555,64 @@
         <section class="view view-messages" data-view="messages" hidden>
           <div class="messages-layout">
 
+            <!-- Переписка Instagram Direct.
+                 Список диалогов слева, лента и ответ справа. Отдельной
+                 карточкой, а не вкладкой в переписке WhatsApp: у собеседника
+                 в Instagram нет телефона, диалог живёт сам по себе и
+                 привязывается к клиенту вручную. -->
+            <div class="card" id="igCard">
+              <div class="card-head">
+                <h2 class="card-title">Instagram Direct</h2>
+                <span id="igSessionBadge" class="pill pill-mute">проверяю…</span>
+                <div class="card-head-actions">
+                  <button type="button" class="btn-ghost btn-sm" id="igRefresh">Обновить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="igLiveToggle">Окно Instagram</button>
+                </div>
+              </div>
+
+              <!-- Живое окно сеанса: нужно для входа в аккаунт и снятия
+                   чекпоинта. Свёрнуто по умолчанию — поток кадров не должен
+                   грузиться, пока его не попросили. -->
+              <div id="igLiveWrap" class="ig-live-wrap" hidden>
+                <iframe id="igLiveFrame" title="Экран Instagram"></iframe>
+              </div>
+
+              <div class="ig-layout">
+                <div class="ig-threads" id="igThreads">
+                  <div class="ig-empty">Загрузка…</div>
+                </div>
+                <div class="ig-chat">
+                  <div class="ig-chat-head" id="igChatHead">Выберите диалог</div>
+                  <div class="ig-chat-list" id="igChatList">
+                    <div class="ig-empty">Диалог не выбран</div>
+                  </div>
+
+                  <!-- Черновик ИИ. Показывается отдельной панелью над полем
+                       ввода, а не подставляется в поле: администратор должен
+                       видеть, что текст предложен автоматикой, и осознанно
+                       его отправить или отклонить. -->
+                  <div class="ig-draft" id="igDraft" hidden>
+                    <div class="ig-draft-head">
+                      <span>Черновик ответа</span>
+                      <span id="igDraftSafe" class="pill pill-mute"></span>
+                    </div>
+                    <textarea id="igDraftText" rows="3"></textarea>
+                    <div class="ig-draft-actions">
+                      <button type="button" class="btn-primary btn-sm" id="igDraftSend">Отправить</button>
+                      <button type="button" class="btn-ghost btn-sm" id="igDraftDrop">Отклонить</button>
+                    </div>
+                  </div>
+
+                  <div class="ig-chat-form">
+                    <input type="text" id="igChatInput" placeholder="Ответ клиенту…" autocomplete="off">
+                    <button type="button" class="btn-ghost btn-sm" id="igSuggest" title="Предложить ответ">ИИ</button>
+                    <button type="button" class="btn-primary btn-sm" id="igChatSend">Отправить</button>
+                  </div>
+                  <div class="ig-chat-status" id="igChatStatus"></div>
+                </div>
+              </div>
+            </div>
+
             <!-- Входящие с номеров, которых нет в базе клиентов -->
             <div class="card" id="waUnlinkedCard" hidden>
               <div class="card-head">
