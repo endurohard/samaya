@@ -12997,12 +12997,33 @@ function waAttachChatToClient(phoneDigits, row) {
 
   let _broadcastRecipients = []; // [{phone, name}]
 
+  // Параметры фильтра по дате последнего визита. Пустые значения в запрос не
+  // идут: пустая граница означает «не ограничивать», а не «с начала времён».
+  function visitFilterParams() {
+    if (!document.getElementById('broadcastByVisit')?.checked) return {};
+    const from = document.getElementById('broadcastVisitFrom')?.value || '';
+    const to = document.getElementById('broadcastVisitTo')?.value || '';
+    return { from, to };
+  }
+
   async function loadBroadcastSegment() {
     const seg = document.getElementById('broadcastSegment')?.value || 'sleeping';
     const countEl = document.getElementById('broadcastCount');
     if (countEl) countEl.textContent = '…';
 
-    const { ok, data } = await apiCall('GET', `/api/clients?segment=${seg}&limit=2000`);
+    const { from, to } = visitFilterParams();
+    if (from && to && from > to) {
+      toast('Дата «с» позже даты «по»');
+      if (countEl) countEl.textContent = '—';
+      return;
+    }
+    // limit 5000 — сервер отдаёт столько же; при 2000 часть клиентов молча
+    // не попадала бы в рассылку.
+    const qs = new URLSearchParams({ segment: seg, limit: '5000' });
+    if (from) qs.set('last_visit_from', from);
+    if (to) qs.set('last_visit_to', to);
+
+    const { ok, data } = await apiCall('GET', `/api/clients?${qs.toString()}`);
     if (!ok) { if (countEl) countEl.textContent = '?'; return; }
 
     const clients = data?.items || [];
@@ -13011,6 +13032,10 @@ function waAttachChatToClient(phoneDigits, row) {
       .map((c) => ({ phone: c.phone, name: (c.full_name || '').split(' ')[0] || 'клиент' }));
 
     if (countEl) countEl.textContent = String(_broadcastRecipients.length);
+    // Сколько записей отсеялось из-за отсутствия телефона — иначе разница
+    // между «в сегменте 120» и «получателей 84» выглядит потерей данных.
+    const skipped = clients.length - _broadcastRecipients.length;
+    if (skipped > 0) toast(`${skipped} клиентов без телефона — им рассылка не уйдёт`);
     updateBroadcastPreview();
     updateBroadcastEta();
   }
@@ -13193,6 +13218,32 @@ function waAttachChatToClient(phoneDigits, row) {
   document.getElementById('broadcastPreviewBtn')?.addEventListener('click', updateBroadcastPreview);
   document.getElementById('broadcastSendBtn')?.addEventListener('click', () => { void sendBroadcast(); });
   document.getElementById('broadcastPace')?.addEventListener('change', updateBroadcastEta);
+  // Фильтр по дате последнего визита
+  document.getElementById('broadcastByVisit')?.addEventListener('change', (e) => {
+    const box = document.getElementById('broadcastVisitRange');
+    if (box) box.hidden = !e.currentTarget.checked;
+    void loadBroadcastSegment();
+  });
+  document.getElementById('broadcastVisitApply')?.addEventListener('click', () => { void loadBroadcastSegment(); });
+  document.querySelectorAll('[data-visit-quick]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // Готовые диапазоны «был за последние N дней»: самый частый отбор для
+      // акции, и набирать две даты руками каждый раз незачем.
+      const n = Number(btn.dataset.visitQuick) || 30;
+      const today = todayLocalISO();
+      const fromEl = document.getElementById('broadcastVisitFrom');
+      const toEl = document.getElementById('broadcastVisitTo');
+      if (fromEl) fromEl.value = addDaysISO(today, -n);
+      if (toEl) toEl.value = today;
+      const chk = document.getElementById('broadcastByVisit');
+      if (chk && !chk.checked) {
+        chk.checked = true;
+        const box = document.getElementById('broadcastVisitRange');
+        if (box) box.hidden = false;
+      }
+      void loadBroadcastSegment();
+    });
+  });
   document.getElementById('broadcastStopBtn')?.addEventListener('click', async (e) => {
     const agree = await confirmInline(e.currentTarget,
       'Остановить рассылку? Уже отправленные сообщения не отзываются.', 'Остановить');

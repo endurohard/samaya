@@ -42,11 +42,30 @@ router.get('/', async (req, res, next) => {
       return res.status(400).json({ error: 'invalid segment' });
     }
     const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-    const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10) || 50, 200);
+    // Потолок 200 годится для постраничного списка, но рассылка набирает
+    // получателей одним запросом: с ним сегмент молча обрезался до 200
+    // человек, и часть клиентов не получала сообщение.
+    const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10) || 50, 5000);
     const offset = parseInt(String(req.query.offset ?? '0'), 10) || 0;
+
+    // Период последнего визита: YYYY-MM-DD. Кривую дату отклоняем, а не
+    // игнорируем молча — иначе рассылка уйдёт шире, чем задумал оператор.
+    const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const lvFromRaw = req.query.last_visit_from;
+    const lvToRaw = req.query.last_visit_to;
+    if ((lvFromRaw != null && lvFromRaw !== '' && !isDate(lvFromRaw))
+      || (lvToRaw != null && lvToRaw !== '' && !isDate(lvToRaw))) {
+      return res.status(400).json({ error: 'invalid date, expected YYYY-MM-DD' });
+    }
+    const lastVisitFrom = isDate(lvFromRaw) ? lvFromRaw : undefined;
+    const lastVisitTo = isDate(lvToRaw) ? lvToRaw : undefined;
+    if (lastVisitFrom && lastVisitTo && lastVisitFrom > lastVisitTo) {
+      return res.status(400).json({ error: 'last_visit_from is after last_visit_to' });
+    }
 
     const data = await listClients({
       companyId: req.auth!.company_id, segment, search, limit, offset,
+      lastVisitFrom, lastVisitTo,
     });
     return res.json(data);
   } catch (err) { return next(err); }

@@ -2593,6 +2593,28 @@
                 </div>
               </div>
 
+              <!-- Период последнего визита. Готовые сегменты отвечают на
+                   «спящие/постоянные», но не на «кто был в марте» — а акции
+                   рассылают именно так. Фильтр сужает выбранный сегмент. -->
+              <div class="broadcast-visit-filter">
+                <label class="jf-checkbox">
+                  <input type="checkbox" id="broadcastByVisit" />
+                  Отобрать по дате последнего визита
+                </label>
+                <div class="broadcast-visit-range" id="broadcastVisitRange" hidden>
+                  <label for="broadcastVisitFrom">с</label>
+                  <input type="date" id="broadcastVisitFrom" />
+                  <label for="broadcastVisitTo">по</label>
+                  <input type="date" id="broadcastVisitTo" />
+                  <button type="button" class="btn-secondary btn-sm" id="broadcastVisitApply">Применить</button>
+                  <span class="broadcast-visit-quick">
+                    <button type="button" class="btn-ghost btn-xs" data-visit-quick="30">последние 30 дней</button>
+                    <button type="button" class="btn-ghost btn-xs" data-visit-quick="90">90 дней</button>
+                    <button type="button" class="btn-ghost btn-xs" data-visit-quick="365">год</button>
+                  </span>
+                </div>
+              </div>
+
               <div class="form-group" style="margin-top:16px">
                 <label for="broadcastMessage">
                   Сообщение

@@ -123,10 +123,23 @@ interface ListParams {
   search?: string;
   limit: number;
   offset: number;
+  // Фильтр по дате последнего визита (YYYY-MM-DD). Нужен для рассылок:
+  // готовые сегменты отвечают на «спящие/постоянные», но не на «кто был
+  // с 1 по 31 марта» — а акции рассылают именно так.
+  // Клиенты без визитов под любую границу не попадают: их «последний визит»
+  // не ноль, а отсутствие события, и в период его помещать нельзя.
+  lastVisitFrom?: string;
+  lastVisitTo?: string;
 }
 
 // Преобразуем number → 'N days' для подстановки как interval-параметра.
 const days = (n: number) => `${n} days`;
+
+// Часовой пояс клиники. Визиты хранятся в UTC, а фильтр по периоду задают
+// в местных датах: без приведения «по 31 марта» теряло бы вечер 31-го.
+// Берётся из окружения, чтобы не зашивать город в код; подставляется в SQL
+// как литерал, поэтому допускаем только безопасные символы имени зоны.
+const TZ = (process.env.CLINIC_TZ || 'Europe/Moscow').replace(/[^\w/+-]/g, '') || 'Europe/Moscow';
 
 export async function listClients(p: ListParams) {
   const baseParams: unknown[] = [
@@ -158,6 +171,18 @@ export async function listClients(p: ListParams) {
     const q = `%${p.search.trim().replace(/[%_]/g, (m) => '\\' + m)}%`;
     where.push(`(c.full_name ILIKE $${params.length + 1} OR c.phone::text ILIKE $${params.length + 1})`);
     params.push(q);
+  }
+
+  // Период последнего визита. Сравниваем по дате в часовом поясе клиники:
+  // last_visit_at хранится в UTC, и «по 31 марта» без приведения отсекало бы
+  // вечерние визиты последнего дня.
+  if (p.lastVisitFrom) {
+    where.push(`(s.last_visit_at AT TIME ZONE '${TZ}')::date >= $${params.length + 1}::date`);
+    params.push(p.lastVisitFrom);
+  }
+  if (p.lastVisitTo) {
+    where.push(`(s.last_visit_at AT TIME ZONE '${TZ}')::date <= $${params.length + 1}::date`);
+    params.push(p.lastVisitTo);
   }
 
   params.push(p.limit, p.offset);
