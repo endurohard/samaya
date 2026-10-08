@@ -2691,6 +2691,25 @@
                 <div class="broadcast-preview-text" id="broadcastPreviewText"></div>
               </div>
 
+              <!-- Вложение. Текст уходит подписью к фото/видео одним сообщением.
+                   Видео намеренно НЕ рекомендуем: WhatsApp загружает файл заново
+                   в каждый чат, и на крупной базе рассылка растягивается на часы.
+                   Пересылка вместо загрузки не спасает — она ограничена 5 чатами
+                   и ставит метку «Переслано». -->
+              <div class="form-group" style="margin-top:16px">
+                <label for="broadcastMediaInput">Вложение <span class="hint-inline">&nbsp;— необязательно</span></label>
+                <div class="broadcast-meta-row" style="justify-content:flex-start;gap:10px">
+                  <input type="file" id="broadcastMediaInput" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" hidden>
+                  <button type="button" class="btn-ghost btn-xs" id="broadcastMediaBtn">Прикрепить фото или видео</button>
+                  <button type="button" class="btn-ghost btn-xs" id="broadcastMediaClearBtn" hidden>Убрать</button>
+                  <span class="char-count" id="broadcastMediaName"></span>
+                </div>
+                <div id="broadcastMediaPreviewWrap" hidden style="margin-top:10px">
+                  <img id="broadcastMediaPreview" alt="" style="max-width:220px;max-height:220px;border-radius:10px;display:block">
+                  <div class="hint-inline" id="broadcastMediaHint" style="margin-top:6px"></div>
+                </div>
+              </div>
+
               <!-- Темп отправки. Вынесен в интерфейс, потому что от него зависит
                    и срок рассылки, и риск блокировки номера: быстрый темп по
                    большой базе — главная причина бана WhatsApp. -->

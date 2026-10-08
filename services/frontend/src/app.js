@@ -6622,6 +6622,36 @@ import {
     return r;
   }
 
+  // Загрузка файла: тело — сам файл, а не JSON (base64 раздувает видео на
+  // треть). Отдельная функция, потому что call() жёстко ставит
+  // Content-Type: application/json, и подмешать сюда File нельзя.
+  async function apiUpload(path, file) {
+    const send = async (token) => {
+      try {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: file,
+        });
+        let data = null;
+        try { data = await res.json(); } catch { /* no body */ }
+        logCall('POST', path, res.status);
+        return { ok: res.ok, status: res.status, data };
+      } catch {
+        logCall('POST', path, 'NETWORK_ERROR');
+        return { ok: false, status: 0, data: { error: 'network error' } };
+      }
+    };
+    let r = await send(store.access);
+    if (r.status === 401 && store.refresh) {
+      if (await refreshTokens()) r = await send(store.access);
+    }
+    return r;
+  }
+
   async function loadClientsAll() {
     await Promise.all([loadClientsSegments(), loadClientsList()]);
   }
@@ -12996,6 +13026,81 @@ function waAttachChatToClient(phoneDigits, row) {
   };
 
   let _broadcastRecipients = []; // [{phone, name}]
+  // Загруженное вложение: {media_id, kind, name}. Файл уходит на сервер сразу
+  // при выборе, а не при отправке: видео на десятки мегабайт грузится заметное
+  // время, и делать это в момент запуска рассылки — значит держать человека
+  // перед замершей кнопкой.
+  let _broadcastMedia = null;
+
+  // Ограничение WhatsApp: 16 МБ на фото, 64 МБ на видео. Проверяем до
+  // загрузки, чтобы не гонять зря большой файл по сети.
+  const MEDIA_LIMITS = { image: 16 * 1024 * 1024, video: 64 * 1024 * 1024 };
+
+  function resetBroadcastMedia() {
+    _broadcastMedia = null;
+    const input = document.getElementById('broadcastMediaInput');
+    if (input) input.value = '';
+    const nameEl = document.getElementById('broadcastMediaName');
+    if (nameEl) nameEl.textContent = '';
+    const wrap = document.getElementById('broadcastMediaPreviewWrap');
+    if (wrap) wrap.hidden = true;
+    const clearBtn = document.getElementById('broadcastMediaClearBtn');
+    if (clearBtn) clearBtn.hidden = true;
+    const btn = document.getElementById('broadcastMediaBtn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Прикрепить фото или видео'; }
+  }
+
+  async function onBroadcastMediaPicked(file) {
+    if (!file) return;
+    const kind = file.type.startsWith('video') ? 'video' : 'image';
+    const nameEl = document.getElementById('broadcastMediaName');
+    const btn = document.getElementById('broadcastMediaBtn');
+
+    if (file.size > MEDIA_LIMITS[kind]) {
+      toast(`Файл слишком большой: ${(file.size / 1048576).toFixed(1)} МБ, `
+        + `предел WhatsApp — ${MEDIA_LIMITS[kind] / 1048576} МБ для ${kind === 'video' ? 'видео' : 'фото'}`);
+      resetBroadcastMedia();
+      return;
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Загрузка…'; }
+    if (nameEl) nameEl.textContent = `${file.name} — загружается…`;
+
+    const { ok, data } = await apiUpload('/api/whatsapp/upload', file);
+    if (!ok) {
+      toast(data?.message || data?.error || 'Не удалось загрузить файл');
+      resetBroadcastMedia();
+      return;
+    }
+
+    _broadcastMedia = { media_id: data.media_id, kind: data.kind, name: file.name };
+    if (nameEl) nameEl.textContent = `${file.name} — ${(file.size / 1048576).toFixed(1)} МБ`;
+    if (btn) { btn.disabled = false; btn.textContent = 'Заменить файл'; }
+    const clearBtn = document.getElementById('broadcastMediaClearBtn');
+    if (clearBtn) clearBtn.hidden = false;
+
+    // Превью только для фото: кадр из видео пришлось бы тянуть через canvas,
+    // а польза от него мала — имя файла уже видно.
+    const wrap = document.getElementById('broadcastMediaPreviewWrap');
+    const img = document.getElementById('broadcastMediaPreview');
+    const hint = document.getElementById('broadcastMediaHint');
+    if (wrap && img) {
+      if (data.kind === 'image') {
+        img.src = URL.createObjectURL(file);
+        img.hidden = false;
+      } else {
+        img.hidden = true;
+      }
+      if (hint) {
+        hint.textContent = data.kind === 'video'
+          ? 'Видео: WhatsApp загружает файл заново в каждый чат — рассылка пойдёт значительно медленнее. '
+            + 'Для акции обычно быстрее фото со ссылкой на видео в тексте.'
+          : 'Текст сообщения уйдёт подписью к фото — одним сообщением.';
+      }
+      wrap.hidden = false;
+    }
+  }
+
 
   // Параметры фильтра по дате последнего визита. Пустые значения в запрос не
   // идут: пустая граница означает «не ограничивать», а не «с начала времён».
@@ -13096,13 +13201,21 @@ function waAttachChatToClient(phoneDigits, row) {
 
     const pace = currentPace();
     const days = Math.ceil(_broadcastRecipients.length / pace.daily_limit);
+    // Видео грузится в каждый чат заново — предупреждаем до запуска, иначе
+    // человек увидит это только по растянувшемуся на часы прогрессу.
+    const videoWarn = (_broadcastMedia && _broadcastMedia.kind === 'video')
+      ? ` Внимание: видео загружается в каждый чат заново — это добавит примерно `
+        + `${Math.max(1, Math.round(_broadcastRecipients.length * 40 / 60))} мин.`
+      : '';
     // Подтверждение — inline-панель, а не confirm(): во встроенном браузере
     // диалоги заблокированы и кнопка выглядит нерабочей.
     const agree = await confirmInline(btn,
       `Отправить ${_broadcastRecipients.length} клиентам (${SEGMENT_LABELS[seg] || seg})? `
+      + (_broadcastMedia ? `С вложением (${_broadcastMedia.kind === 'video' ? 'видео' : 'фото'}). ` : '')
       + (days > 1
         ? `При выбранном темпе это займёт около ${days} дн. — рассылка идёт в фоне.`
-        : 'Рассылка идёт в фоне, окно можно закрыть.'),
+        : 'Рассылка идёт в фоне, окно можно закрыть.')
+      + videoWarn,
       'Запустить рассылку');
     if (!agree) return;
 
@@ -13118,6 +13231,7 @@ function waAttachChatToClient(phoneDigits, row) {
         recipients: _broadcastRecipients,
         message: msg,
         pacing: pace,
+        media_id: _broadcastMedia?.media_id || undefined,
       });
 
       if (!ok) {
@@ -13215,6 +13329,15 @@ function waAttachChatToClient(phoneDigits, row) {
   // Wire up events
   document.getElementById('broadcastSegment')?.addEventListener('change', () => { void loadBroadcastSegment(); });
   document.getElementById('broadcastMessage')?.addEventListener('input', updateBroadcastPreview);
+  // Вложение: клик по кнопке открывает скрытый input, выбор файла сразу его
+  // загружает.
+  document.getElementById('broadcastMediaBtn')?.addEventListener('click', () => {
+    document.getElementById('broadcastMediaInput')?.click();
+  });
+  document.getElementById('broadcastMediaInput')?.addEventListener('change', (e) => {
+    onBroadcastMediaPicked(e.target.files?.[0]);
+  });
+  document.getElementById('broadcastMediaClearBtn')?.addEventListener('click', resetBroadcastMedia);
   document.getElementById('broadcastPreviewBtn')?.addEventListener('click', updateBroadcastPreview);
   document.getElementById('broadcastSendBtn')?.addEventListener('click', () => { void sendBroadcast(); });
   document.getElementById('broadcastPace')?.addEventListener('change', updateBroadcastEta);

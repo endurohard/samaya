@@ -1,4 +1,8 @@
 import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import { randomUUID } from 'crypto';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
 import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName } from './store.js';
@@ -6,9 +10,19 @@ import { Monitor } from './monitor.js';
 import { authenticate } from './auth.js';
 
 const PORT = Number(process.env.PORT || 3008);
+// Тот же том, что у вложений переписки (store.js): вложения рассылки лежат
+// в подкаталоге broadcast/.
+const MEDIA_DIR = process.env.WHATSAPP_MEDIA_DIR || '/data/media';
 const monitor = new Monitor(wa);
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+// Загрузка вложений для рассылки идёт сырым телом, а не JSON: base64 раздувает
+// видео на треть, а multer тянуть ради одного маршрута незачем. Потолок 64 МБ —
+// предел самого WhatsApp на видео.
+app.use('/api/whatsapp/upload', express.raw({
+  type: ['image/*', 'video/*', 'application/octet-stream'],
+  limit: '64mb',
+}));
 
 // ── Health ──
 // Liveness + состояние сеанса. Раньше healthcheck смотрел только на то, что
@@ -193,6 +207,46 @@ app.post('/api/whatsapp/send', async (req, res) => {
   }
 });
 
+// Загрузка вложения для рассылки. Файл кладём на том /data/media рядом с
+// вложениями переписки; наружу отдаём только идентификатор, а не путь.
+app.post('/api/whatsapp/upload', async (req, res) => {
+  try {
+    // Тип проверяем ПЕРВЫМ. express.raw() наполняет body только для типов из
+    // своего фильтра, поэтому у неподдерживаемого файла (например PDF) тело
+    // пустое — и проверка «есть ли байты» соврала бы «Файл не получен»
+    // вместо честного «такой тип не поддерживается».
+    const ct = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    // Берём только то, что WhatsApp отправит как медиа с подписью. Документ
+    // подписи не поддерживает, и молча превращать фото в файл нельзя.
+    const EXT = {
+      'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
+      'video/mp4': '.mp4', 'video/quicktime': '.mov',
+    };
+    const ext = EXT[ct];
+    if (!ext) {
+      return res.status(415).json({
+        error: 'unsupported_type',
+        message: 'Поддерживаются JPG, PNG, WEBP, MP4, MOV',
+      });
+    }
+
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length === 0) {
+      return res.status(400).json({ error: 'empty_body', message: 'Файл не получен' });
+    }
+
+    const dir = path.join(MEDIA_DIR, 'broadcast');
+    await fsp.mkdir(dir, { recursive: true });
+    const id = `${Date.now()}_${randomUUID().slice(0, 8)}${ext}`;
+    await fsp.writeFile(path.join(dir, id), buf);
+    console.log(`[WA] загружено вложение ${id} (${Math.round(buf.length / 1024)} КБ)`);
+    return res.json({ media_id: id, size: buf.length, kind: ct.startsWith('video') ? 'video' : 'image' });
+  } catch (err) {
+    console.error('[WA] upload error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Broadcast (фоновый job) ──
 // Body: { recipients: [{phone, name}], message: string, pacing?: {...} }
 // Поддерживает шаблон {name} → имя клиента.
@@ -270,15 +324,31 @@ async function waitForSendingWindow(p) {
   }
 }
 
-async function runBroadcast(recipients, message, pacing) {
+async function runBroadcast(recipients, message, pacing, mediaId) {
   const p = pacingFrom(pacing);
   const total = recipients.length;
   let sentToday = 0;
   let dayStamp = new Date().toISOString().slice(0, 10);
   let failStreak = 0;
 
+  // Вложение проверяем один раз до старта: потерянный файл на сотом получателе
+  // — это сотня уже отправленных сообщений без картинки и никакого способа
+  // это отыграть назад.
+  let mediaPath = null;
+  if (mediaId) {
+    const safe = path.basename(String(mediaId));
+    mediaPath = path.join(MEDIA_DIR, 'broadcast', safe);
+    if (!fs.existsSync(mediaPath)) {
+      _broadcast.running = false;
+      _broadcast.stopped_reason = 'вложение не найдено — рассылка не запущена';
+      console.error(`[WA][broadcast] вложение не найдено: ${mediaPath}`);
+      return;
+    }
+  }
+
   console.log(`[WA][broadcast] Старт: получателей ${total}, пауза ${Math.round(p.minDelayMs / 1000)}–`
-    + `${Math.round(p.maxDelayMs / 1000)} с, пачка ${p.batchSize}, лимит/сутки ${p.dailyLimit}`);
+    + `${Math.round(p.maxDelayMs / 1000)} с, пачка ${p.batchSize}, лимит/сутки ${p.dailyLimit}`
+    + (mediaPath ? `, вложение ${path.basename(mediaPath)}` : ''));
   try {
     for (let i = 0; i < recipients.length; i++) {
       if (_broadcastAbort) { _broadcast.stopped_reason = 'остановлено вручную'; break; }
@@ -304,7 +374,10 @@ async function runBroadcast(recipients, message, pacing) {
       const { phone, name } = recipients[i];
       const text = message.replace(/\{name\}/g, name || '');
       try {
-        await wa.sendMessage(phone, text);
+        // С вложением текст уходит подписью к медиа — одним сообщением,
+        // а не картинкой и отдельным текстом следом.
+        if (mediaPath) await wa.sendMedia(phone, mediaPath, text);
+        else await wa.sendMessage(phone, text);
         _broadcast.sent++;
         sentToday++;
         failStreak = 0;
@@ -352,7 +425,7 @@ app.post('/api/whatsapp/broadcast', (req, res) => {
   if (_broadcast.running) {
     return res.status(409).json({ error: 'broadcast_running', message: 'Рассылка уже идёт' });
   }
-  const { recipients, message, pacing } = req.body || {};
+  const { recipients, message, pacing, media_id } = req.body || {};
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'recipients array required' });
   }
@@ -367,7 +440,7 @@ app.post('/api/whatsapp/broadcast', (req, res) => {
   };
   _broadcastAbort = false;
   // Запускаем в фоне; ошибки внутри уже пойманы в runBroadcast.
-  runBroadcast(recipients, message, pacing).catch(err => {
+  runBroadcast(recipients, message, pacing, media_id).catch(err => {
     console.error('[WA][broadcast] fatal:', err.message);
   });
   const p = pacingFrom(pacing);

@@ -513,6 +513,109 @@ class WhatsAppManager {
     });
   }
 
+  // Отправка фото/видео с подписью. Отдельный метод, а не флаг в sendMessage:
+  // путь принципиально другой — файл скармливаем скрытому input[type=file]
+  // на странице, а текст идёт подписью в том же сообщении, а не вторым.
+  //
+  // Предохранители те же и в том же порядке, что в sendMessage: allowlist
+  // проверяется до TEST_MODE, иначе тестовый прогон рапортует success на
+  // номер, который в бою был бы заблокирован.
+  async sendMedia(phone, filePath, caption = '') {
+    const clean = this._normalizePhone(phone);
+
+    if (ALLOWLIST.length > 0 && !ALLOWLIST.includes(clean)) {
+      throw new Error(`blocked by allowlist: ${clean}`);
+    }
+    if (!fs.existsSync(filePath)) throw new Error(`файл не найден: ${filePath}`);
+
+    if (TEST_MODE) {
+      console.log(`[WA][TEST] → ${clean}: медиа ${path.basename(filePath)} «${caption.slice(0, 60)}»`);
+      return { success: true, test_mode: true, phone: clean };
+    }
+
+    return this._enqueue(async () => {
+      if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
+      console.log(`[WA] Sending media to ${clean}…`);
+
+      await this.dismissDialogs();
+      const opened = await this.openChatByRow(clean);
+      if (!opened.ok) await this._openChat(clean);
+      else await new Promise(r => setTimeout(r, 2000));
+
+      await this.page.waitForSelector(COMPOSE_SELECTOR, { timeout: 30_000 })
+        .catch(() => { throw new Error('поле ввода недоступно (ограничение аккаунта или чат не открылся)'); });
+
+      // Кнопку «скрепка» не нажимаем: меню вложений перерисовывается и его
+      // пункты скачут между сборками. Файл кладём прямо в input[type=file],
+      // который WhatsApp держит в DOM постоянно, — это устойчивее к вёрстке.
+      const inputs = await this.page.$$('input[type="file"]');
+      if (!inputs.length) throw new Error('input[type=file] не найден — изменилась вёрстка WhatsApp');
+      // Элементов несколько (фото/документ/контакт); тот, что принимает
+      // изображения и видео, объявляет это в accept.
+      let target = null;
+      for (const el of inputs) {
+        const accept = await el.evaluate((n) => n.getAttribute('accept') || '');
+        if (/image|video/i.test(accept)) { target = el; break; }
+      }
+      if (!target) target = inputs[0];
+      await target.uploadFile(filePath);
+
+      // Предпросмотр открывается не мгновенно: ждём поле подписи.
+      const CAPTION_SELECTORS = [
+        'div[aria-label*="одпис"][contenteditable="true"]',
+        'div[aria-label*="aption"][contenteditable="true"]',
+        'div[data-testid="media-caption-input-container"] div[contenteditable="true"]',
+        'div[contenteditable="true"][data-tab="10"]',
+      ];
+      let captionBox = null;
+      for (let i = 0; i < 30 && !captionBox; i++) {
+        for (const sel of CAPTION_SELECTORS) {
+          captionBox = await this.page.$(sel);
+          if (captionBox) break;
+        }
+        if (!captionBox) await new Promise(r => setTimeout(r, 500));
+      }
+      if (!captionBox) throw new Error('окно предпросмотра медиа не открылось');
+
+      if (caption) {
+        await captionBox.click();
+        await new Promise(r => setTimeout(r, 300));
+        const lines = caption.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          await this.page.keyboard.type(lines[i]);
+          if (i < lines.length - 1) {
+            await this.page.keyboard.down('Shift');
+            await this.page.keyboard.press('Enter');
+            await this.page.keyboard.up('Shift');
+          }
+        }
+        await new Promise(r => setTimeout(r, 400));
+      }
+
+      let sent = false;
+      for (const sel of SEND_SELECTORS) {
+        const btn = await this.page.$(sel);
+        if (btn) { await btn.click(); sent = true; break; }
+      }
+      if (!sent) await this.page.keyboard.press('Enter');
+
+      // Видео уходит дольше картинки: ждём, пока закроется предпросмотр.
+      // Пустое поле подписи доказательством не служит — оно исчезает вместе
+      // с окном, поэтому проверяем именно отсутствие окна предпросмотра.
+      let gone = false;
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        gone = !(await this.page.$(CAPTION_SELECTORS[0]))
+          && !(await this.page.$('div[data-testid="media-caption-input-container"]'));
+        if (gone) break;
+      }
+      if (!gone) throw new Error('медиа не отправилось (окно предпросмотра не закрылось)');
+
+      console.log(`[WA] Media sent to ${clean}`);
+      return { success: true, phone: clean, media: true };
+    });
+  }
+
   // Разведка структуры страницы: по ней пишутся селекторы монитора. WhatsApp
   // меняет вёрстку без предупреждения, поэтому единственный надёжный источник
   // — живая страница, а не документация.
