@@ -485,13 +485,17 @@ services:
       # слушает: apt падал с «Could not connect to 127.0.0.1:1080» и
       # «Unable to locate package chromium».
       #
-      # Правильный адрес — мост egress-proxy на шлюзе docker: изнутри
-      # сборки он доступен, а наружу не выставлен.
+      # Правильный адрес — мост egress-proxy. Он слушает на шлюзах docker
+      # (172.17.0.1, 172.22.0.1), но сборка buildkit идёт в собственной
+      # сети, откуда эти адреса недоступны («No route to host»), поэтому
+      # сборке дополнительно включён network: host — тогда виден и
+      # 127.0.0.1 хоста, где слушает сам xray.
+      network: host
       args:
-        HTTP_PROXY: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
-        HTTPS_PROXY: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
-        http_proxy: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
-        https_proxy: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-http://127.0.0.1:1080}
+        HTTPS_PROXY: ${BUILD_HTTP_PROXY:-http://127.0.0.1:1080}
+        http_proxy: ${BUILD_HTTP_PROXY:-http://127.0.0.1:1080}
+        https_proxy: ${BUILD_HTTP_PROXY:-http://127.0.0.1:1080}
     container_name: samaya-instagram
     environment:
       NODE_ENV: ${NODE_ENV:-development}
