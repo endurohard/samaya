@@ -79,6 +79,10 @@
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.12 2.99 2.71 3.23a48.4 48.4 0 003.29.37V21l4.18-4.18a1.14 1.14 0 01.78-.33 48.3 48.3 0 005.83-.5c1.59-.23 2.71-1.62 2.71-3.23V6.74c0-1.6-1.12-3-2.71-3.23A48.4 48.4 0 0012 3c-2.39 0-4.74.18-7.04.51-1.59.24-2.71 1.63-2.71 3.23v6.02z"/></svg>
           <span>Сообщения</span>
         </a>
+        <a class="nav-item" data-view="aiassistant" href="#aiassistant">
+          <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"/></svg>
+          <span>AI ассистент</span>
+        </a>
         <a class="nav-item" data-view="telephony" href="#telephony">
           <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.28 6.72 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.37c0-.52-.35-.97-.85-1.09l-4.42-1.11c-.44-.11-.9.06-1.17.42l-.97 1.29c-.28.37-.76.54-1.2.37a12.04 12.04 0 01-6.7-6.7c-.17-.44 0-.92.37-1.2l1.29-.97c.37-.27.53-.73.42-1.17L7.4 3.1a1.13 1.13 0 00-1.09-.85H4.5A2.25 2.25 0 002.25 4.5v2.25z"/></svg>
           <span>Телефония</span>
@@ -2818,6 +2822,122 @@
             </div>
 
           </div><!-- /msgTabWhatsapp -->
+        </section>
+
+        <!-- View: AI ассистент -->
+        <section class="view view-aiassistant" data-view="aiassistant" hidden>
+          <nav class="subnav" id="aiSubnav">
+            <button type="button" class="subnav-item active" data-ai-tab="templates">Шаблоны ответов</button>
+            <button type="button" class="subnav-item" data-ai-tab="try">Проверка</button>
+            <button type="button" class="subnav-item" data-ai-tab="log">Журнал</button>
+          </nav>
+
+          <!-- Вкладка: шаблоны -->
+          <div id="aiTabTemplates">
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Шаблоны ответов</h2>
+                <span class="counter" id="aiTplCounter">0</span>
+                <span id="aiStatusPill" class="pill pill-mute">проверяю…</span>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-primary btn-sm" id="aiTplAddBtn">+ Шаблон</button>
+              </div>
+
+              <p class="hint" style="margin:0 0 12px;">
+                Ассистент не придумывает текст: он определяет тему вопроса и отправляет
+                готовый ответ отсюда дословно. Чем точнее описана тема, тем реже
+                ошибка — опишите, что входит в тему, что не входит, и дайте пример.
+              </p>
+
+              <!-- Форма добавления/правки. Inline, а не модальное окно:
+                   админку открывают во встроенном браузере VS Code. -->
+              <div id="aiTplForm" class="card" hidden
+                   style="background:#faf8f7;border-style:dashed;margin-bottom:12px;">
+                <div class="set-form">
+                  <input type="hidden" id="aiTplId">
+
+                  <label for="aiTplTitle">Название темы</label>
+                  <input type="text" id="aiTplTitle" maxlength="200" placeholder="Например: Стоимость услуг">
+
+                  <label for="aiTplTopic">Ключ темы</label>
+                  <input type="text" id="aiTplTopic" maxlength="64" placeholder="price"
+                         pattern="[a-z][a-z0-9_]*" autocapitalize="off" spellcheck="false">
+                  <div class="hint">Латиницей, без пробелов. Нужен классификатору; менять потом не стоит.</div>
+
+                  <label for="aiTplMatcher" style="margin-top:10px;">Когда применять (описание для ассистента)</label>
+                  <textarea id="aiTplMatcher" rows="4" maxlength="2000"
+                            placeholder="Вопрос о стоимости услуги, прайсе, акциях. НЕ сюда споры об уплаченной сумме — это жалоба. Пример: «сколько стоит чистка лица»."></textarea>
+                  <div class="hint">Самое важное поле: именно его читает ассистент, выбирая тему.</div>
+
+                  <label for="aiTplBody" style="margin-top:10px;">Текст ответа клиенту</label>
+                  <textarea id="aiTplBody" rows="4" maxlength="2000"
+                            placeholder="Текст уйдёт клиенту дословно. {name} — имя клиента, если оно известно."></textarea>
+
+                  <div style="margin-top:10px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
+                      <input type="checkbox" id="aiTplAutosend"> Отправлять без подтверждения
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
+                      <input type="checkbox" id="aiTplEnabled" checked> Включён
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
+                      Порядок <input type="number" id="aiTplOrder" value="100" min="0" max="10000" style="width:80px;">
+                    </label>
+                  </div>
+                  <div class="hint" style="margin-top:4px;">
+                    Автоотправку включайте только там, где ошибиться нечем. Вопросы о здоровье,
+                    ценах и жалобы безопаснее оставлять на подтверждение администратора.
+                  </div>
+
+                  <div class="form-actions" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                    <button type="button" class="btn-primary btn-sm" id="aiTplSave">Сохранить</button>
+                    <button type="button" class="btn-ghost btn-sm" id="aiTplCancel">Отмена</button>
+                    <span id="aiTplMsg" class="hint"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div id="aiTplList" class="data-list"></div>
+            </div>
+          </div>
+
+          <!-- Вкладка: проверка -->
+          <div id="aiTabTry" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Проверка на примере</h2>
+              </div>
+              <p class="hint" style="margin:0 0 10px;">
+                Напишите сообщение так, как его написал бы клиент, и посмотрите, что
+                ответил бы ассистент. Ничего не отправляется и в журнал не попадает.
+              </p>
+              <div class="set-form">
+                <textarea id="aiTryText" rows="3" maxlength="2000"
+                          placeholder="сколько стоит чистка лица?"></textarea>
+                <div class="form-actions" style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                  <button type="button" class="btn-primary btn-sm" id="aiTryBtn">Проверить</button>
+                  <span id="aiTryMsg" class="hint"></span>
+                </div>
+              </div>
+              <div id="aiTryResult" style="margin-top:12px;"></div>
+            </div>
+          </div>
+
+          <!-- Вкладка: журнал -->
+          <div id="aiTabLog" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Журнал решений</h2>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-ghost btn-sm" id="aiLogRefresh">Обновить</button>
+              </div>
+              <p class="hint" style="margin:0 0 10px;">
+                Что приходило, какую тему определил ассистент и с какой уверенностью.
+                По записям с низкой уверенностью видно, какие описания тем стоит уточнить.
+              </p>
+              <div id="aiLogList" class="data-list"></div>
+            </div>
+          </div>
         </section>
 
         <section class="view" data-view="placeholder" hidden>

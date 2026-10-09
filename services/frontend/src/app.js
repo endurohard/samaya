@@ -544,6 +544,11 @@ import {
       // браузер, и видно сразу две.
       switchMessagesTab(messagesActiveTab);
     }
+    if (view === 'aiassistant') {
+      switchAiTab(aiActiveTab);
+      void loadAiTemplates();
+      void loadAiStatus();
+    }
     if (view === 'sales') {
       void activateSalesView();
     }
@@ -7510,6 +7515,279 @@ import {
     if (!btn || btn.classList.contains('disabled')) return;
     switchMessagesTab(btn.dataset.msgTab);
   });
+
+  // ===== AI ассистент: шаблоны, проверка, журнал =====
+  //
+  // Ассистент не генерирует текст — он выбирает тему и отдаёт готовый
+  // ответ из шаблона. Поэтому раздел устроен вокруг редактирования текстов,
+  // а не вокруг настройки модели: качество работы определяется тем, как
+  // описаны темы, и это единственное, чем управляет владелец.
+
+  let aiActiveTab = 'templates';
+  let aiTemplates = [];
+  // Какой шаблон ждёт подтверждения удаления. Inline вместо confirm():
+  // админку открывают во встроенном браузере VS Code, где браузерные
+  // диалоги заблокированы и кнопка выглядит мёртвой.
+  let aiPendingDelete = null;
+
+  function switchAiTab(tab) {
+    aiActiveTab = tab;
+    document.querySelectorAll('#aiSubnav .subnav-item[data-ai-tab]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.aiTab === tab);
+    });
+    const map = { templates: 'aiTabTemplates', try: 'aiTabTry', log: 'aiTabLog' };
+    for (const [key, id] of Object.entries(map)) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = (key !== tab);
+    }
+    if (tab === 'log') void loadAiLog();
+  }
+
+  document.getElementById('aiSubnav')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ai-tab]');
+    if (!btn || btn.classList.contains('disabled')) return;
+    switchAiTab(btn.dataset.aiTab);
+  });
+
+  async function loadAiStatus() {
+    const pill = document.getElementById('aiStatusPill');
+    if (!pill) return;
+    const r = await apiCall('GET', '/api/salons/ai/status');
+    if (!r.ok) {
+      pill.textContent = 'нет доступа';
+      pill.className = 'pill pill-mute';
+      return;
+    }
+    const s = r.data || {};
+    if (!s.classifier_ready) {
+      // Без ключа классификатора ассистент не определит тему вообще —
+      // это первое, что нужно увидеть, разбираясь «почему бот молчит».
+      pill.textContent = 'классификатор не настроен';
+      pill.className = 'pill pill-warn';
+      return;
+    }
+    pill.textContent = `${s.templates_autosend} из ${s.templates_enabled} отвечают сами`;
+    pill.className = 'pill pill-ok';
+  }
+
+  async function loadAiTemplates() {
+    const r = await apiCall('GET', '/api/salons/ai/templates');
+    aiTemplates = r.ok ? (r.data?.items || []) : [];
+    renderAiTemplates();
+  }
+
+  function renderAiTemplates() {
+    const list = document.getElementById('aiTplList');
+    const counter = document.getElementById('aiTplCounter');
+    if (counter) counter.textContent = String(aiTemplates.length);
+    if (!list) return;
+
+    if (!aiTemplates.length) {
+      list.innerHTML = '<div class="empty">Шаблонов пока нет. Нажмите «+ Шаблон».</div>';
+      return;
+    }
+
+    list.innerHTML = aiTemplates.map((t) => {
+      const flags = [];
+      if (t.autosend) flags.push('<span class="pill pill-ok" style="font-size:11px;">отвечает сам</span>');
+      else flags.push('<span class="pill pill-mute" style="font-size:11px;">через админа</span>');
+      if (!t.enabled) flags.push('<span class="pill pill-warn" style="font-size:11px;">выключен</span>');
+
+      const confirming = aiPendingDelete === t.id;
+      return `
+        <div class="row-item" style="align-items:flex-start;">
+          <div class="row-main">
+            <div class="row-name">${escapeHtml(t.title)} ${flags.join(' ')}</div>
+            <div class="row-meta" style="margin-top:2px;">${escapeHtml(t.body)}</div>
+            <div class="row-meta" style="margin-top:4px;opacity:.75;">
+              когда: ${escapeHtml((t.matcher || '').slice(0, 120))}${(t.matcher || '').length > 120 ? '…' : ''}
+            </div>
+          </div>
+          ${confirming ? `
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span class="hint" style="color:#991b1b;">Удалить?</span>
+              <button type="button" class="btn-danger-outline btn-xs ai-del-yes" data-id="${escapeHtml(t.id)}">Да</button>
+              <button type="button" class="btn-ghost btn-xs ai-del-no">Нет</button>
+            </div>
+          ` : `
+            <button type="button" class="btn-ghost btn-xs ai-tpl-edit" data-id="${escapeHtml(t.id)}">Изм.</button>
+            <button type="button" class="fin-del-btn ai-tpl-del" data-id="${escapeHtml(t.id)}" aria-label="Удалить">×</button>
+          `}
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('.ai-tpl-edit').forEach((b) => {
+      b.addEventListener('click', () => openAiTplForm(b.dataset.id));
+    });
+    list.querySelectorAll('.ai-tpl-del').forEach((b) => {
+      b.addEventListener('click', () => { aiPendingDelete = b.dataset.id; renderAiTemplates(); });
+    });
+    list.querySelectorAll('.ai-del-no').forEach((b) => {
+      b.addEventListener('click', () => { aiPendingDelete = null; renderAiTemplates(); });
+    });
+    list.querySelectorAll('.ai-del-yes').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const r = await apiCall('DELETE', `/api/salons/ai/templates/${b.dataset.id}`);
+        aiPendingDelete = null;
+        if (!r.ok) { toast('Не удалось удалить'); renderAiTemplates(); return; }
+        toast('Шаблон удалён');
+        await loadAiTemplates();
+        void loadAiStatus();
+      });
+    });
+  }
+
+  function openAiTplForm(id) {
+    const form = document.getElementById('aiTplForm');
+    if (!form) return;
+    const t = id ? aiTemplates.find(x => x.id === id) : null;
+
+    document.getElementById('aiTplId').value = t?.id || '';
+    document.getElementById('aiTplTitle').value = t?.title || '';
+    document.getElementById('aiTplTopic').value = t?.topic || '';
+    document.getElementById('aiTplMatcher').value = t?.matcher || '';
+    document.getElementById('aiTplBody').value = t?.body || '';
+    document.getElementById('aiTplAutosend').checked = !!t?.autosend;
+    document.getElementById('aiTplEnabled').checked = t ? !!t.enabled : true;
+    document.getElementById('aiTplOrder').value = t?.sort_order ?? 100;
+    // Ключ темы у существующего шаблона не меняем: по нему связан журнал
+    // решений, и смена ключа оторвала бы историю от шаблона.
+    document.getElementById('aiTplTopic').disabled = !!t;
+    aiTplSetMsg('');
+
+    form.hidden = false;
+    document.getElementById('aiTplTitle').focus();
+  }
+
+  function aiTplSetMsg(text, kind) {
+    const el = document.getElementById('aiTplMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = kind === 'error' ? '#b91c1c' : (kind === 'ok' ? '#16a34a' : '');
+  }
+
+  document.getElementById('aiTplAddBtn')?.addEventListener('click', () => openAiTplForm(null));
+  document.getElementById('aiTplCancel')?.addEventListener('click', () => {
+    const form = document.getElementById('aiTplForm');
+    if (form) form.hidden = true;
+  });
+
+  document.getElementById('aiTplSave')?.addEventListener('click', async () => {
+    const id = document.getElementById('aiTplId').value;
+    const payload = {
+      title: document.getElementById('aiTplTitle').value.trim(),
+      matcher: document.getElementById('aiTplMatcher').value.trim(),
+      body: document.getElementById('aiTplBody').value.trim(),
+      autosend: document.getElementById('aiTplAutosend').checked,
+      enabled: document.getElementById('aiTplEnabled').checked,
+      sort_order: Number(document.getElementById('aiTplOrder').value) || 100,
+    };
+    if (!id) payload.topic = document.getElementById('aiTplTopic').value.trim();
+
+    if (!payload.title) { aiTplSetMsg('Укажите название темы', 'error'); return; }
+    if (!id && !/^[a-z][a-z0-9_]*$/.test(payload.topic || '')) {
+      aiTplSetMsg('Ключ темы: латиница в нижнем регистре, без пробелов', 'error'); return;
+    }
+    if (payload.matcher.length < 10) {
+      aiTplSetMsg('Опишите подробнее, когда применять тему — от этого зависит точность', 'error'); return;
+    }
+    if (!payload.body) { aiTplSetMsg('Напишите текст ответа', 'error'); return; }
+
+    aiTplSetMsg('Сохраняю…');
+    const r = id
+      ? await apiCall('PUT', `/api/salons/ai/templates/${id}`, payload)
+      : await apiCall('POST', '/api/salons/ai/templates', payload);
+
+    if (!r.ok) {
+      aiTplSetMsg(r.data?.error || r.data?.message || 'Не удалось сохранить', 'error');
+      return;
+    }
+    document.getElementById('aiTplForm').hidden = true;
+    toast(id ? 'Шаблон изменён' : 'Шаблон добавлен');
+    await loadAiTemplates();
+    void loadAiStatus();
+  });
+
+  // ── Проверка на примере ──
+
+  document.getElementById('aiTryBtn')?.addEventListener('click', async () => {
+    const text = document.getElementById('aiTryText').value.trim();
+    const out = document.getElementById('aiTryResult');
+    const msg = document.getElementById('aiTryMsg');
+    if (!text) { if (msg) msg.textContent = 'Введите сообщение'; return; }
+
+    if (msg) msg.textContent = 'Определяю тему…';
+    if (out) out.innerHTML = '';
+    const r = await apiCall('POST', '/api/salons/ai/try', { text });
+    if (msg) msg.textContent = '';
+
+    if (!r.ok) {
+      if (out) out.innerHTML = `<div class="empty" style="color:#991b1b;">${escapeHtml(r.data?.error || 'Не удалось проверить')}</div>`;
+      return;
+    }
+    if (out) out.innerHTML = renderAiDecision(r.data);
+  });
+
+  // Карточка решения. Показывает не только ответ, но и действие с причиной:
+  // без причины непонятно, почему уверенно определённая тема всё равно
+  // уходит администратору.
+  function renderAiDecision(d) {
+    const actions = {
+      sent: ['отправит сам', '#16a34a'],
+      draft: ['черновик администратору', '#b45309'],
+      skipped: ['отвечать не будет', '#6b7280'],
+      failed: ['сбой', '#b91c1c'],
+    };
+    const [label, color] = actions[d.action] || [d.action, ''];
+    const conf = Number(d.confidence || 0);
+
+    const rows = [];
+    rows.push(`<div><b>Тема:</b> ${escapeHtml(d.title || d.topic || '—')}</div>`);
+    rows.push(`<div><b>Уверенность:</b> ${conf.toFixed(2)}</div>`);
+    rows.push(`<div><b>Действие:</b> <span style="color:${color};">${escapeHtml(label)}</span></div>`);
+    if (d.reason) rows.push(`<div><b>Почему:</b> ${escapeHtml(d.reason)}</div>`);
+    if (d.reply) {
+      rows.push(`<div style="margin-top:8px;"><b>Ответ клиенту:</b></div>
+        <div class="empty" style="margin-top:4px;text-align:left;">${escapeHtml(d.reply)}</div>`);
+    }
+    return `<div class="card" style="background:#faf8f7;"><div style="padding:4px 2px;">${rows.join('')}</div></div>`;
+  }
+
+  // ── Журнал ──
+
+  async function loadAiLog() {
+    const list = document.getElementById('aiLogList');
+    if (!list) return;
+    list.innerHTML = '<div class="empty">Загружаю…</div>';
+    const r = await apiCall('GET', '/api/salons/ai/log?limit=50');
+    if (!r.ok) { list.innerHTML = '<div class="empty">Нет доступа к журналу</div>'; return; }
+
+    const items = r.data?.items || [];
+    if (!items.length) {
+      list.innerHTML = '<div class="empty">Записей пока нет: ассистент ещё не отвечал на сообщения.</div>';
+      return;
+    }
+    const actions = { sent: 'отправлено', draft: 'черновик', skipped: 'пропущено', failed: 'сбой' };
+    list.innerHTML = items.map((l) => {
+      const conf = l.confidence == null ? '—' : Number(l.confidence).toFixed(2);
+      const when = new Date(l.created_at).toLocaleString('ru-RU');
+      return `
+        <div class="row-item" style="align-items:flex-start;">
+          <div class="row-main">
+            <div class="row-name">${escapeHtml((l.incoming || '').slice(0, 120))}</div>
+            <div class="row-meta" style="margin-top:2px;">
+              ${escapeHtml(l.title || l.topic || 'тема не определена')} ·
+              уверенность ${conf} ·
+              ${escapeHtml(actions[l.action] || l.action)}
+              ${l.reason ? ' · ' + escapeHtml(l.reason) : ''}
+            </div>
+            <div class="row-meta" style="opacity:.7;">${escapeHtml(when)} · ${escapeHtml(l.channel || '')}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  document.getElementById('aiLogRefresh')?.addEventListener('click', () => void loadAiLog());
 
   // Clients sub-tab switching (list / bonus)
   let clientsActiveTab = 'list';
