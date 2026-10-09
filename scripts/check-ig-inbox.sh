@@ -24,7 +24,10 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-api() { curl -s --max-time 30 -x "$PROXY" "https://graph.facebook.com/$VER/$1&access_token=$TOKEN"; }
+# -g обязателен: в запросе есть fields=...{id,username}, а curl без него
+# трактует фигурные скобки как шаблон перебора и делает НЕСКОЛЬКО запросов.
+# Их ответы склеиваются в один поток, и парсер падает на «Extra data».
+api() { curl -s -g --max-time 30 -x "$PROXY" "https://graph.facebook.com/$VER/$1&access_token=$TOKEN"; }
 
 echo "=== Аккаунт ==="
 api "me?fields=id,name,instagram_business_account{id,username,followers_count}" |
