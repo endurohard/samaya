@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request as ExpressRequest } from 'express';
 import { z } from 'zod';
-import { ProxyAgent } from 'undici';
+import { ProxyAgent, Agent } from 'undici';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -193,7 +193,12 @@ const IG_VERSION = process.env.IG_API_VERSION || 'v23.0';
 // аккаунта. Проверено на сервере: через xray graph.facebook.com отвечает за
 // 0.76 с, напрямую — не резолвится вовсе.
 const IG_PROXY = process.env.INSTAGRAM_SOCKS_PROXY || '';
-const proxyAgent = IG_PROXY ? new ProxyAgent(IG_PROXY) : undefined;
+// Явный агент обязателен в обоих случаях. В окружении контейнера заданы
+// системные HTTPS_PROXY/http_proxy (порт 1080 — прямой выход), и undici
+// подхватывает их молча. Без явного указания запрос к Meta ушёл бы не в
+// VLESS-мост, а в системный прокси, то есть голландским адресом — ровно
+// то, из-за чего блокируют аккаунт.
+const proxyAgent = IG_PROXY ? new ProxyAgent(IG_PROXY) : new Agent({ connect: { timeout: 10_000 } });
 
 /**
  * Проверить токен и привести его к пригодному для отправки виду.

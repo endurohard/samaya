@@ -13,11 +13,30 @@
 // возвращает низкую уверенность, и такое сообщение уходит человеку, а не
 // получает шаблон не по теме.
 import { pool } from '../db';
+import { Agent } from 'undici';
 
 const JEV_URL = (process.env.JEV_BASE_URL || 'https://api.typesafe.ai').replace(/\/$/, '');
 const JEV_KEY = process.env.TYPESAFE_API_KEY || '';
 const JEV_MODEL = process.env.JEV_MODEL || 'jev-latest';
 const JEV_TIMEOUT_MS = Number(process.env.JEV_TIMEOUT_MS || 20_000);
+
+// Классификатор ходит НАПРЯМУЮ, а не через VLESS-мост, которым идут
+// запросы к Meta. Это не упущение, а противоположное требование двух
+// внешних сервисов:
+//   Meta     — домены недоступны с прямого маршрута, и российский аккаунт
+//              обязан выходить местным адресом, иначе блокировка;
+//   TypeSafe — наоборот, отвечает 451 «not available in your region» на
+//              российский адрес VLESS и штатно работает с адреса сервера.
+// Проверено на бою: прямой запрос к api.typesafe.ai — HTTP 200, тот же
+// запрос через xray — HTTP 451. Поэтому общего прокси у них быть не может.
+//
+// Отдельная ловушка: в окружении контейнера заданы системные HTTPS_PROXY и
+// http_proxy (они нужны другим сервисам), и undici подхватывает их молча,
+// без единой строки в коде. Из-за этого запрос уходил через тот самый
+// VLESS и получал 451 там, где curl с того же хоста отвечал 200. Поэтому
+// здесь задаётся ЯВНЫЙ Agent без прокси — он перекрывает переменные
+// окружения, а не полагается на их отсутствие.
+const directAgent = new Agent({ connect: { timeout: 10_000 } });
 
 // Порог уверенности для автоответа. 0.85 — значение по умолчанию самого
 // Jev для «решать автоматически». Ниже порога сообщение уходит
@@ -108,6 +127,9 @@ export async function classify(
         questions: { theme: { type: 'choice', criteria } },
       }),
       signal: AbortSignal.timeout(JEV_TIMEOUT_MS),
+      // @ts-expect-error — dispatcher не описан в типах DOM fetch,
+      // но поддерживается рантаймом Node (undici).
+      dispatcher: directAgent,
     });
     if (!r.ok) {
       const body = await r.text().catch(() => '');
