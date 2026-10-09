@@ -7,7 +7,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Скрипт запускается НА ХОСТЕ, а в .env адрес для контейнеров
+# (host.docker.internal) — с хоста такое имя не резолвится. Подменяем на
+# loopback: это один и тот же мост, просто с другой стороны.
 PROXY=$(grep -m1 '^INSTAGRAM_SOCKS_PROXY=' .env 2>/dev/null | cut -d= -f2- || true)
+PROXY=${PROXY//host.docker.internal/127.0.0.1}
 PROXY=${PROXY:-http://127.0.0.1:1087}
 VER=$(grep -m1 '^IG_API_VERSION=' .env 2>/dev/null | cut -d= -f2- || true)
 VER=${VER:-v23.0}
