@@ -7,11 +7,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Скрипт запускается НА ХОСТЕ, а в .env адрес для контейнеров
-# (host.docker.internal) — с хоста такое имя не резолвится. Подменяем на
-# loopback: это один и тот же мост, просто с другой стороны.
-PROXY=$(grep -m1 '^INSTAGRAM_SOCKS_PROXY=' .env 2>/dev/null | cut -d= -f2- || true)
-PROXY=${PROXY//host.docker.internal/127.0.0.1}
+# Скрипт запускается НА ХОСТЕ, а в .env задан адрес для контейнеров:
+# host.docker.internal:1181. С хоста это не работает дважды — имя не
+# резолвится, и порт 1181 слушает только на шлюзах docker (172.17.0.1,
+# 172.22.0.1), но не на loopback. С хоста тот же VLESS доступен на 1087.
+PROXY=$(grep -m1 '^IG_HOST_PROXY=' .env 2>/dev/null | cut -d= -f2- || true)
 PROXY=${PROXY:-http://127.0.0.1:1087}
 VER=$(grep -m1 '^IG_API_VERSION=' .env 2>/dev/null | cut -d= -f2- || true)
 VER=${VER:-v23.0}
