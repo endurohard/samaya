@@ -110,7 +110,10 @@ router.put('/:provider', manage, async (req: ExpressRequest, res, next) => {
          updated_by = EXCLUDED.updated_by
        RETURNING provider, meta, expires_at, updated_at`,
       [
-        req.auth!.company_id, provider, clean,
+        // Сохраняем probe.token, а не введённый: при вводе пользовательского
+        // токена здесь уже лежит обменянный токен страницы, и только им
+        // можно отправлять сообщения.
+        req.auth!.company_id, provider, probe.token,
         JSON.stringify(probe.meta), probe.expires_at, req.auth!.sub ?? null,
       ],
     );
@@ -118,7 +121,7 @@ router.put('/:provider', manage, async (req: ExpressRequest, res, next) => {
       ...rows[0],
       connected: true,
       expired: false,
-      token_mask: mask(clean),
+      token_mask: mask(probe.token),
     });
   } catch (e) { return next(e); }
 });
@@ -156,19 +159,23 @@ router.post('/:provider/check', manage, async (req: ExpressRequest, res, next) =
     if (!probe.ok) return res.json({ ok: false, error: probe.error });
 
     // Результат проверки записываем: имя аккаунта и срок могли измениться
-    // (токен перевыпущен в кабинете Meta, аккаунт переименован).
+    // (токен перевыпущен в кабинете Meta, аккаунт переименован). Пишем и сам
+    // token: проверка пользовательского токена возвращает обменянный токен
+    // страницы, и он может быть свежее сохранённого.
     await pool.query(
       `UPDATE salons.integration_credentials
-          SET meta = $3, expires_at = $4
+          SET meta = $3, expires_at = $4, token = $5
         WHERE company_id = $1 AND provider = $2`,
-      [req.auth!.company_id, provider, JSON.stringify(probe.meta), probe.expires_at],
+      [req.auth!.company_id, provider, JSON.stringify(probe.meta), probe.expires_at, probe.token],
     );
     return res.json({ ok: true, meta: probe.meta, expires_at: probe.expires_at });
   } catch (e) { return next(e); }
 });
 
 type Probe =
-  | { ok: true; meta: Record<string, unknown>; expires_at: Date | null }
+  // token — то, что надо СОХРАНИТЬ. Может отличаться от введённого:
+  // пользовательский токен обменивается на токен страницы.
+  | { ok: true; token: string; meta: Record<string, unknown>; expires_at: Date | null }
   | { ok: false; error: string };
 
 const IG_VERSION = process.env.IG_API_VERSION || 'v23.0';
@@ -189,13 +196,18 @@ const IG_PROXY = process.env.INSTAGRAM_SOCKS_PROXY || '';
 const proxyAgent = IG_PROXY ? new ProxyAgent(IG_PROXY) : undefined;
 
 /**
- * Проверить токен Instagram.
+ * Проверить токен и привести его к пригодному для отправки виду.
  *
- * У Meta два разных пути к Direct, и по виду токена они неразличимы:
+ * У Meta два пути к Direct, и по виду токена они неразличимы:
  *   graph.instagram.com — Instagram Login, токен пользователя Instagram;
  *   graph.facebook.com  — через привязанную страницу Facebook, токен страницы.
- * Пробуем оба и запоминаем в meta, какой сработал: от этого зависит, на
- * какой хост сервис будет отправлять ответы клиентам.
+ *
+ * Отдельная тонкость второго пути: отправлять сообщения умеет только токен
+ * СТРАНИЦЫ. Из Graph API Explorer по умолчанию выдаётся токен пользователя,
+ * и на нём поле instagram_business_account не существует — Meta отвечает
+ * «(#100) Tried accessing nonexisting field». Поэтому пользовательский токен
+ * здесь не отвергается, а обменивается: через /me/accounts находится
+ * страница с привязанным Instagram, и дальше хранится её токен.
  */
 async function probeInstagram(token: string): Promise<Probe> {
   const ask = async (url: string) => {
@@ -220,6 +232,20 @@ async function probeInstagram(token: string): Promise<Probe> {
     }
   };
 
+  // Срок жизни токена. Короткоживущий умрёт через час-два, и бот замолчит
+  // посреди рабочего дня — это надо знать при сохранении, а не по жалобам.
+  const lifetime = async (t: string) => {
+    const dbg = await ask(
+      `https://graph.facebook.com/${IG_VERSION}/debug_token?input_token=${encodeURIComponent(t)}&access_token=${encodeURIComponent(token)}`,
+    );
+    const d = dbg.body?.data;
+    return {
+      expires_at: d?.expires_at ? new Date(d.expires_at * 1000) : null,
+      scopes: d?.scopes ?? [],
+      type: d?.type ?? null,
+    };
+  };
+
   // Путь 1: Instagram Login.
   const ig = await ask(
     `https://graph.instagram.com/${IG_VERSION}/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`,
@@ -227,6 +253,7 @@ async function probeInstagram(token: string): Promise<Probe> {
   if (ig.status === 200 && ig.body.id) {
     return {
       ok: true,
+      token,
       expires_at: null,
       meta: {
         transport: 'instagram_login',
@@ -240,40 +267,96 @@ async function probeInstagram(token: string): Promise<Probe> {
     };
   }
 
-  // Путь 2: через страницу Facebook.
-  const fb = await ask(
-    `https://graph.facebook.com/${IG_VERSION}/me?fields=id,name,instagram_business_account{id,username}&access_token=${encodeURIComponent(token)}`,
+  // Путь 2: через страницу Facebook. Сначала выясняем, кому принадлежит
+  // токен, НЕ запрашивая полей страницы: на токене пользователя такой
+  // запрос падает с #100 и скрывает настоящую картину.
+  const who = await ask(
+    `https://graph.facebook.com/${IG_VERSION}/me?fields=id,name&access_token=${encodeURIComponent(token)}`,
   );
-  if (fb.status === 200 && fb.body.id) {
-    const linked = fb.body.instagram_business_account;
-    if (!linked?.id) {
-      return { ok: false, error: 'токен принят, но к нему не привязан аккаунт Instagram Professional' };
-    }
-    // Срок жизни: короткоживущий токен умрёт через час, и бот замолчит.
-    // Узнаём это сейчас, а не по жалобам клиентов.
-    const dbg = await ask(
-      `https://graph.facebook.com/${IG_VERSION}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`,
-    );
-    const exp = dbg.body?.data?.expires_at;
+  if (who.status !== 200 || !who.body.id) {
+    const msg = who.body?.error?.message || ig.body?.error?.message
+      || 'токен не принят ни одним из путей Meta API';
+    return { ok: false, error: msg };
+  }
+
+  // Вариант А: это уже токен страницы — у неё поле есть.
+  const asPage = await ask(
+    `https://graph.facebook.com/${IG_VERSION}/me?fields=instagram_business_account{id,username}&access_token=${encodeURIComponent(token)}`,
+  );
+  const linked = asPage.body?.instagram_business_account;
+  if (asPage.status === 200 && linked?.id) {
+    const life = await lifetime(token);
     return {
       ok: true,
-      expires_at: exp ? new Date(exp * 1000) : null,
+      token,
+      expires_at: life.expires_at,
       meta: {
         transport: 'facebook_page',
         host: 'graph.facebook.com',
         api_version: IG_VERSION,
-        page_id: fb.body.id,
-        page_name: fb.body.name ?? null,
+        token_kind: 'page',
+        page_id: who.body.id,
+        page_name: who.body.name ?? null,
         ig_id: linked.id,
         username: linked.username ?? null,
-        scopes: dbg.body?.data?.scopes ?? [],
+        scopes: life.scopes,
         checked_at: new Date().toISOString(),
       },
     };
   }
 
-  const msg = fb.body?.error?.message || ig.body?.error?.message || 'токен не принят ни одним из путей Meta API';
-  return { ok: false, error: msg };
+  // Вариант Б: токен пользователя. Ищем среди его страниц ту, к которой
+  // привязан Instagram, и забираем ТОКЕН СТРАНИЦЫ: пользовательским
+  // отправить сообщение нельзя.
+  const accounts = await ask(
+    `https://graph.facebook.com/${IG_VERSION}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(token)}`,
+  );
+  const pages: any[] = accounts.body?.data ?? [];
+  if (!pages.length) {
+    return {
+      ok: false,
+      error: 'это токен пользователя, но у него нет ни одной страницы Facebook. '
+        + 'Нужна страница с привязанным аккаунтом Instagram Professional.',
+    };
+  }
+
+  const page = pages.find(p => p.instagram_business_account?.id);
+  if (!page) {
+    const names = pages.map(p => p.name).filter(Boolean).join(', ');
+    return {
+      ok: false,
+      error: `ни к одной из страниц (${names}) не привязан аккаунт Instagram Professional. `
+        + 'Привязка делается в настройках страницы Facebook.',
+    };
+  }
+  if (!page.access_token) {
+    return {
+      ok: false,
+      error: 'у токена нет разрешения pages_show_list — без него не получить токен страницы',
+    };
+  }
+
+  const life = await lifetime(page.access_token);
+  return {
+    ok: true,
+    // Наружу и в хранилище уходит токен СТРАНИЦЫ, а не тот, что ввели.
+    token: page.access_token,
+    expires_at: life.expires_at,
+    meta: {
+      transport: 'facebook_page',
+      host: 'graph.facebook.com',
+      api_version: IG_VERSION,
+      token_kind: 'page',
+      // Признак обмена: в интерфейсе видно, что сохранён не введённый токен.
+      exchanged_from: 'user_token',
+      page_id: page.id,
+      page_name: page.name ?? null,
+      ig_id: page.instagram_business_account.id,
+      username: page.instagram_business_account.username ?? null,
+      scopes: life.scopes,
+      checked_at: new Date().toISOString(),
+    },
+  };
 }
 
 export default router;

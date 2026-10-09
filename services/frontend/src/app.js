@@ -10481,10 +10481,17 @@ function waAttachChatToClient(phoneDigits, row) {
     const m = st.meta || {};
     const parts = [];
     if (m.username) parts.push(`Аккаунт: @${m.username}`);
+    if (m.page_name) parts.push(`Страница Facebook: ${m.page_name}`);
     if (m.transport) {
       parts.push(m.transport === 'facebook_page'
         ? 'Подключение: через страницу Facebook'
         : 'Подключение: Instagram Login');
+    }
+    // Если ввели токен пользователя, сохранён не он, а токен страницы.
+    // Без этой строки маска не совпадёт с тем, что вставляли, и выглядит
+    // как будто сохранилось что-то не то.
+    if (m.exchanged_from === 'user_token') {
+      parts.push('Введён токен пользователя — сохранён токен страницы (им и отправляются сообщения)');
     }
     if (st.token_mask) parts.push(`Токен: ${st.token_mask}`);
     if (st.expires_at) {
