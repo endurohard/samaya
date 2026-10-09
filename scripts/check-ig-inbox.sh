@@ -73,7 +73,8 @@ for c in rows:
     msgs = (c.get("messages", {}) or {}).get("data", [])
     last = msgs[0].get("message", "") if msgs else ""
     last = (last[:60] + "…") if len(last) > 60 else last
-    print(f"  {c.get(\"updated_time\", \"\")[:16]}  {who[:34]:34} {last}")
+    upd = (c.get("updated_time") or "")[:16]
+    print("  %s  %-34s %s" % (upd, who[:34], last))
 '
 
 echo
