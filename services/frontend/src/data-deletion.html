@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<!--
+  Страница требуется Meta для проверки приложения (поле «URL инструкций для
+  удаления данных»). Проверяющий открывает её вручную, поэтому инструкция
+  должна быть выполнимой: конкретный адрес, конкретный срок, без отсылок
+  «свяжитесь с администрацией».
+
+  Реквизиты в {{...}} заменяются вместе с privacy.html — держите их
+  одинаковыми, расхождение в контактах бросается в глаза при проверке.
+-->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Удаление данных — Samaya</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/tokens.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --radius: 14px; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 28px 16px 60px;
+    }
+    header { text-align: center; margin-bottom: 24px; }
+    .logo { font-size: 24px; font-weight: 800; color: var(--primary); letter-spacing: -0.03em; }
+    .header-sub { font-size: 14px; color: var(--text-dim); margin-top: 4px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 30px;
+      max-width: 760px;
+      width: 100%;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    h1 {
+      font-family: var(--font-display, var(--font-sans));
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+    .lead { color: var(--text-dim); font-size: 15px; margin-bottom: 22px; }
+    h2 {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 26px 0 10px;
+      letter-spacing: -0.01em;
+    }
+    p, li { font-size: 15px; line-height: 1.62; }
+    p { margin-bottom: 12px; }
+    ul, ol { margin: 0 0 14px 22px; }
+    li { margin-bottom: 7px; }
+    .fill {
+      background: #fdf3f3;
+      border-bottom: 1px dashed var(--primary);
+      padding: 0 3px;
+    }
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      margin-left: 0;
+    }
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding-left: 42px;
+      margin-bottom: 14px;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 1px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .note {
+      background: #f8f6f4;
+      border-left: 3px solid var(--primary);
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 18px 0;
+      font-size: 14.5px;
+      line-height: 1.6;
+    }
+    .contact {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-top: 8px;
+      font-size: 15px;
+      line-height: 1.75;
+    }
+    .contact b { font-weight: 600; }
+    footer {
+      margin-top: 22px;
+      font-size: 13px;
+      color: var(--text-dim);
+      text-align: center;
+      max-width: 760px;
+    }
+    a { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">SAMAYA</div>
+    <div class="header-sub">Клиника эстетической медицины</div>
+  </header>
+
+  <main class="card">
+    <h1>Удаление персональных данных</h1>
+    <p class="lead">
+      Как потребовать удаления данных, которые клиника получила о вас через
+      Instagram, WhatsApp или форму записи на сайте.
+    </p>
+
+    <h2>Какие данные мы храним</h2>
+    <p>Если вы писали нам в Instagram Direct или WhatsApp, у нас сохраняются:</p>
+    <ul>
+      <li>имя профиля и его идентификатор в социальной сети;</li>
+      <li>текст переписки с клиникой;</li>
+      <li>номер телефона — если вы оставляли его для записи;</li>
+      <li>история записей на процедуры, если вы записывались.</li>
+    </ul>
+    <p>
+      Пароль, платёжные данные и содержимое вашей переписки с другими людьми
+      клинике недоступны — социальная сеть их не передаёт.
+    </p>
+
+    <h2>Как потребовать удаления</h2>
+    <ol class="steps">
+      <li>
+        Напишите на <span class="fill">{{EMAIL ДЛЯ ОБРАЩЕНИЙ}}</span> с темой
+        «Удаление персональных данных».
+      </li>
+      <li>
+        Укажите имя профиля в Instagram или номер телефона, с которого
+        обращались, — по ним мы найдём вашу карточку.
+      </li>
+      <li>
+        Мы удалим данные в течение <b>30 дней</b> и ответим письмом о
+        выполнении.
+      </li>
+    </ol>
+    <p>
+      Запрос можно передать и по телефону <span class="fill">{{ТЕЛЕФОН КЛИНИКИ}}</span>
+      или лично в клинике по адресу
+      <span class="fill">{{АДРЕС ДЛЯ ОБРАЩЕНИЙ}}</span>.
+      Плата за удаление не взимается.
+    </p>
+
+    <h2>Что удаляется, а что остаётся</h2>
+    <p>
+      Удаляются переписка, контакты и карточка клиента. Но часть сведений
+      закон обязывает сохранить, и на них требование об удалении не
+      распространяется:
+    </p>
+    <ul>
+      <li>
+        <b>Медицинская документация.</b> Если вам оказывали медицинскую
+        помощь, карта хранится в сроки, установленные законодательством о
+        здравоохранении, — удалить её по заявлению нельзя.
+      </li>
+      <li>
+        <b>Бухгалтерские документы.</b> Сведения об оплаченных услугах
+        хранятся в сроки, установленные налоговым законодательством.
+      </li>
+    </ul>
+    <div class="note">
+      Эти данные хранятся отдельно и не используются для связи с вами:
+      после удаления вам перестанут приходить сообщения от клиники.
+    </div>
+
+    <h2>Как отозвать согласие, не удаляя записи</h2>
+    <p>
+      Если нужно просто прекратить переписку и рассылки, напишите «отзываю
+      согласие» тем же способом — история записей сохранится, а сообщения
+      приходить перестанут.
+    </p>
+
+    <h2>Контакты оператора</h2>
+    <div class="contact">
+      <b>Оператор:</b> <span class="fill">{{НАИМЕНОВАНИЕ}}</span><br>
+      <b>ИНН:</b> <span class="fill">{{ИНН}}</span><br>
+      <b>Адрес:</b> <span class="fill">{{АДРЕС ДЛЯ ОБРАЩЕНИЙ}}</span><br>
+      <b>Эл. почта:</b> <span class="fill">{{EMAIL ДЛЯ ОБРАЩЕНИЙ}}</span><br>
+      <b>Телефон:</b> <span class="fill">{{ТЕЛЕФОН КЛИНИКИ}}</span>
+    </div>
+
+    <p style="margin-top:18px;">
+      Полный текст — в <a href="/privacy.html">политике обработки персональных
+      данных</a>.
+    </p>
+  </main>
+
+  <footer>
+    Редакция от {{ДАТА РЕДАКЦИИ}} · SAMAYA
+  </footer>
+</body>
+</html>
