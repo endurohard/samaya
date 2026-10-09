@@ -46,7 +46,10 @@ print("  инстаграм: @" + str(ig.get("username")), "| подписчик
 
 echo
 echo "=== Последние диалоги Direct ==="
-api "me/conversations?platform=instagram&fields=participants,updated_time,messages.limit(1){message,from,created_time}&limit=10" |
+# Текст последнего сообщения НЕ запрашиваем вместе со списком: на аккаунте
+# с сотнями тысяч подписчиков Meta отвечает «Please reduce the amount of
+# data you're asking for». Сначала лёгкий список, потом текст по одному.
+api "me/conversations?platform=instagram&fields=participants,updated_time&limit=5" |
   python3 -c '
 import sys, json
 d = json.load(sys.stdin)
@@ -70,11 +73,8 @@ if not rows:
 for c in rows:
     who = ", ".join(p.get("username") or p.get("name") or p.get("id")
                     for p in (c.get("participants", {}) or {}).get("data", []))
-    msgs = (c.get("messages", {}) or {}).get("data", [])
-    last = msgs[0].get("message", "") if msgs else ""
-    last = (last[:60] + "…") if len(last) > 60 else last
     upd = (c.get("updated_time") or "")[:16]
-    print("  %s  %-34s %s" % (upd, who[:34], last))
+    print("  %s  %s" % (upd, who[:50]))
 '
 
 echo
