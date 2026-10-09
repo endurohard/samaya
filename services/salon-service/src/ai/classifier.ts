@@ -56,6 +56,8 @@ export interface Template {
   matcher: string;
   body: string;
   autosend: boolean;
+  // false — тему по-прежнему распознаём, но не отвечаем вовсе.
+  enabled: boolean;
 }
 
 export interface Decision {
@@ -71,11 +73,26 @@ export interface Decision {
   probabilities?: Record<string, number>;
 }
 
+/**
+ * Загрузить шаблоны, ВКЛЮЧАЯ выключенные.
+ *
+ * Выключенная тема остаётся в списке вариантов для модели, и это главное.
+ * Если убрать её совсем, сообщение не исчезнет — оно попадёт в ближайшую
+ * по смыслу тему или в manual_review, и администратор получит черновик на
+ * каждое «спасибо». То есть «выключить» дало бы ровно обратный эффект:
+ * больше работы вместо тишины.
+ *
+ * Хуже того, пропажа темы портит разбор СОСЕДНИХ сообщений: модель
+ * раскладывает вероятности по тому набору, который ей дали, и без «спасибо»
+ * благодарность начнёт притягиваться к «записи» или «жалобе».
+ *
+ * Поэтому тему оставляем, а молчим уже на этапе решения.
+ */
 export async function loadTemplates(companyId: string): Promise<Template[]> {
   const { rows } = await pool.query(
-    `SELECT id, topic, title, matcher, body, autosend
+    `SELECT id, topic, title, matcher, body, autosend, enabled
        FROM ai.reply_templates
-      WHERE company_id = $1 AND enabled = TRUE
+      WHERE company_id = $1
       ORDER BY sort_order, title`,
     [companyId],
   );
@@ -177,6 +194,17 @@ export async function classify(
     return {
       ok: true, topic, template: null, confidence, probabilities,
       action: 'draft', reply: null, reason: `шаблон темы «${topic}» не найден`,
+    };
+  }
+
+  // Тема выключена — молчим. Проверка стоит до уверенности и до autosend:
+  // владелец сказал «на это не отвечать», и черновик администратору здесь
+  // тоже лишний — он означал бы ту же работу вручную.
+  if (template.enabled === false) {
+    return {
+      ok: true, topic, template, confidence, probabilities,
+      action: 'skipped', reply: null,
+      reason: `тема «${template.title}» выключена — ответ не отправляется`,
     };
   }
 

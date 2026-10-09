@@ -7588,10 +7588,16 @@ import {
     }
 
     list.innerHTML = aiTemplates.map((t) => {
+      // У выключенной темы режим ответа не показываем: «отвечает сам» и
+      // «не отвечает» рядом — прямое противоречие на вид.
       const flags = [];
-      if (t.autosend) flags.push('<span class="pill pill-ok" style="font-size:11px;">отвечает сам</span>');
-      else flags.push('<span class="pill pill-mute" style="font-size:11px;">через админа</span>');
-      if (!t.enabled) flags.push('<span class="pill pill-warn" style="font-size:11px;">выключен</span>');
+      if (t.enabled === false) {
+        flags.push('<span class="pill pill-warn" style="font-size:11px;">не отвечает</span>');
+      } else if (t.autosend) {
+        flags.push('<span class="pill pill-ok" style="font-size:11px;">отвечает сам</span>');
+      } else {
+        flags.push('<span class="pill pill-mute" style="font-size:11px;">через админа</span>');
+      }
 
       const confirming = aiPendingDelete === t.id;
       return `
@@ -7610,6 +7616,9 @@ import {
               <button type="button" class="btn-ghost btn-xs ai-del-no">Нет</button>
             </div>
           ` : `
+            <button type="button" class="btn-ghost btn-xs ai-tpl-toggle"
+                    data-id="${escapeHtml(t.id)}" data-on="${t.enabled === false ? '0' : '1'}"
+                    title="${t.enabled === false ? 'Включить ответы по этой теме' : 'Перестать отвечать на эту тему'}">${t.enabled === false ? 'Включить' : 'Выключить'}</button>
             <button type="button" class="btn-ghost btn-xs ai-tpl-edit" data-id="${escapeHtml(t.id)}">Изм.</button>
             <button type="button" class="fin-del-btn ai-tpl-del" data-id="${escapeHtml(t.id)}" aria-label="Удалить">×</button>
           `}
@@ -7618,6 +7627,22 @@ import {
 
     list.querySelectorAll('.ai-tpl-edit').forEach((b) => {
       b.addEventListener('click', () => openAiTplForm(b.dataset.id));
+    });
+    list.querySelectorAll('.ai-tpl-toggle').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const turnOn = b.dataset.on === '0';
+        b.disabled = true;
+        b.textContent = '…';
+        const r = await apiCall('PUT', `/api/salons/ai/templates/${b.dataset.id}`, { enabled: turnOn });
+        if (r.ok) {
+          await loadAiTemplates();
+          toast(turnOn ? 'Тема включена — ассистент снова отвечает' : 'Тема выключена — ассистент не отвечает на неё');
+        } else {
+          b.disabled = false;
+          renderAiTemplates();
+          toast(r.data?.error || 'Не удалось изменить', true);
+        }
+      });
     });
     list.querySelectorAll('.ai-tpl-del').forEach((b) => {
       b.addEventListener('click', () => { aiPendingDelete = b.dataset.id; renderAiTemplates(); });
