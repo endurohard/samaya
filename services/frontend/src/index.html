@@ -2553,7 +2553,18 @@
 
         <!-- View: messages (WhatsApp broadcasts) -->
         <section class="view view-messages" data-view="messages" hidden>
-          <div class="messages-layout">
+          <!-- Вкладки каналов. Instagram и WhatsApp — разные мессенджеры с
+               разной механикой (у одного нет телефона собеседника, у второго
+               нет ленты диалогов), и показ их на одном экране заставлял
+               администратора искать нужное среди четырёх карточек сразу.
+               Один пункт меню «Сообщения» сохранён: канал выбирается
+               вкладкой, а не отдельным разделом в боковом меню. -->
+          <nav class="subnav" id="messagesSubnav">
+            <button type="button" class="subnav-item active" data-msg-tab="instagram">Instagram Direct</button>
+            <button type="button" class="subnav-item" data-msg-tab="whatsapp">WhatsApp</button>
+          </nav>
+
+          <div class="messages-layout" id="msgTabInstagram">
 
             <!-- Переписка Instagram Direct.
                  Список диалогов слева, лента и ответ справа. Отдельной
@@ -2612,6 +2623,9 @@
                 </div>
               </div>
             </div>
+          </div><!-- /msgTabInstagram -->
+
+          <div class="messages-layout" id="msgTabWhatsapp" hidden>
 
             <!-- Входящие с номеров, которых нет в базе клиентов -->
             <div class="card" id="waUnlinkedCard" hidden>
@@ -2752,7 +2766,7 @@
               </div>
             </div>
 
-          </div>
+          </div><!-- /msgTabWhatsapp -->
         </section>
 
         <section class="view" data-view="placeholder" hidden>

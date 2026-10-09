@@ -538,6 +538,12 @@ import {
     if (view === 'settings') {
       void activateSettingsView();
     }
+    if (view === 'messages') {
+      // Восстановить выбранный канал: без этого после ухода в другой раздел
+      // и возврата обе панели остаются в том состоянии, в каком их оставил
+      // браузер, и видно сразу две.
+      switchMessagesTab(messagesActiveTab);
+    }
     if (view === 'sales') {
       void activateSalesView();
     }
@@ -7478,6 +7484,32 @@ import {
       </div>
     `).join('');
   }
+
+  // Сообщения: переключение каналов Instagram / WhatsApp.
+  //
+  // Канал выбирается вкладкой, а не отдельным пунктом бокового меню: это
+  // один рабочий экран администратора, но две независимые панели. Раньше обе
+  // рисовались разом, и список диалогов Instagram соседствовал с формой
+  // рассылки WhatsApp — на экране четыре карточки, и нужную приходилось
+  // искать глазами.
+  let messagesActiveTab = 'instagram';
+
+  function switchMessagesTab(tab) {
+    messagesActiveTab = tab;
+    document.querySelectorAll('#messagesSubnav .subnav-item[data-msg-tab]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.msgTab === tab);
+    });
+    const ig = document.getElementById('msgTabInstagram');
+    const wa = document.getElementById('msgTabWhatsapp');
+    if (ig) ig.hidden = (tab !== 'instagram');
+    if (wa) wa.hidden = (tab !== 'whatsapp');
+  }
+
+  document.getElementById('messagesSubnav')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-msg-tab]');
+    if (!btn || btn.classList.contains('disabled')) return;
+    switchMessagesTab(btn.dataset.msgTab);
+  });
 
   // Clients sub-tab switching (list / bonus)
   let clientsActiveTab = 'list';
