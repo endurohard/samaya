@@ -19,8 +19,16 @@ PROXY="${INSTAGRAM_SOCKS_PROXY:-http://127.0.0.1:1087}"
 # Скрипт работает с хоста, а там мост слушает на 127.0.0.1:1087 (сам xray).
 [ "$PROXY" = "http://host.docker.internal:1181" ] && PROXY="http://127.0.0.1:1087"
 
-TOKEN=$(printf '%s\n' "\\pset pager off" "SELECT token FROM salons.integration_credentials WHERE provider='instagram';" \
-  | docker compose exec -T postgres psql -U samaya -d samaya -t -A -f - 2>/dev/null | tr -d '[:space:]')
+# Значения читаем через psql -t -A БЕЗ мета-команд во входе: строка
+# «Pager usage is off.» иначе приклеивается к значению, и Meta отвергает
+# такой токен с «Expected 1 '.' in the input» — ошибка выглядит как
+# проблема токена, хотя это мусор от psql.
+q() {
+  docker compose exec -T postgres psql -U samaya -d samaya -t -A -P pager=off \
+    -c "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+TOKEN=$(q "SELECT token FROM salons.integration_credentials WHERE provider='instagram';")
 
 if [ -z "$TOKEN" ]; then
   echo "Токен не сохранён. Настройки → Интеграции → вставьте токен."
@@ -29,8 +37,7 @@ fi
 echo "Токен найден: ${#TOKEN} символов, хвост …${TOKEN: -4}"
 echo
 
-IG_ID=$(printf '%s\n' "\\pset pager off" "SELECT meta->>'ig_id' FROM salons.integration_credentials WHERE provider='instagram';" \
-  | docker compose exec -T postgres psql -U samaya -d samaya -t -A -f - 2>/dev/null | tr -d '[:space:]')
+IG_ID=$(q "SELECT meta->>'ig_id' FROM salons.integration_credentials WHERE provider='instagram';")
 echo "ID аккаунта Instagram: ${IG_ID:-не записан}"
 echo
 
