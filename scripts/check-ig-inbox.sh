@@ -57,7 +57,13 @@ if "error" in d:
     e = d["error"]
     print("  ОШИБКА:", e.get("message"))
     code, sub = e.get("code"), e.get("error_subcode")
-    if code == 10 or (code == 200 and sub):
+    if code == 3:
+        print()
+        print("  Приложению не хватает прав на чтение переписки.")
+        print("  Это ограничение режима разработки, а не ошибка настройки:")
+        print("  нужен Advanced Access к instagram_manage_messages.")
+        print("  App Review → Permissions and Features → Request Advanced Access.")
+    elif code == 10 or (code == 200 and sub):
         print()
         print("  Нет разрешения на чтение переписки.")
         print("  Нужен Advanced Access к instagram_manage_messages:")
