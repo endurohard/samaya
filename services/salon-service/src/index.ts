@@ -17,6 +17,7 @@ import templatesRoutes from './routes/templates';
 import positionsRoutes from './routes/positions';
 import catalogsRoutes from './routes/catalogs';
 import integrationsRoutes from './routes/integrations';
+import aiRoutes from './routes/ai';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -63,6 +64,9 @@ app.use('/api/salons/schedule-templates', authenticate, gate('schedule.view', 's
 // Секреты интеграций: роль проверяется внутри роутера (owner/admin), токен
 // наружу не отдаётся никогда — только маска и состояние.
 app.use('/api/salons/integrations', integrationsRoutes);
+// ИИ-ассистент: шаблоны ответов и классификация тем. Роль проверяется
+// внутри роутера; /reply открыт для сервисов каналов по их JWT.
+app.use('/api/salons/ai', aiRoutes);
 
 app.use(errorHandler);
 

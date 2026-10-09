@@ -168,6 +168,14 @@ services:
       # российского аккаунта — повод для блокировки.
       INSTAGRAM_SOCKS_PROXY: ${INSTAGRAM_SOCKS_PROXY:-}
       IG_API_VERSION: ${IG_API_VERSION:-v23.0}
+      # Классификатор тем для шаблонных ответов (Jev, TypeSafe AI). Он не
+      # пишет текст — только выбирает тему из списка шаблонов и возвращает
+      # вероятность, поэтому своей модели и железа под него не нужно.
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-jev-latest}
+      # Ниже этого порога уверенности ответ уходит администратору, даже
+      # если тема определена и шаблон разрешён к автоотправке.
+      AI_AUTO_CONFIDENCE: ${AI_AUTO_CONFIDENCE:-0.85}
     expose:
       - "3002"
     networks:
