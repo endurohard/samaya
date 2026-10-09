@@ -10420,7 +10420,7 @@ function waAttachChatToClient(phoneDigits, row) {
 
   function setSwitchTab(tab) {
     settingsTab = tab;
-    ['company', 'services', 'masters', 'templates', 'notifications', 'access'].forEach((t) => {
+    ['company', 'services', 'masters', 'templates', 'notifications', 'integrations', 'access'].forEach((t) => {
       const panel = document.getElementById('setTab' + t.charAt(0).toUpperCase() + t.slice(1));
       if (panel) panel.hidden = (t !== tab);
     });
@@ -10430,9 +10430,144 @@ function waAttachChatToClient(phoneDigits, row) {
     if (tab === 'company') renderCompanyForm();
     if (tab === 'templates') renderScheduleTemplates();
     if (tab === 'notifications') renderNotificationsForm();
+    if (tab === 'integrations') void loadIntegrations();
     if (tab === 'access') void loadAccessUsers();
     if (tab === 'services') void loadSvcGroups();
   }
+
+  // ===== Настройки → Интеграции: токен Instagram =====
+  //
+  // Значение токена сюда никогда не приходит: сервер отдаёт только маску,
+  // имя подключённого аккаунта и срок годности. Поэтому состояние кнопок
+  // строится по признаку connected, а поле ввода всегда пустое — его
+  // заполняют только когда меняют токен.
+
+  function igIntEls() {
+    return {
+      status: document.getElementById('igIntStatus'),
+      info: document.getElementById('igIntInfo'),
+      input: document.getElementById('igIntToken'),
+      save: document.getElementById('igIntSave'),
+      del: document.getElementById('igIntDelete'),
+      msg: document.getElementById('igIntMsg'),
+      confirm: document.getElementById('igIntConfirm'),
+    };
+  }
+
+  function igIntSetMsg(text, kind) {
+    const { msg } = igIntEls();
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.style.color = kind === 'error' ? '#b91c1c' : (kind === 'ok' ? '#16a34a' : '');
+  }
+
+  function renderIntegration(st) {
+    const { status, info, del } = igIntEls();
+    if (!status || !info) return;
+
+    if (!st || !st.connected) {
+      status.textContent = 'не подключено';
+      status.className = 'pill pill-mute';
+      info.hidden = true;
+      if (del) del.hidden = true;
+      return;
+    }
+
+    // Истёкший токен — отдельное состояние: «подключено» с мёртвым токеном
+    // выглядит рабочим, а бот при этом молчит.
+    status.textContent = st.expired ? 'токен истёк' : 'подключено';
+    status.className = st.expired ? 'pill pill-warn' : 'pill pill-ok';
+
+    const m = st.meta || {};
+    const parts = [];
+    if (m.username) parts.push(`Аккаунт: @${m.username}`);
+    if (m.transport) {
+      parts.push(m.transport === 'facebook_page'
+        ? 'Подключение: через страницу Facebook'
+        : 'Подключение: Instagram Login');
+    }
+    if (st.token_mask) parts.push(`Токен: ${st.token_mask}`);
+    if (st.expires_at) {
+      const d = new Date(st.expires_at);
+      const days = Math.round((d - new Date()) / 86400000);
+      parts.push(st.expired
+        ? `Истёк ${d.toLocaleDateString('ru-RU')}`
+        : `Действует до ${d.toLocaleDateString('ru-RU')} (${days} дн.)`);
+    } else {
+      parts.push('Срок: бессрочный');
+    }
+    info.innerHTML = parts.map(p => `<div>${escapeHtml(p)}</div>`).join('');
+    info.hidden = false;
+    if (del) del.hidden = false;
+  }
+
+  async function loadIntegrations() {
+    const { status } = igIntEls();
+    if (status) { status.textContent = 'проверяю…'; status.className = 'pill pill-mute'; }
+    const r = await apiCall('GET', '/api/salons/integrations');
+    if (!r.ok) {
+      if (status) { status.textContent = 'нет доступа'; status.className = 'pill pill-mute'; }
+      return;
+    }
+    const list = Array.isArray(r.data) ? r.data : [];
+    renderIntegration(list.find(x => x.provider === 'instagram'));
+  }
+
+  document.getElementById('igIntSave')?.addEventListener('click', async () => {
+    const { input, save } = igIntEls();
+    const token = (input?.value || '').trim();
+    if (!token) { igIntSetMsg('Вставьте токен', 'error'); return; }
+
+    if (save) { save.disabled = true; save.textContent = 'Проверяю…'; }
+    igIntSetMsg('');
+    const r = await apiCall('PUT', '/api/salons/integrations/instagram', { token });
+    if (save) { save.disabled = false; save.textContent = 'Сохранить токен'; }
+
+    if (!r.ok) {
+      igIntSetMsg(r.data?.error || r.data?.message || 'Не удалось сохранить', 'error');
+      return;
+    }
+    // Поле чистим сразу: токен сохранён, держать его в DOM незачем.
+    if (input) input.value = '';
+    igIntSetMsg('Токен сохранён', 'ok');
+    renderIntegration(r.data);
+    toast('Instagram подключён');
+  });
+
+  document.getElementById('igIntCheck')?.addEventListener('click', async () => {
+    igIntSetMsg('Проверяю…');
+    const r = await apiCall('POST', '/api/salons/integrations/instagram/check');
+    if (!r.ok) {
+      igIntSetMsg(r.data?.error || 'Токен не сохранён', 'error');
+      return;
+    }
+    if (r.data?.ok === false) {
+      igIntSetMsg(`Meta отклонила токен: ${r.data.error}`, 'error');
+      return;
+    }
+    igIntSetMsg('Токен действителен', 'ok');
+    void loadIntegrations();
+  });
+
+  document.getElementById('igIntDelete')?.addEventListener('click', () => {
+    const { confirm } = igIntEls();
+    if (confirm) confirm.hidden = false;
+  });
+
+  document.getElementById('igIntConfirmNo')?.addEventListener('click', () => {
+    const { confirm } = igIntEls();
+    if (confirm) confirm.hidden = true;
+  });
+
+  document.getElementById('igIntConfirmYes')?.addEventListener('click', async () => {
+    const { confirm } = igIntEls();
+    if (confirm) confirm.hidden = true;
+    const r = await apiCall('DELETE', '/api/salons/integrations/instagram');
+    if (!r.ok) { igIntSetMsg('Не удалось отключить', 'error'); return; }
+    igIntSetMsg('Интеграция отключена');
+    renderIntegration(null);
+    toast('Instagram отключён');
+  });
 
   // ===== Управление группами услуг (Настройки → Услуги) =====
   // Раскрытая группа, у которой показан подбор услуг (null — ни одна).

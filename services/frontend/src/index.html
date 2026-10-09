@@ -2168,6 +2168,7 @@
             <button type="button" class="subnav-item" data-set-tab="masters">Сотрудники</button>
             <button type="button" class="subnav-item" data-set-tab="templates">Шаблоны графика</button>
             <button type="button" class="subnav-item" data-set-tab="notifications">Уведомления</button>
+            <button type="button" class="subnav-item" data-set-tab="integrations">Интеграции</button>
             <button type="button" class="subnav-item" data-set-tab="access">Доступ к проекту</button>
           </nav>
 
@@ -2347,6 +2348,56 @@
                 </div>
                 <div id="setNotificationsSaved" class="empty" hidden style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;margin-top:8px;">Сохранено ✓</div>
               </form>
+            </div>
+          </div>
+
+          <!-- Tab: Интеграции -->
+          <div id="setTabIntegrations" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Instagram Direct</h2>
+                <span id="igIntStatus" class="pill pill-mute">проверяю…</span>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-ghost btn-sm" id="igIntCheck">Проверить</button>
+              </div>
+
+              <div class="set-form" style="padding:4px 2px 2px;">
+                <p class="hint" style="margin:0 0 10px;">
+                  Токен доступа из кабинета Meta for Developers. Нужен, чтобы отвечать
+                  на сообщения Direct через официальный API — без браузерной сессии и
+                  риска блокировки аккаунта.
+                </p>
+
+                <!-- Состояние подключения: имя аккаунта, маска токена, срок.
+                     Значение токена сервер не отдаёт — только хвост, чтобы
+                     можно было сверить, тот ли токен сохранён. -->
+                <div id="igIntInfo" class="empty" hidden style="margin-bottom:10px;"></div>
+
+                <label for="igIntToken">Токен доступа</label>
+                <input type="password" id="igIntToken" autocomplete="off" spellcheck="false"
+                       placeholder="вставьте токен из Meta for Developers">
+                <div class="hint" style="margin-top:4px;">
+                  Токен проверяется перед сохранением: если Meta его отклонит, он не запишется.
+                </div>
+
+                <div class="form-actions" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                  <button type="button" class="btn-primary btn-sm" id="igIntSave">Сохранить токен</button>
+                  <button type="button" class="btn-danger-outline btn-sm" id="igIntDelete" hidden>Отключить</button>
+                  <span id="igIntMsg" class="hint"></span>
+                </div>
+
+                <!-- Подтверждение отключения — inline, а не confirm():
+                     админку открывают во встроенном браузере VS Code, где
+                     браузерные диалоги заблокированы и кнопка выглядит мёртвой. -->
+                <div id="igIntConfirm" class="empty" hidden
+                     style="margin-top:10px;background:#fef2f2;border-color:#fecaca;color:#991b1b;">
+                  Удалить сохранённый токен? Ответы в Direct перестанут отправляться.
+                  <div style="margin-top:8px;display:flex;gap:8px;">
+                    <button type="button" class="btn-danger-outline btn-sm" id="igIntConfirmYes">Да, отключить</button>
+                    <button type="button" class="btn-ghost btn-sm" id="igIntConfirmNo">Отмена</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

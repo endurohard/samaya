@@ -16,6 +16,7 @@ import companyRoutes from './routes/company';
 import templatesRoutes from './routes/templates';
 import positionsRoutes from './routes/positions';
 import catalogsRoutes from './routes/catalogs';
+import integrationsRoutes from './routes/integrations';
 
 const log = pino({ level: config.LOG_LEVEL });
 
@@ -59,6 +60,9 @@ app.use('/api/salons/positions', positionsRoutes);
 app.use('/api/salons/masters', mastersRoutes);   // без гейта: список мастеров нужен во всех разделах (запись/журнал), запись — role-gated
 app.use('/api/salons/company', authenticate, companyGate, companyRoutes);
 app.use('/api/salons/schedule-templates', authenticate, gate('schedule.view', 'schedule.edit'), templatesRoutes);
+// Секреты интеграций: роль проверяется внутри роутера (owner/admin), токен
+// наружу не отдаётся никогда — только маска и состояние.
+app.use('/api/salons/integrations', integrationsRoutes);
 
 app.use(errorHandler);
 
