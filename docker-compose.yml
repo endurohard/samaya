@@ -178,6 +178,9 @@ services:
       # Meta наоборот требует местный. Свой выход у контейнеров российский,
       # поэтому прокси обязателен даже для «прямого» маршрута.
       JEV_HTTP_PROXY: ${JEV_HTTP_PROXY:-http://host.docker.internal:1180}
+      # Внутренний токен: по нему instagram-service зовёт /ai/reply, когда
+      # пришло сообщение от клиента. Пользовательского JWT у сервиса нет.
+      INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}
       # Ниже этого порога уверенности ответ уходит администратору, даже
       # если тема определена и шаблон разрешён к автоотправке.
       AI_AUTO_CONFIDENCE: ${AI_AUTO_CONFIDENCE:-0.85}
@@ -509,6 +512,22 @@ services:
       # минута ожидания, пока администратор нажмёт «отправить».
       INSTAGRAM_AI_AUTOSEND: ${INSTAGRAM_AI_AUTOSEND:-false}
       INSTAGRAM_AI_CLINIC_INFO: ${INSTAGRAM_AI_CLINIC_INFO:-}
+      # Официальный путь: приём сообщений по webhook вместо обхода инбокса
+      # браузером. Токен берётся из salons.integration_credentials (админка),
+      # здесь только то, что нужно для проверки входящих уведомлений.
+      #
+      # VERIFY_TOKEN — строка, которую владелец сам придумывает и вписывает
+      # и сюда, и в кабинет Meta: это взаимная сверка при подключении.
+      # APP_SECRET — секрет приложения Meta; без него эндпоинт webhook
+      # принимал бы выдуманные сообщения от кого угодно, так как открыт
+      # наружу без авторизации.
+      INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-}
+      INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+      # Автоответ по шаблонам. Умолчание false: клиника — медицинские
+      # услуги, и отправка без человека должна быть осознанным решением.
+      # Даже при true уходят только темы, которым это разрешено в шаблоне.
+      INSTAGRAM_AUTOREPLY: ${INSTAGRAM_AUTOREPLY:-false}
+      SALON_SERVICE_URL: ${SALON_SERVICE_URL:-http://salon-service:3002}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}
       LOG_LEVEL: ${LOG_LEVEL:-info}

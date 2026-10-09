@@ -3,6 +3,8 @@ import ig from './instagram.js';
 import { Monitor } from './monitor.js';
 import { authenticate } from './auth.js';
 import { aiStatus, prepareReply } from './assistant.js';
+import { verifySignature, verifyChallenge, parseWebhook, webhookStatus, sendMessage } from './graph.js';
+import { handleMessages, autoreplyEnabled } from './webhook.js';
 import {
   listThreads, listThreadMessages, listByClient, linkThreadToClient,
   newIncoming, unreadCount, markAuthor, authorName,
@@ -12,6 +14,48 @@ import {
 const PORT = Number(process.env.PORT || 3010);
 const monitor = new Monitor(ig);
 const app = express();
+
+// Webhook Meta ДО express.json(): подпись считается по сырым байтам тела,
+// а распарсенный и заново сериализованный JSON даёт другую строку (порядок
+// ключей, пробелы) и подпись никогда не сойдётся.
+app.post('/api/instagram/webhook',
+  express.raw({ type: '*/*', limit: '1mb' }),
+  async (req, res) => {
+    const sig = verifySignature(req.body, req.get('x-hub-signature-256'));
+    if (!sig.ok) {
+      console.warn('[IG][webhook] отклонён:', sig.reason);
+      return res.sendStatus(403);
+    }
+
+    let body;
+    try { body = JSON.parse(req.body.toString('utf8')); }
+    catch { return res.sendStatus(400); }
+
+    // Отвечаем Meta сразу: она ждёт 200 за секунды и при задержке шлёт
+    // то же событие повторно. Разбор и ответ клиенту идут после ответа.
+    res.sendStatus(200);
+
+    const items = parseWebhook(body);
+    if (!items.length) return;
+    try {
+      const stats = await handleMessages(items);
+      console.log('[IG][webhook]', JSON.stringify(stats));
+    } catch (e) {
+      console.error('[IG][webhook] обработка:', e.message);
+    }
+  });
+
+// Подключение webhook: Meta дёргает GET с проверочным токеном и ждёт
+// обратно значение hub.challenge открытым текстом.
+app.get('/api/instagram/webhook', (req, res) => {
+  const v = verifyChallenge(req.query);
+  if (!v.ok) {
+    console.warn('[IG][webhook] проверка не пройдена:', v.reason);
+    return res.sendStatus(403);
+  }
+  return res.type('text/plain').send(v.challenge);
+});
+
 app.use(express.json({ limit: '1mb' }));
 
 // ── Health ──
@@ -146,6 +190,10 @@ app.get('/api/instagram/status', (_req, res) => res.json({
   ...ig.getStatus(),
   monitor: monitor.status(),
   ai: aiStatus(),
+  // Официальный путь: готов ли приём webhook и включён ли автоответ.
+  // Нужен, чтобы в админке отличать «браузерная сессия не поднята» от
+  // «работаем через API, браузер не требуется».
+  webhook: { ...webhookStatus(), autoreply: autoreplyEnabled() },
 }));
 
 // ── Вход переносом cookie ──
@@ -219,6 +267,40 @@ app.post('/api/instagram/send', async (req, res) => {
   if (!threadId || !message) {
     return res.status(400).json({ error: 'нужны thread_id и message' });
   }
+
+  // Официальный API предпочтительнее браузера: мгновенно, без риска
+  // чекпоинта и не требует живой сессии Chromium. Браузерный путь остаётся
+  // запасным — он работает, пока Meta не одобрила Advanced Access.
+  const viaApi = await sendMessage(threadId, message);
+  if (viaApi.ok) {
+    try {
+      const clientId = await upsertThread({
+        thread_id: threadId, unread: 0, last_body: message, last_at: new Date(),
+      });
+      await saveMessages(threadId, [{
+        from_me: true, body: message, stamp: new Date().toISOString(),
+      }], clientId);
+      if (req.user?.id) {
+        await markAuthor(threadId, message, {
+          id: req.user.id, name: await authorName(req.user.id),
+        });
+      }
+      await clearDraft(threadId);
+    } catch (e) {
+      console.error('[IG][send] запись в историю не удалась:', e.message);
+    }
+    return res.json({ ok: true, via: 'graph_api', message_id: viaApi.messageId });
+  }
+
+  // Токена нет — это штатная ситуация до подключения интеграции, идём
+  // браузером. Любая другая ошибка API (истёк токен, окно 24 часов) —
+  // настоящая, и подменять её браузерной попыткой нельзя: она тоже не
+  // пройдёт, а администратор получит невнятное сообщение.
+  const noToken = /токен Instagram не сохранён|не записан id аккаунта/.test(viaApi.error || '');
+  if (!noToken) {
+    return res.status(502).json({ error: viaApi.error, via: 'graph_api' });
+  }
+
   try {
     const result = await ig.sendToThread(threadId, message);
     // Сразу дочитываем диалог: иначе отправленное появится в карточке только

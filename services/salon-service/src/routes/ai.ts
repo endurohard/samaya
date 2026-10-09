@@ -10,7 +10,58 @@ import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 // Доступ под owner/admin: шаблон — это то, что клиника говорит клиенту от
 // своего имени, и правка цены или формулировки о показаниях не должна быть
 // доступна каждому сотруднику.
+//
+// Исключение — /reply: его вызывает не человек, а сервис канала
+// (instagram-service) при входящем сообщении, и пользовательского JWT там
+// нет. Для него отдельная проверка по внутреннему токену, и роутер
+// подключается ДО общей authenticate.
 const router = Router();
+
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || '';
+const DEFAULT_COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '';
+
+/**
+ * Пропускает либо сервис по внутреннему токену, либо обычного пользователя
+ * по JWT. Компания для сервисного вызова берётся из окружения: у сервиса
+ * нет своей компании, а канал в системе один.
+ */
+async function serviceOrUser(req: ExpressRequest, res: any, next: any) {
+  const h = req.headers.authorization;
+  if (INTERNAL_TOKEN && h === `Bearer ${INTERNAL_TOKEN}`) {
+    req.auth = {
+      sub: 'service:instagram', company_id: DEFAULT_COMPANY_ID,
+      role: 'service', type: 'access',
+    } as any;
+    return next();
+  }
+  return authenticate(req as any, res, next);
+}
+
+router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
+  try {
+    const { text, thread_id, channel, client_name } = z.object({
+      text: z.string().min(1).max(4000),
+      thread_id: z.string().max(200).optional(),
+      channel: z.string().max(32).optional(),
+      client_name: z.string().max(200).optional(),
+    }).parse(req.body);
+
+    const companyId = req.auth!.company_id;
+    const d = await classify(companyId, text, client_name);
+    await logDecision(companyId, d, {
+      channel: channel ?? 'instagram',
+      threadId: thread_id ?? null,
+      incoming: text,
+    });
+
+    return res.json({
+      ok: d.ok, topic: d.topic, confidence: d.confidence,
+      action: d.action, reply: d.reply, reason: d.reason,
+    });
+  } catch (e) { return next(e); }
+});
+
+// Всё остальное — только для вошедшего пользователя.
 router.use(authenticate);
 const manage = requireRole(['owner', 'admin']);
 
@@ -134,36 +185,6 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
       reply: d.reply,
       reason: d.reason,
       probabilities: d.probabilities,
-    });
-  } catch (e) { return next(e); }
-});
-
-/**
- * POST /api/salons/ai/reply — решение по реальному входящему.
- *
- * Отдельно от /try: этот путь пишет журнал. Вызывается сервисом канала
- * (instagram, whatsapp), а не интерфейсом.
- */
-router.post('/reply', async (req: ExpressRequest, res, next) => {
-  try {
-    const { text, thread_id, channel, client_name } = z.object({
-      text: z.string().min(1).max(4000),
-      thread_id: z.string().max(200).optional(),
-      channel: z.string().max(32).optional(),
-      client_name: z.string().max(200).optional(),
-    }).parse(req.body);
-
-    const companyId = req.auth!.company_id;
-    const d = await classify(companyId, text, client_name);
-    await logDecision(companyId, d, {
-      channel: channel ?? 'instagram',
-      threadId: thread_id ?? null,
-      incoming: text,
-    });
-
-    return res.json({
-      ok: d.ok, topic: d.topic, confidence: d.confidence,
-      action: d.action, reply: d.reply, reason: d.reason,
     });
   } catch (e) { return next(e); }
 });

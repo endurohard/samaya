@@ -13855,8 +13855,27 @@ function waAttachChatToClient(phoneDigits, row) {
     if (!badge) return null;
     try {
       const r = await apiCall('GET', '/api/instagram/status');
-      if (!r.ok) { badge.className = 'pill pill-danger'; badge.textContent = 'сервис недоступен'; return null; }
+      if (!r.ok) {
+        // 404 от Kong означает, что сервис не поднят. Это не «сломалось»,
+        // а штатное состояние до запуска контейнера, и подпись должна
+        // говорить, что делать, а не показывать ошибку маршрутизации.
+        badge.className = 'pill pill-mute';
+        badge.textContent = r.status === 404
+          ? 'сервис Instagram не запущен'
+          : 'сервис недоступен';
+        return null;
+      }
       const s = r.data;
+      // Официальный API главнее браузера: когда работает webhook, живая
+      // сессия Chromium не нужна вовсе, и её состояние («нужен вход»)
+      // вводило бы в заблуждение.
+      if (s.webhook?.verify_token_set && s.webhook?.app_secret_set) {
+        badge.className = 'pill pill-success';
+        badge.textContent = s.webhook.autoreply
+          ? 'через Instagram API, автоответ включён'
+          : 'через Instagram API';
+        return s;
+      }
       // Чекпоинт и требование входа показываем отдельно от обычного «не
       // подключён»: они лечатся не перезапуском, а человеком в живом окне,
       // и администратор должен понимать, что именно от него требуется.
@@ -13885,6 +13904,19 @@ function waAttachChatToClient(phoneDigits, row) {
   }
 
   async function loadIgThreads() {
+    // Кнопка живого окна нужна только браузерному пути. При работе через
+    // официальный API она открывает мёртвый iframe и показывает ошибку
+    // маршрутизации Kong — скрываем, чтобы не предлагать неработающее.
+    try {
+      const st = await apiCall('GET', '/api/instagram/status');
+      const viaApi = st.ok && st.data?.webhook?.verify_token_set && st.data?.webhook?.app_secret_set;
+      const liveBtn = document.getElementById('igLiveToggle');
+      if (liveBtn) liveBtn.hidden = !!viaApi || !st.ok;
+    } catch { /* статус не обязателен для списка диалогов */ }
+    return loadIgThreadsInner();
+  }
+
+  async function loadIgThreadsInner() {
     const box = document.getElementById('igThreads');
     if (!box) return;
     try {
