@@ -476,6 +476,22 @@ services:
     build:
       context: ./services/instagram-service
       dockerfile: Dockerfile
+      # Прокси для СБОРКИ (установка Chromium через apt).
+      #
+      # Прямого доступа к deb.debian.org с этого сервера нет — запрос
+      # уходит в таймаут. Docker при этом сам подставляет в сборку прокси
+      # из ~/.docker/config.json со значением 127.0.0.1:1080, а внутри
+      # контейнера сборки это его собственный loopback, где никто не
+      # слушает: apt падал с «Could not connect to 127.0.0.1:1080» и
+      # «Unable to locate package chromium».
+      #
+      # Правильный адрес — мост egress-proxy на шлюзе docker: изнутри
+      # сборки он доступен, а наружу не выставлен.
+      args:
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
+        HTTPS_PROXY: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
+        http_proxy: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
+        https_proxy: ${BUILD_HTTP_PROXY:-http://172.17.0.1:1180}
     container_name: samaya-instagram
     environment:
       NODE_ENV: ${NODE_ENV:-development}
