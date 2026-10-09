@@ -1,5 +1,17 @@
 FROM node:20-slim
 
+# Прокси для установки пакетов.
+#
+# Объявлять ARG обязательно: без них docker build молча игнорирует
+# --build-arg, и apt уходит на прокси из ~/.docker/config.json
+# (127.0.0.1:1080). Внутри сборки это собственный loopback контейнера, где
+# никто не слушает, — apt падает с «Could not connect» и «Unable to locate
+# package chromium». Прямого доступа к deb.debian.org с сервера нет.
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG http_proxy=""
+ARG https_proxy=""
+
 # Chromium и его зависимости. Ставим системный, а не скачанный puppeteer'ом:
 # образ меньше, а версия обновляется вместе с базовым слоем. Поэтому в
 # зависимостях puppeteer-core, и require('puppeteer') здесь упадёт.
