@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request as ExpressRequest } from 'express';
 import { z } from 'zod';
+import { ProxyAgent } from 'undici';
 import { pool } from '../db';
 import { authenticate, requireRole, HttpError } from '../middleware';
 
@@ -172,6 +173,21 @@ type Probe =
 
 const IG_VERSION = process.env.IG_API_VERSION || 'v23.0';
 
+// Выход к Meta — через тот же VLESS-мост, что и у WhatsApp.
+//
+// Сервер стоит в Нидерландах, и прямого маршрута до graph.facebook.com с
+// него нет: DNS отдаёт ENOTFOUND, запрос падает с «fetch failed». Соседние
+// хосты (google.com, api.typesafe.ai) при этом резолвятся — то есть дело не
+// в сломанном DNS, а в блокировке именно доменов Meta на пути.
+//
+// Тот же мост (host.docker.internal:1181 → xray → VLESS) уже используется
+// браузером WhatsApp и по той же второй причине: клиника и аккаунт
+// российские, а выход с голландского адреса для Meta выглядит как угон
+// аккаунта. Проверено на сервере: через xray graph.facebook.com отвечает за
+// 0.76 с, напрямую — не резолвится вовсе.
+const IG_PROXY = process.env.INSTAGRAM_SOCKS_PROXY || '';
+const proxyAgent = IG_PROXY ? new ProxyAgent(IG_PROXY) : undefined;
+
 /**
  * Проверить токен Instagram.
  *
@@ -184,10 +200,23 @@ const IG_VERSION = process.env.IG_API_VERSION || 'v23.0';
 async function probeInstagram(token: string): Promise<Probe> {
   const ask = async (url: string) => {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      const r = await fetch(url, {
+        signal: AbortSignal.timeout(15_000),
+        // @ts-expect-error — dispatcher не описан в типах DOM fetch,
+        // но поддерживается рантаймом Node (undici).
+        dispatcher: proxyAgent,
+      });
       return { status: r.status, body: await r.json().catch(() => ({})) as Record<string, any> };
     } catch (e) {
-      return { status: 0, body: { error: { message: (e as Error).message } } };
+      // Причина сетевого сбоя лежит в cause: без неё в интерфейс попадает
+      // бесполезное «fetch failed», по которому нельзя отличить недоступный
+      // хост от отвергнутого токена.
+      const err = e as Error & { cause?: { code?: string } };
+      const code = err.cause?.code;
+      const detail = code === 'ENOTFOUND'
+        ? 'нет маршрута до серверов Meta (проверьте INSTAGRAM_SOCKS_PROXY)'
+        : err.message;
+      return { status: 0, body: { error: { message: detail } } };
     }
   };
 
