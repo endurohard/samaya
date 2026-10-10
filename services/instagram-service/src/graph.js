@@ -38,7 +38,13 @@ let dispatcher;
 try {
   const { ProxyAgent, Agent } = await import('undici');
   dispatcher = PROXY ? new ProxyAgent(PROXY) : new Agent({ connect: { timeout: 10_000 } });
-} catch {
+} catch (e) {
+  // Молчать здесь нельзя: без undici запрос уходит напрямую, упирается в
+  // ENOTFOUND и возвращается как «профиль не получен» — выглядит это как
+  // пустой ответ Meta, а не как отсутствующая зависимость. Один раз на
+  // таком молчании уже потеряли время.
+  console.error('[IG] undici недоступен:', e.message,
+    '— запросы к Meta пойдут без прокси и, скорее всего, не пройдут');
   dispatcher = undefined;
 }
 
@@ -231,14 +237,21 @@ export async function fetchProfile(igsid) {
     + `?fields=name,username,profile_pic&access_token=${encodeURIComponent(cred.token)}`;
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(15_000), dispatcher });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      console.warn(`[IG] профиль ${igsid}: HTTP ${r.status} ${t.slice(0, 120)}`);
+      return null;
+    }
     const b = await r.json();
     return {
       username: b.username || null,
       fullName: b.name || null,
       avatarUrl: b.profile_pic || null,
     };
-  } catch {
+  } catch (e) {
+    // Причину пишем: «ник не подтянулся» без объяснения выглядит как
+    // отказ Meta, хотя чаще это сеть или отсутствующий прокси.
+    console.warn(`[IG] профиль ${igsid} не получен:`, e.message);
     return null;
   }
 }
