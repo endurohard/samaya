@@ -3,6 +3,7 @@ import type { Request as ExpressRequest } from 'express';
 import { z } from 'zod';
 import { pool } from '../db';
 import { notifyNeedsReply, sendTelegram, telegramTarget, tgDispatcher } from '../ai/telegram';
+import { rememberNotification } from '../ai/telegram-replies';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 
@@ -70,11 +71,25 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
         question: text,
         reason: d.reason ?? null,
         draft: d.reply ?? null,
-      }).then((r) => {
+      }).then(async (r) => {
         // Причину пишем всегда: «не настроено» и «бот выгнан из группы» —
         // разные проблемы, а снаружи обе выглядят как тишина в Telegram.
-        if (!r.ok && r.reason !== 'группа не настроена') {
-          console.warn('[ai] уведомление в Telegram не ушло:', r.reason);
+        if (!r.ok) {
+          if (r.reason !== 'группа не настроена') {
+            console.warn('[ai] уведомление в Telegram не ушло:', r.reason);
+          }
+          return;
+        }
+        // Запоминаем связь «уведомление → диалог»: по ней ответ менеджера
+        // реплаем попадёт тому клиенту, о котором уведомление.
+        if (r.messageId && r.chatId && thread_id) {
+          await rememberNotification({
+            chatId: r.chatId,
+            messageId: r.messageId,
+            channel: channel ?? 'instagram',
+            threadKey: thread_id,
+            who,
+          }).catch((e) => console.warn('[ai] связь уведомления не сохранена:', e.message));
         }
       });
     }
@@ -296,15 +311,11 @@ router.get('/telegram/detect', manage, async (req: ExpressRequest, res, next) =>
     const token = rows[0]?.token;
     if (!token) return res.json({ ok: false, reason: 'токен бота не сохранён', items: [] });
 
-    const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=100`, {
-      signal: AbortSignal.timeout(15_000),
-      // @ts-expect-error — dispatcher поддерживается рантаймом Node (undici).
-      dispatcher: tgDispatcher,
-    });
-    const body = await r.json().catch(() => ({})) as {
-      ok?: boolean; description?: string; result?: any[];
-    };
-    if (!body.ok) return res.json({ ok: false, reason: body.description || `HTTP ${r.status}`, items: [] });
+    // Очередь getUpdates НЕ читаем: её читает фоновый опрос ответов
+    // менеджеров, и второй читатель крал бы у него события — часть ответов
+    // просто не дошла бы до клиентов. Группы и темы копятся в
+    // ai.telegram_seen тем самым опросом, отсюда их и берём.
+    const body = { ok: true, result: [] as any[] };
 
     // Схлопываем по паре «чат + тема»: за сто обновлений одна тема
     // встречается много раз, а владельцу нужен список мест, а не сообщений.

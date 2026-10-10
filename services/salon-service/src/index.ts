@@ -5,6 +5,7 @@ import pinoHttp from 'pino-http';
 import { config } from './config';
 import { pool } from './db';
 import { errorHandler, authenticate, requirePermission } from './middleware';
+import { startTelegramPolling } from './ai/telegram-replies';
 import type { Request, Response, NextFunction } from 'express';
 import categoriesRoutes from './routes/categories';
 import servicesRoutes from './routes/services';
@@ -72,6 +73,9 @@ app.use(errorHandler);
 
 const server = app.listen(config.PORT, () => {
   log.info({ port: config.PORT, env: config.NODE_ENV }, 'salon-service listening');
+  // Ответы менеджеров из Telegram. Читатель очереди getUpdates должен быть
+  // ровно один — поэтому запуск здесь, а не в каждом обработчике.
+  startTelegramPolling();
 });
 
 const shutdown = (signal: string) => {

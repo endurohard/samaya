@@ -178,6 +178,8 @@ services:
       # Meta наоборот требует местный. Свой выход у контейнеров российский,
       # поэтому прокси обязателен даже для «прямого» маршрута.
       JEV_HTTP_PROXY: ${JEV_HTTP_PROXY:-http://host.docker.internal:1180}
+      # Ответы менеджера из Telegram уходят клиенту через instagram-service.
+      INSTAGRAM_SERVICE_URL: ${INSTAGRAM_SERVICE_URL:-http://instagram-service:3010}
       # Внутренний токен: по нему instagram-service зовёт /ai/reply, когда
       # пришло сообщение от клиента. Пользовательского JWT у сервиса нет.
       INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}

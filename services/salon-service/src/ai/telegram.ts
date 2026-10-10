@@ -49,7 +49,7 @@ export async function telegramTarget(channel: string): Promise<
 export async function sendTelegram(
   channel: string,
   text: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<{ ok: true; messageId?: number; chatId?: string } | { ok: false; reason: string }> {
   let target;
   try {
     target = await telegramTarget(channel);
@@ -76,7 +76,9 @@ export async function sendTelegram(
       signal: AbortSignal.timeout(15_000),
       dispatcher: tgDispatcher,
     } as RequestInit);
-    const data = (await r.json()) as { ok?: boolean; description?: string };
+    const data = (await r.json()) as {
+      ok?: boolean; description?: string; result?: { message_id?: number };
+    };
     if (!r.ok || !data.ok) {
       const why = data.description || `HTTP ${r.status}`;
       // Удалённая или неверная тема — не повод терять уведомление: шлём в
@@ -89,15 +91,17 @@ export async function sendTelegram(
           signal: AbortSignal.timeout(15_000),
           dispatcher: tgDispatcher,
         } as RequestInit);
-        const second = (await retry.json()) as { ok?: boolean; description?: string };
+        const second = (await retry.json()) as {
+          ok?: boolean; result?: { message_id?: number };
+        };
         if (second.ok) {
           console.warn(`[tg] тема ${target.threadId} недоступна (${why}) — отправлено в общую ленту`);
-          return { ok: true };
+          return { ok: true, messageId: second.result?.message_id, chatId: target.chatId };
         }
       }
       return { ok: false, reason: why };
     }
-    return { ok: true };
+    return { ok: true, messageId: data.result?.message_id, chatId: target.chatId };
   } catch (e) {
     return { ok: false, reason: (e as Error).message };
   }
@@ -122,7 +126,7 @@ export async function notifyNeedsReply(opts: {
   question: string;
   reason?: string | null;
   draft?: string | null;
-}): Promise<{ ok: true } | { ok: false; reason: string }> {
+}): Promise<{ ok: true; messageId?: number; chatId?: string } | { ok: false; reason: string }> {
   const icon = opts.channel === 'whatsapp' ? '💬' : '📸';
   // Ник оформляем ссылкой на профиль: менеджер открывает переписку прямо
   // из уведомления, а не ищет её по имени в приложении.
@@ -138,5 +142,8 @@ export async function notifyNeedsReply(opts: {
   if (opts.draft) {
     lines.push('', '<b>Черновик ассистента:</b>', esc(opts.draft.slice(0, 600)));
   }
+  // Подсказка про реплай: без неё возможность ответить прямо здесь
+  // остаётся незамеченной, и менеджер по привычке идёт в CRM.
+  lines.push('', '<i>Ответьте на это сообщение — текст уйдёт клиенту.</i>');
   return sendTelegram(opts.channel, lines.join('\n'));
 }
