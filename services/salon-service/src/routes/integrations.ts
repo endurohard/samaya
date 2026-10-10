@@ -23,7 +23,7 @@ const manage = requireRole(['owner', 'admin']);
 // Провайдеры, которые умеет хранить система. Закрытый список, а не
 // свободная строка: иначе опечатка в имени провайдера молча создаст
 // «подключение», которого никто не читает.
-const PROVIDERS = ['instagram'] as const;
+const PROVIDERS = ['instagram', 'telegram'] as const;
 type Provider = (typeof PROVIDERS)[number];
 
 function assertProvider(value: string): Provider {
@@ -94,9 +94,12 @@ router.put('/:provider', manage, async (req: ExpressRequest, res, next) => {
     // Проверяем токен до сохранения: сохранённый нерабочий токен выглядит
     // в интерфейсе как «подключено» и выясняется только тогда, когда бот
     // молча не отвечает клиенту.
-    const probe = await probeInstagram(clean);
+    const probe = provider === 'telegram'
+      ? await probeTelegram(clean)
+      : await probeInstagram(clean);
     if (!probe.ok) {
-      throw new HttpError(400, `Instagram отклонил токен: ${probe.error}`, 'token_rejected');
+      const who = provider === 'telegram' ? 'Telegram' : 'Instagram';
+      throw new HttpError(400, `${who} отклонил токен: ${probe.error}`, 'token_rejected');
     }
 
     const { rows } = await pool.query(
@@ -199,6 +202,51 @@ const IG_PROXY = process.env.INSTAGRAM_SOCKS_PROXY || '';
 // VLESS-мост, а в системный прокси, то есть голландским адресом — ровно
 // то, из-за чего блокируют аккаунт.
 const proxyAgent = IG_PROXY ? new ProxyAgent(IG_PROXY) : new Agent({ connect: { timeout: 10_000 } });
+
+/**
+ * Проверить токен бота Telegram.
+ *
+ * getMe отвечает именем бота — его и сохраняем в meta, чтобы владелец в
+ * интерфейсе видел, какой именно бот подключён. Токен, введённый с чужого
+ * бота или с опечаткой, иначе выглядел бы как «подключено» до первого
+ * неотправленного уведомления.
+ */
+async function probeTelegram(token: string): Promise<Probe> {
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+      signal: AbortSignal.timeout(15_000),
+      // @ts-expect-error — dispatcher не описан в типах DOM fetch,
+      // но поддерживается рантаймом Node (undici).
+      dispatcher: proxyAgent,
+    });
+    const body = await r.json().catch(() => ({})) as {
+      ok?: boolean; description?: string; result?: { username?: string; first_name?: string };
+    };
+    if (!r.ok || !body.ok) {
+      return { ok: false, error: body.description || `HTTP ${r.status}` };
+    }
+    return {
+      ok: true,
+      token,
+      meta: {
+        username: body.result?.username ?? null,
+        name: body.result?.first_name ?? null,
+      },
+      // У токена бота нет срока жизни: он действует, пока его не отозвали
+      // через @BotFather.
+      expires_at: null,
+    };
+  } catch (e) {
+    const err = e as Error & { cause?: { code?: string } };
+    const code = err.cause?.code;
+    return {
+      ok: false,
+      error: code === 'ENOTFOUND' || code === 'ECONNREFUSED'
+        ? 'нет маршрута до серверов Telegram (проверьте INSTAGRAM_SOCKS_PROXY)'
+        : (err.message || 'сеть недоступна'),
+    };
+  }
+}
 
 /**
  * Проверить токен и привести его к пригодному для отправки виду.

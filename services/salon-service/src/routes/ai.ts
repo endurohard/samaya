@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request as ExpressRequest } from 'express';
 import { z } from 'zod';
 import { pool } from '../db';
+import { notifyNeedsReply, sendTelegram, telegramTarget, tgDispatcher } from '../ai/telegram';
 import { authenticate, requireRole, HttpError } from '../middleware';
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 
@@ -56,6 +57,27 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       threadId: thread_id ?? null,
       incoming: text,
     });
+
+    // Уведомление менеджерам: всё, что ассистент не отправил сам и не
+    // пропустил намеренно, ждёт человека. Шлём ПОСЛЕ ответа каналу —
+    // сбой Telegram не должен задерживать обработку входящего.
+    const needsHuman = d.action !== 'sent' && d.action !== 'skipped';
+    if (needsHuman) {
+      const who = client_name || (thread_id ? '#' + thread_id : 'неизвестный');
+      void notifyNeedsReply({
+        channel: channel ?? 'instagram',
+        who,
+        question: text,
+        reason: d.reason ?? null,
+        draft: d.reply ?? null,
+      }).then((r) => {
+        // Причину пишем всегда: «не настроено» и «бот выгнан из группы» —
+        // разные проблемы, а снаружи обе выглядят как тишина в Telegram.
+        if (!r.ok && r.reason !== 'группа не настроена') {
+          console.warn('[ai] уведомление в Telegram не ушло:', r.reason);
+        }
+      });
+    }
 
     return res.json({
       ok: d.ok, topic: d.topic, confidence: d.confidence,
@@ -189,6 +211,132 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
       reason: d.reason,
       probabilities: d.probabilities,
     });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * GET /api/salons/ai/telegram — куда слать уведомления и настроен ли бот.
+ * Токен наружу не отдаём, только факт его наличия: страницу открывает
+ * владелец, но пересылать секрет в браузер незачем.
+ */
+router.get('/telegram', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const companyId = req.auth!.company_id;
+    const { rows } = await pool.query(
+      `SELECT channel, chat_id, thread_id, enabled
+         FROM ai.telegram_targets
+        WHERE company_id = $1
+        ORDER BY channel`,
+      [companyId],
+    );
+    const tok = await pool.query<{ token: string | null }>(
+      `SELECT token FROM salons.integration_credentials
+        WHERE company_id = $1 AND provider = 'telegram'`,
+      [companyId],
+    );
+    const token = tok.rows[0]?.token || '';
+    return res.json({
+      items: rows,
+      bot_configured: !!token,
+      bot_hint: token ? '…' + token.slice(-6) : '',
+    });
+  } catch (e) { return next(e); }
+});
+
+/** PUT /api/salons/ai/telegram/:channel — группа и тема для канала. */
+router.put('/telegram/:channel', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const channel = String(req.params.channel);
+    if (channel !== 'instagram' && channel !== 'whatsapp') {
+      throw new HttpError(400, 'канал может быть instagram или whatsapp');
+    }
+    const body = z.object({
+      chat_id: z.string().max(64).nullish(),
+      thread_id: z.number().int().min(1).nullish(),
+      enabled: z.boolean().optional(),
+    }).parse(req.body);
+
+    const { rows } = await pool.query(
+      `UPDATE ai.telegram_targets
+          SET chat_id = COALESCE($3::text, chat_id),
+              thread_id = $4::integer,
+              enabled = COALESCE($5::boolean, enabled),
+              updated_by = $6::uuid
+        WHERE company_id = $1::uuid AND channel = $2
+    RETURNING channel, chat_id, thread_id, enabled`,
+      [req.auth!.company_id, channel, body.chat_id ?? null,
+       body.thread_id ?? null, body.enabled ?? null, req.auth!.user_id],
+    );
+    return res.json(rows[0] || null);
+  } catch (e) { return next(e); }
+});
+
+/**
+ * GET /api/salons/ai/telegram/detect — найти группы и темы по свежим
+ * сообщениям бота (getUpdates).
+ *
+ * Иначе владельцу пришлось бы доставать id группы вручную через сторонние
+ * боты, а id темы в интерфейсе Telegram не показывается вовсе — его видно
+ * только в ссылке на сообщение.
+ */
+router.get('/telegram/detect', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const { rows } = await pool.query<{ token: string }>(
+      `SELECT token FROM salons.integration_credentials
+        WHERE company_id = $1 AND provider = 'telegram' AND token IS NOT NULL`,
+      [req.auth!.company_id],
+    );
+    const token = rows[0]?.token;
+    if (!token) return res.json({ ok: false, reason: 'токен бота не сохранён', items: [] });
+
+    const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=100`, {
+      signal: AbortSignal.timeout(15_000),
+      // @ts-expect-error — dispatcher поддерживается рантаймом Node (undici).
+      dispatcher: tgDispatcher,
+    });
+    const body = await r.json().catch(() => ({})) as {
+      ok?: boolean; description?: string; result?: any[];
+    };
+    if (!body.ok) return res.json({ ok: false, reason: body.description || `HTTP ${r.status}`, items: [] });
+
+    // Схлопываем по паре «чат + тема»: за сто обновлений одна тема
+    // встречается много раз, а владельцу нужен список мест, а не сообщений.
+    const seen = new Map<string, { chat_id: string; chat_title: string; thread_id: number | null; topic_name: string | null; last_text: string }>();
+    for (const u of body.result || []) {
+      const m = u.message || u.channel_post;
+      if (!m?.chat) continue;
+      const threadId = m.is_topic_message ? (m.message_thread_id ?? null) : null;
+      const key = `${m.chat.id}|${threadId ?? ''}`;
+      seen.set(key, {
+        chat_id: String(m.chat.id),
+        chat_title: m.chat.title || m.chat.username || 'без названия',
+        thread_id: threadId,
+        topic_name: m.forum_topic_created?.name ?? null,
+        last_text: String(m.text || m.caption || '').slice(0, 60),
+      });
+    }
+    return res.json({ ok: true, items: [...seen.values()] });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * POST /api/salons/ai/telegram/:channel/test — пробное сообщение.
+ * Без него владелец узнает об ошибке в id группы только когда клиент
+ * уже ждёт ответа, а уведомление молча не дошло.
+ */
+router.post('/telegram/:channel/test', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const channel = String(req.params.channel);
+    if (channel !== 'instagram' && channel !== 'whatsapp') {
+      throw new HttpError(400, 'канал может быть instagram или whatsapp');
+    }
+    const target = await telegramTarget(channel);
+    if (!target) {
+      return res.json({ ok: false, reason: 'не указан токен бота или id группы' });
+    }
+    const r = await sendTelegram(channel,
+      '✅ Проверка связи. Сюда будут приходить диалоги, на которые ассистент не ответил сам.');
+    return res.json(r);
   } catch (e) { return next(e); }
 });
 

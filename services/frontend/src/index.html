@@ -2830,6 +2830,7 @@
             <button type="button" class="subnav-item active" data-ai-tab="templates">Шаблоны ответов</button>
             <button type="button" class="subnav-item" data-ai-tab="try">Проверка</button>
             <button type="button" class="subnav-item" data-ai-tab="log">Журнал</button>
+            <button type="button" class="subnav-item" data-ai-tab="telegram">Уведомления</button>
           </nav>
 
           <!-- Вкладка: шаблоны -->
@@ -2966,6 +2967,42 @@
                 По записям с низкой уверенностью видно, какие описания тем стоит уточнить.
               </p>
               <div id="aiLogList" class="data-list"></div>
+            </div>
+          </div>
+
+          <!-- Вкладка: уведомления в Telegram -->
+          <div id="aiTabTelegram" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Уведомления в Telegram</h2>
+              </div>
+              <p class="hint" style="margin:0 0 12px;">
+                Когда ассистент не берётся отвечать сам, диалог ждёт менеджера.
+                Всплывающее окно в админке видно, только пока открыта вкладка —
+                в Telegram уведомление дойдёт до телефона.
+              </p>
+
+              <div class="form-row" style="align-items:flex-end;gap:10px;">
+                <label class="field" style="max-width:420px;">
+                  <span>Токен бота</span>
+                  <input type="password" id="aiTgToken" placeholder="от @BotFather" autocomplete="off" />
+                </label>
+                <button type="button" class="btn-primary btn-sm" id="aiTgTokenSave">Сохранить</button>
+                <span class="hint" id="aiTgTokenState"></span>
+              </div>
+              <p class="hint" style="margin:6px 0 16px;">
+                Создайте бота у <b>@BotFather</b>, добавьте его в группу и дайте право
+                отправлять сообщения. Чтобы узнать id группы и тем, напишите в нужную
+                тему что-нибудь и нажмите «Определить» ниже.
+              </p>
+
+              <div id="aiTgChannels"></div>
+
+              <div style="margin-top:14px;">
+                <button type="button" class="btn-ghost btn-sm" id="aiTgDetect">Определить id группы и тем</button>
+                <span class="hint" id="aiTgDetectState"></span>
+                <div id="aiTgDetected" class="data-list" style="margin-top:8px;"></div>
+              </div>
             </div>
           </div>
         </section>

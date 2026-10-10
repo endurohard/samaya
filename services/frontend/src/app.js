@@ -7536,12 +7536,16 @@ import {
     document.querySelectorAll('#aiSubnav .subnav-item[data-ai-tab]').forEach((b) => {
       b.classList.toggle('active', b.dataset.aiTab === tab);
     });
-    const map = { templates: 'aiTabTemplates', try: 'aiTabTry', log: 'aiTabLog' };
+    const map = {
+      templates: 'aiTabTemplates', try: 'aiTabTry',
+      log: 'aiTabLog', telegram: 'aiTabTelegram',
+    };
     for (const [key, id] of Object.entries(map)) {
       const el = document.getElementById(id);
       if (el) el.hidden = (key !== tab);
     }
     if (tab === 'log') void loadAiLog();
+    if (tab === 'telegram') void loadAiTelegram();
   }
 
   document.getElementById('aiSubnav')?.addEventListener('click', (e) => {
@@ -7570,6 +7574,118 @@ import {
     pill.textContent = `${s.templates_autosend} из ${s.templates_enabled} отвечают сами`;
     pill.className = 'pill pill-ok';
   }
+
+  // ===== Уведомления в Telegram =====
+  const AI_TG_CHANNELS = [
+    { key: 'instagram', title: 'Instagram Direct' },
+    { key: 'whatsapp', title: 'WhatsApp' },
+  ];
+
+  async function loadAiTelegram() {
+    const box = document.getElementById('aiTgChannels');
+    const state = document.getElementById('aiTgTokenState');
+    if (!box) return;
+    const r = await apiCall('GET', '/api/salons/ai/telegram');
+    if (!r.ok) { box.innerHTML = '<div class="hint">Не удалось загрузить настройки.</div>'; return; }
+    const items = r.data?.items || [];
+    if (state) {
+      state.textContent = r.data?.bot_configured
+        ? 'бот подключён ' + (r.data.bot_hint || '')
+        : 'бот не подключён';
+    }
+    box.innerHTML = AI_TG_CHANNELS.map((ch) => {
+      const cur = items.find((x) => x.channel === ch.key) || {};
+      const on = cur.enabled ? 'checked' : '';
+      return '<div class="card" style="padding:12px;margin-bottom:10px;">'
+        + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+        + '<b>' + escapeHtml(ch.title) + '</b>'
+        + '<label style="margin-left:auto;font-size:13px;">'
+        + '<input type="checkbox" data-tg-on="' + ch.key + '" ' + on + ' /> слать уведомления</label>'
+        + '</div>'
+        + '<div class="form-row" style="gap:10px;align-items:flex-end;">'
+        + '<label class="field" style="max-width:220px;"><span>id группы</span>'
+        + '<input type="text" data-tg-chat="' + ch.key + '" value="' + escapeHtml(cur.chat_id || '')
+        + '" placeholder="-1001234567890" /></label>'
+        + '<label class="field" style="max-width:150px;"><span>id темы</span>'
+        + '<input type="number" data-tg-thread="' + ch.key + '" value="' + escapeHtml(cur.thread_id ?? '')
+        + '" placeholder="необязательно" /></label>'
+        + '<button type="button" class="btn-primary btn-sm" data-tg-save="' + ch.key + '">Сохранить</button>'
+        + '<button type="button" class="btn-ghost btn-sm" data-tg-test="' + ch.key + '">Проверить</button>'
+        + '<span class="hint" data-tg-state="' + ch.key + '"></span>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  // Токен сохраняем отдельно от групп: он общий для обоих каналов, и
+  // пересохранять его при каждой правке id группы незачем.
+  document.getElementById('aiTgTokenSave')?.addEventListener('click', async () => {
+    const inp = document.getElementById('aiTgToken');
+    const state = document.getElementById('aiTgTokenState');
+    const token = String(inp?.value || '').trim();
+    if (!token) { if (state) state.textContent = 'вставьте токен'; return; }
+    if (state) state.textContent = 'проверяю…';
+    const r = await apiCall('PUT', '/api/salons/integrations/telegram', { token });
+    if (!r.ok) {
+      if (state) state.textContent = r.data?.error || 'не удалось сохранить';
+      return;
+    }
+    if (inp) inp.value = '';
+    await loadAiTelegram();
+  });
+
+  document.getElementById('aiTgChannels')?.addEventListener('click', async (e) => {
+    const saveBtn = e.target.closest('[data-tg-save]');
+    const testBtn = e.target.closest('[data-tg-test]');
+    const ch = saveBtn?.dataset.tgSave || testBtn?.dataset.tgTest;
+    if (!ch) return;
+    const state = document.querySelector('[data-tg-state="' + ch + '"]');
+    if (saveBtn) {
+      const chat = document.querySelector('[data-tg-chat="' + ch + '"]')?.value.trim() || '';
+      const thr = document.querySelector('[data-tg-thread="' + ch + '"]')?.value.trim() || '';
+      const on = document.querySelector('[data-tg-on="' + ch + '"]')?.checked || false;
+      if (state) state.textContent = 'сохраняю…';
+      const r = await apiCall('PUT', '/api/salons/ai/telegram/' + ch, {
+        chat_id: chat || null,
+        thread_id: thr ? Number(thr) : null,
+        enabled: on,
+      });
+      if (state) state.textContent = r.ok ? 'сохранено' : (r.data?.error || 'ошибка');
+      return;
+    }
+    // Проверка связи: без неё ошибка в id группы всплывёт только тогда,
+    // когда клиент уже ждёт ответа, а уведомление молча не дошло.
+    if (state) state.textContent = 'отправляю…';
+    const r = await apiCall('POST', '/api/salons/ai/telegram/' + ch + '/test', {});
+    if (state) {
+      state.textContent = r.ok && r.data?.ok
+        ? 'сообщение отправлено'
+        : 'не дошло: ' + (r.data?.reason || r.data?.error || 'ошибка');
+    }
+  });
+
+  document.getElementById('aiTgDetect')?.addEventListener('click', async () => {
+    const state = document.getElementById('aiTgDetectState');
+    const list = document.getElementById('aiTgDetected');
+    if (state) state.textContent = 'ищу…';
+    const r = await apiCall('GET', '/api/salons/ai/telegram/detect');
+    if (!r.ok || !r.data?.ok) {
+      if (state) state.textContent = r.data?.reason || 'не удалось';
+      return;
+    }
+    const items = r.data.items || [];
+    if (state) state.textContent = items.length ? '' : 'ничего не нашлось — напишите что-нибудь в группу и повторите';
+    if (list) {
+      list.innerHTML = items.map((it) => {
+        const where = it.thread_id ? ('тема ' + it.thread_id) : 'общая лента';
+        return '<div class="data-row"><div>'
+          + '<b>' + escapeHtml(it.chat_title) + '</b> · ' + escapeHtml(where)
+          + '<div class="hint">id группы: ' + escapeHtml(it.chat_id)
+          + (it.thread_id ? ' · id темы: ' + it.thread_id : '')
+          + (it.last_text ? ' · «' + escapeHtml(it.last_text) + '»' : '')
+          + '</div></div></div>';
+      }).join('');
+    }
+  });
 
   // ===== Режим обкатки =====
   // Пока клиника присматривается к ответам, ассистент должен писать только
