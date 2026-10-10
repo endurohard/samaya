@@ -7575,6 +7575,27 @@ import {
   // Пока клиника присматривается к ответам, ассистент должен писать только
   // своим. Настройка живёт в БД, а не в конфиге сервера: включать её —
   // решение владельца, а не повод идти к разработчику.
+  let aiTestUsers = [];
+
+  function renderAiTestUsers() {
+    const box = document.getElementById('aiTestList');
+    if (!box) return;
+    if (!aiTestUsers.length) {
+      box.innerHTML = '<div class="hint" style="color:#991b1b;">Список пуст — ассистент не отвечает никому.</div>';
+      return;
+    }
+    box.innerHTML = aiTestUsers.map((u) => `
+      <div class="row-item" style="padding:6px 10px;">
+        <div class="row-main"><div class="row-name">@${escapeHtml(u)}</div></div>
+        <button type="button" class="fin-del-btn ai-test-del" data-u="${escapeHtml(u)}" aria-label="Убрать">×</button>
+      </div>`).join('');
+    box.querySelectorAll('.ai-test-del').forEach((b) => {
+      b.addEventListener('click', () => {
+        void saveAiChannel(true, aiTestUsers.filter(x => x !== b.dataset.u));
+      });
+    });
+  }
+
   async function loadAiChannel() {
     const chk = document.getElementById('aiTestMode');
     if (!chk) return;
@@ -7584,13 +7605,12 @@ import {
     chk.checked = on;
     const box = document.getElementById('aiTestBox');
     if (box) box.hidden = !on;
-    const inp = document.getElementById('aiTestUsers');
-    if (inp) inp.value = (r.data?.test_users || []).join(', ');
+    aiTestUsers = r.data?.test_users || [];
+    renderAiTestUsers();
     const hint = document.getElementById('aiTestHint');
     if (hint) {
-      const list = r.data?.test_users || [];
       hint.textContent = on
-        ? (list.length ? `отвечает только: ${list.map(u => '@' + u).join(', ')}` : 'список пуст — не отвечает никому')
+        ? (aiTestUsers.length ? `отвечает только им (${aiTestUsers.length})` : 'список пуст — не отвечает никому')
         : 'отвечает всем клиентам';
     }
   }
@@ -7617,9 +7637,26 @@ import {
     void saveAiChannel(on);
   });
 
-  document.getElementById('aiTestSave')?.addEventListener('click', () => {
-    const inp = document.getElementById('aiTestUsers');
-    void saveAiChannel(true, inp ? inp.value : '');
+  async function addAiTestUser() {
+    const inp = document.getElementById('aiTestUser');
+    const msg = document.getElementById('aiTestMsg');
+    if (!inp) return;
+    // Собачку снимаем здесь же: её ставят по привычке, а сравнение идёт
+    // с «голым» ником из профиля Instagram.
+    const u = inp.value.trim().replace(/^@/, '').toLowerCase();
+    if (!u) return;
+    if (aiTestUsers.includes(u)) {
+      if (msg) { msg.textContent = 'Уже в списке'; setTimeout(() => { msg.textContent = ''; }, 2000); }
+      inp.value = '';
+      return;
+    }
+    if (await saveAiChannel(true, [...aiTestUsers, u])) inp.value = '';
+  }
+
+  document.getElementById('aiTestAdd')?.addEventListener('click', () => { void addAiTestUser(); });
+  document.getElementById('aiTestUser')?.addEventListener('keydown', (e) => {
+    // Enter в поле — тот же «Добавить»: иначе форма проглатывает нажатие.
+    if (e.key === 'Enter') { e.preventDefault(); void addAiTestUser(); }
   });
 
   async function loadAiTemplates() {

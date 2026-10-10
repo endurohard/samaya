@@ -2908,14 +2908,18 @@
                   <span class="hint" id="aiTestHint">отвечать только указанным аккаунтам</span>
                 </div>
                 <div id="aiTestBox" style="margin-top:10px;" hidden>
-                  <label class="field" style="margin:0;">
-                    <span>Кому отвечать (ники Instagram через запятую)</span>
-                    <input type="text" id="aiTestUsers" placeholder="it.izberbash, my_account">
-                  </label>
-                  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
-                    <button type="button" class="btn-primary btn-sm" id="aiTestSave">Сохранить</button>
+                  <!-- Ники добавляются по одному: список правится по месту,
+                       каждый удаляется отдельно. Ввод строкой через запятую
+                       заставлял бы переписывать весь список ради одной правки. -->
+                  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+                    <label class="field" style="margin:0;flex:1 1 240px;">
+                      <span>Добавить аккаунт (ник Instagram)</span>
+                      <input type="text" id="aiTestUser" placeholder="it.izberbash" autocomplete="off">
+                    </label>
+                    <button type="button" class="btn-primary btn-sm" id="aiTestAdd">Добавить</button>
                     <span class="hint" id="aiTestMsg"></span>
                   </div>
+                  <div id="aiTestList" style="margin-top:10px;"></div>
                   <div class="hint" style="margin-top:8px;line-height:1.5;">
                     Остальные диалоги продолжают сохраняться в переписку —
                     ассистент просто не отвечает на них.
