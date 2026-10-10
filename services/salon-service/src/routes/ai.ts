@@ -230,12 +230,15 @@ router.put('/channel', manage, async (req: ExpressRequest, res, next) => {
           .filter(Boolean);
 
     const { rows } = await pool.query(
+      // Типы у параметров проставлены явно: без них Postgres считает
+      // массив из драйвера неизвестным типом и падает на COALESCE с
+      // text[] (ошибка 42804, «types ... cannot be matched»).
       `INSERT INTO ai.channel_settings (company_id, channel, test_mode, test_users, updated_by)
-            VALUES ($1, 'instagram', COALESCE($2, false), COALESCE($3, '{}'), $4)
+            VALUES ($1::uuid, 'instagram', COALESCE($2::boolean, false), COALESCE($3::text[], '{}'::text[]), $4::uuid)
        ON CONFLICT (company_id, channel) DO UPDATE
-          SET test_mode  = COALESCE($2, ai.channel_settings.test_mode),
-              test_users = COALESCE($3, ai.channel_settings.test_users),
-              updated_by = $4
+          SET test_mode  = COALESCE($2::boolean, ai.channel_settings.test_mode),
+              test_users = COALESCE($3::text[], ai.channel_settings.test_users),
+              updated_by = $4::uuid
       RETURNING test_mode, test_users, updated_at`,
       [req.auth!.company_id, body.test_mode ?? null, users ?? null, req.auth!.sub],
     );

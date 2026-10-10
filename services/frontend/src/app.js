@@ -7625,7 +7625,12 @@ import {
       await loadAiChannel();
       if (msg) { msg.textContent = 'Сохранено'; setTimeout(() => { msg.textContent = ''; }, 2000); }
     } else if (msg) {
-      msg.textContent = r.data?.error || 'Не удалось сохранить';
+      // Техническое слово из ответа сервера («internal») пользователю
+      // ничего не говорит — показываем человеческий текст.
+      const raw = r.data?.error || '';
+      msg.textContent = (!raw || raw === 'internal' || raw.length < 4)
+        ? 'Не удалось сохранить — попробуйте ещё раз'
+        : raw;
     }
     return r.ok;
   }
