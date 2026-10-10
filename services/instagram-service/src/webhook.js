@@ -7,8 +7,8 @@
 // Классификацию делает salon-service, а не этот сервис: шаблоны и журнал
 // живут там, и вторая копия логики разошлась бы с первой при первой же
 // правке. Сюда возвращается уже готовое решение.
-import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient } from './store.js';
-import { sendMessage } from './graph.js';
+import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient, threadHasName } from './store.js';
+import { sendMessage, fetchProfile } from './graph.js';
 
 const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || '';
@@ -69,6 +69,18 @@ export async function handleMessages(items) {
   const stats = { saved: 0, replied: 0, drafts: 0, skipped: 0 };
 
   for (const it of items) {
+    // Ник собеседника: webhook его не присылает, только IGSID, и в списке
+    // диалогов строка выглядит как «без имени». Запрашиваем профиль, но
+    // ТОЛЬКО для входящих и только если ника ещё нет — иначе лишний вызов
+    // к Meta на каждое сообщение в активной переписке.
+    let profile = null;
+    if (!it.fromMe && !(await threadHasName(it.threadId))) {
+      profile = await fetchProfile(it.threadId);
+      if (profile?.username) {
+        console.log(`[IG] диалог ${it.threadId} = @${profile.username}`);
+      }
+    }
+
     // Эхо собственных сообщений сохраняем в историю, но не отвечаем:
     // иначе бот ответит сам себе, а при автоотправке — зациклится.
     const clientId = await upsertThread({
@@ -76,6 +88,9 @@ export async function handleMessages(items) {
       unread: it.fromMe ? 0 : 1,
       last_body: it.text || (it.mediaUrl ? '[вложение]' : null),
       last_at: it.at,
+      username: profile?.username ?? null,
+      full_name: profile?.fullName ?? null,
+      avatar_url: profile?.avatarUrl ?? null,
     });
 
     const res = await saveMessages(it.threadId, [{

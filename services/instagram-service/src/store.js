@@ -44,6 +44,21 @@ export function parseStamp(stamp) {
 }
 
 /**
+ * Известен ли уже ник диалога.
+ *
+ * Нужна, чтобы не дёргать Meta за профилем на каждое сообщение: ник
+ * запрашивается один раз, при первом входящем от нового собеседника.
+ */
+export async function threadHasName(threadId) {
+  if (!COMPANY_ID) return true;
+  const { rows } = await pool.query(
+    `SELECT username FROM instagram.threads WHERE thread_id = $1`,
+    [threadId],
+  );
+  return !!rows[0]?.username;
+}
+
+/**
  * Создать или обновить диалог. Возвращает текущую привязку к клиенту:
  * сообщения этого диалога должны получить тот же client_id.
  */

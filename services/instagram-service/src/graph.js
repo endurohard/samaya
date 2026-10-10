@@ -214,6 +214,35 @@ export async function sendMessage(recipientIgsid, text) {
   }
 }
 
+/**
+ * Профиль собеседника по его IGSID.
+ *
+ * Webhook присылает только идентификатор, без ника и имени — поэтому в
+ * списке диалогов строка выглядит как «без имени». Ник запрашивается
+ * отдельным вызовом и кладётся в карточку диалога один раз.
+ *
+ * Ошибку не поднимаем наверх: без ника переписка всё равно работает, а
+ * падение здесь сорвало бы сохранение самого сообщения.
+ */
+export async function fetchProfile(igsid) {
+  const cred = await credentials();
+  if (!cred) return null;
+  const url = `https://${cred.host}/${cred.version}/${igsid}`
+    + `?fields=name,username,profile_pic&access_token=${encodeURIComponent(cred.token)}`;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(15_000), dispatcher });
+    if (!r.ok) return null;
+    const b = await r.json();
+    return {
+      username: b.username || null,
+      fullName: b.name || null,
+      avatarUrl: b.profile_pic || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function webhookStatus() {
   return {
     verify_token_set: !!VERIFY_TOKEN,
