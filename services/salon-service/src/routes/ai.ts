@@ -41,9 +41,12 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
   try {
     const { text, thread_id, channel, client_name } = z.object({
       text: z.string().min(1).max(4000),
-      thread_id: z.string().max(200).optional(),
-      channel: z.string().max(32).optional(),
-      client_name: z.string().max(200).optional(),
+      // nullable, а не только optional: канал присылает null, когда диалог
+      // ещё не связан с карточкой клиента — это норма, а не ошибка.
+      // optional() один такое значение отвергает, и весь разбор падает с 400.
+      thread_id: z.string().max(200).nullish(),
+      channel: z.string().max(32).nullish(),
+      client_name: z.string().max(200).nullish(),
     }).parse(req.body);
 
     const companyId = req.auth!.company_id;
