@@ -8282,6 +8282,101 @@ function showWaNotification(m) {
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); }, 12000);
 }
 
+// ── Черновики ИИ в Instagram: ассистент не взялся отвечать ──
+// Классификатор не распознал тему, засомневался или тема требует человека.
+// Без всплывашки такой черновик лежит в разделе «Сообщения», пока туда не
+// зайдут: клиент ждёт ответа, а в CRM внешне ничего не происходит.
+let _igDraftNotifySince = null;
+let _igDraftNotifyTimer = null;
+const _igDraftSeen = new Set();
+
+function startIgDraftNotifications() {
+  if (_igDraftNotifyTimer) return;
+  // Точка отсчёта — момент открытия админки: иначе при входе посыплются
+  // всплывашки по всем черновикам, накопившимся за ночь.
+  _igDraftNotifySince = Date.now();
+  _igDraftNotifyTimer = setInterval(() => void pollIgDrafts(), 15000);
+  void pollIgDrafts();
+}
+
+async function pollIgDrafts() {
+  if (document.hidden) return; // вкладка в фоне — не тратим запросы
+  try {
+    const r = await apiCall('GET', '/api/instagram/drafts');
+    if (!r.ok) return;
+    const items = r.data || [];
+    let waiting = 0;
+    for (const d of items) {
+      if (!d.ai_draft) continue;
+      waiting += 1;
+      const at = d.ai_draft_at ? new Date(d.ai_draft_at).getTime() : 0;
+      // Показываем только то, что появилось после открытия админки, и
+      // только один раз на черновик — повторный опрос не должен мигать тем же.
+      const key = d.thread_id + '|' + at;
+      if (at < _igDraftNotifySince || _igDraftSeen.has(key)) continue;
+      _igDraftSeen.add(key);
+      // Открытый диалог не дублируем: менеджер и так его видит. Текущий
+      // определяем по подсветке в списке — переменная _igThread объявлена
+      // внутри главного IIFE и снаружи не видна.
+      const active = document.querySelector('.ig-thread.is-active');
+      if (active && active.dataset.id === String(d.thread_id)) continue;
+      showIgDraftNotification(d);
+    }
+    setIgDraftBadge(waiting);
+  } catch { /* сеть моргнула — попробуем на следующем тике */ }
+}
+
+// Счётчик в пункте меню: всплывашка живёт 15 секунд и её легко пропустить,
+// а счётчик держит «тут ждут ответа» на виду, пока черновики не разобраны.
+function setIgDraftBadge(n) {
+  const nav = document.querySelector('.nav-item[data-view="messages"]');
+  if (!nav) return;
+  let b = nav.querySelector('.nav-badge');
+  if (!n) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('span');
+    b.className = 'nav-badge';
+    nav.appendChild(b);
+  }
+  b.textContent = String(n);
+  b.title = 'Диалогов ждёт ответа: ' + n;
+}
+
+function showIgDraftNotification(d) {
+  const who = d.client_name || (d.username ? '@' + d.username : d.thread_id);
+  const q = (d.last_body || '').slice(0, 80);
+  const el = document.createElement('div');
+  el.className = 'wa-notify ig-draft-notify is-clickable';
+  el.innerHTML =
+    '<div class="wa-notify-head">🤖 Нужен ответ — ' + escapeHtml(who) + '</div>'
+    + '<div class="wa-notify-body">' + escapeHtml(q) + '</div>'
+    + '<div class="ig-draft-notify-hint">ассистент не стал отвечать сам</div>';
+  // Клик ведёт прямо в диалог: иначе уведомление заставляет искать его руками.
+  // Открываем кликом по строке списка, а не вызовом openIgThread: она
+  // объявлена внутри главного IIFE и снаружи не видна.
+  el.addEventListener('click', () => {
+    el.remove();
+    location.hash = '#messages';
+    setTimeout(() => {
+      document.getElementById('msgTabInstagram')?.click();
+      setTimeout(() => {
+        const row = document.querySelector('.ig-thread[data-id="' + CSS.escape(String(d.thread_id)) + '"]');
+        if (row) row.click();
+      }, 250);
+    }, 100);
+  });
+  let stack = document.getElementById('waNotifyStack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'waNotifyStack';
+    stack.className = 'wa-notify-stack';
+    document.body.appendChild(stack);
+  }
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); }, 15000);
+}
+
 // ── Новые номера в WhatsApp (нет карточки клиента) ──
 // Кто пишет с неизвестного номера, тот для CRM невидим: переписка есть, а
 // клиента нет. Здесь менеджер решает — завести карточку или дописать номер
@@ -14281,4 +14376,5 @@ function waAttachChatToClient(phoneDigits, row) {
   probeBackend();
   setInterval(probeBackend, 10000);
   startWaNotifications();
+  startIgDraftNotifications();
 })();
