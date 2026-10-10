@@ -20,24 +20,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 
 
+def sql_literal(v):
+    """Строковый литерал SQL с экранированием кавычек."""
+    return "'" + str(v).replace("'", "''") + "'"
+
+
 def psql(sql, *params):
-    """Выполнить запрос в контейнере postgres, вернуть строки."""
-    # Параметры передаём позиционно через psql -v и подставляем как
-    # $1..$n в самом SQL — так значение не участвует в разборе текста.
+    """Выполнить запрос в контейнере postgres, вернуть строки.
+
+    Значения подставляются литералами с экранированием кавычек, а не
+    параметрами: psql внутри docker compose exec не разворачивает ни
+    :'v', ни $n, и обе попытки это обойти ломались на разборе текста.
+    """
+    for i, p in enumerate(params, 1):
+        sql = sql.replace(f"${i}", sql_literal(p))
     args = ["docker", "compose", "exec", "-T", "postgres",
-            "psql", "-U", "samaya", "-d", "samaya", "-tA", "-F", "\t"]
-    if params:
-        # psql не умеет $n в -c, поэтому используем PREPARE/EXECUTE.
-        names = ", ".join(f"${i+1}" for i in range(len(params)))
-        types = ", ".join("text" for _ in params)
-        vals = ", ".join(f"${i+1}" for i in range(len(params)))
-        sql = f"PREPARE q({types}) AS {sql}; EXECUTE q({vals});"
-        args += ["-c", sql]
-        # Значения идут отдельными -v, подстановка только внутри EXECUTE.
-        for i, p in enumerate(params):
-            args[-1] = args[-1].replace(f"${i+1}", f"'{str(p).replace(chr(39), chr(39)*2)}'", 1)
-    else:
-        args += ["-c", sql]
+            "psql", "-U", "samaya", "-d", "samaya", "-tA", "-F", "\t", "-c", sql]
     r = subprocess.run(args, capture_output=True, text=True)
     if r.returncode != 0:
         print("  SQL:", r.stderr.strip()[:120])
