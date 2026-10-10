@@ -301,21 +301,53 @@ router.get('/telegram/detect', manage, async (req: ExpressRequest, res, next) =>
 
     // Схлопываем по паре «чат + тема»: за сто обновлений одна тема
     // встречается много раз, а владельцу нужен список мест, а не сообщений.
-    const seen = new Map<string, { chat_id: string; chat_title: string; thread_id: number | null; topic_name: string | null; last_text: string }>();
+    const seen = new Map<string, { chat_id: string; chat_title: string; thread_id: number; topic_name: string | null; last_text: string }>();
     for (const u of body.result || []) {
-      const m = u.message || u.channel_post;
+      // my_chat_member приходит при добавлении бота в группу — чат в нём
+      // есть, а сообщения нет, и без этой ветки группа не находилась бы,
+      // пока в неё кто-нибудь не напишет.
+      const m = u.message || u.channel_post || u.my_chat_member || u.chat_member;
       if (!m?.chat) continue;
-      const threadId = m.is_topic_message ? (m.message_thread_id ?? null) : null;
-      const key = `${m.chat.id}|${threadId ?? ''}`;
+      const threadId = m.is_topic_message ? (m.message_thread_id ?? 0) : 0;
+      const key = `${m.chat.id}|${threadId}`;
       seen.set(key, {
         chat_id: String(m.chat.id),
         chat_title: m.chat.title || m.chat.username || 'без названия',
         thread_id: threadId,
-        topic_name: m.forum_topic_created?.name ?? null,
+        // Имя темы приходит либо при её создании, либо в сообщении-шапке,
+        // на которое ссылается ответ.
+        topic_name: m.forum_topic_created?.name
+          ?? m.reply_to_message?.forum_topic_created?.name
+          ?? null,
         last_text: String(m.text || m.caption || '').slice(0, 60),
       });
     }
-    return res.json({ ok: true, items: [...seen.values()] });
+
+    // Очередь getUpdates одноразовая: Telegram отдаёт события и забывает
+    // их. Без накопления повторное нажатие «Определить» показало бы пустой
+    // список, хотя тема никуда не делась.
+    for (const v of seen.values()) {
+      await pool.query(
+        `INSERT INTO ai.telegram_seen
+           (company_id, chat_id, thread_id, chat_title, topic_name, last_text, seen_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, now())
+         ON CONFLICT (company_id, chat_id, thread_id) DO UPDATE SET
+           chat_title = EXCLUDED.chat_title,
+           topic_name = COALESCE(EXCLUDED.topic_name, ai.telegram_seen.topic_name),
+           last_text  = COALESCE(NULLIF(EXCLUDED.last_text, ''), ai.telegram_seen.last_text),
+           seen_at    = now()`,
+        [req.auth!.company_id, v.chat_id, v.thread_id, v.chat_title, v.topic_name, v.last_text],
+      );
+    }
+
+    const acc = await pool.query(
+      `SELECT chat_id, chat_title, NULLIF(thread_id, 0) AS thread_id, topic_name, last_text
+         FROM ai.telegram_seen
+        WHERE company_id = $1::uuid
+        ORDER BY chat_title, thread_id`,
+      [req.auth!.company_id],
+    );
+    return res.json({ ok: true, items: acc.rows, fresh: seen.size });
   } catch (e) { return next(e); }
 });
 

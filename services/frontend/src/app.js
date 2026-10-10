@@ -7673,18 +7673,46 @@ import {
       return;
     }
     const items = r.data.items || [];
-    if (state) state.textContent = items.length ? '' : 'ничего не нашлось — напишите что-нибудь в группу и повторите';
+    if (state) {
+      state.textContent = items.length
+        ? ''
+        : 'ничего не нашлось — напишите в нужную тему любое сообщение и повторите';
+    }
     if (list) {
       list.innerHTML = items.map((it) => {
-        const where = it.thread_id ? ('тема ' + it.thread_id) : 'общая лента';
-        return '<div class="data-row"><div>'
-          + '<b>' + escapeHtml(it.chat_title) + '</b> · ' + escapeHtml(where)
+        const where = it.topic_name
+          ? 'тема «' + escapeHtml(it.topic_name) + '»'
+          : (it.thread_id ? 'тема ' + it.thread_id : 'общая лента');
+        // Кнопки подстановки: переписывать id из восемнадцати цифр руками —
+        // верный способ ошибиться и потом искать, почему не доходит.
+        const fill = ['instagram', 'whatsapp'].map((ch) => '<button type="button" '
+          + 'class="btn-ghost btn-sm" data-tg-fill="' + ch + '" '
+          + 'data-chat="' + escapeHtml(it.chat_id) + '" '
+          + 'data-thread="' + escapeHtml(it.thread_id ?? '') + '">в '
+          + (ch === 'instagram' ? 'Instagram' : 'WhatsApp') + '</button>').join(' ');
+        return '<div class="data-row" style="align-items:center;"><div style="flex:1;">'
+          + '<b>' + escapeHtml(it.chat_title) + '</b> · ' + where
           + '<div class="hint">id группы: ' + escapeHtml(it.chat_id)
           + (it.thread_id ? ' · id темы: ' + it.thread_id : '')
           + (it.last_text ? ' · «' + escapeHtml(it.last_text) + '»' : '')
-          + '</div></div></div>';
+          + '</div></div><div style="display:flex;gap:6px;">' + fill + '</div></div>';
       }).join('');
     }
+  });
+
+  // Подставить найденные id в карточку канала.
+  document.getElementById('aiTgDetected')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tg-fill]');
+    if (!btn) return;
+    const ch = btn.dataset.tgFill;
+    const chat = document.querySelector('[data-tg-chat="' + ch + '"]');
+    const thr = document.querySelector('[data-tg-thread="' + ch + '"]');
+    if (chat) chat.value = btn.dataset.chat || '';
+    if (thr) thr.value = btn.dataset.thread || '';
+    const on = document.querySelector('[data-tg-on="' + ch + '"]');
+    if (on) on.checked = true;
+    const state = document.querySelector('[data-tg-state="' + ch + '"]');
+    if (state) state.textContent = 'подставлено — нажмите «Сохранить»';
   });
 
   // ===== Режим обкатки =====
