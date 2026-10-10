@@ -548,6 +548,7 @@ import {
       switchAiTab(aiActiveTab);
       void loadAiTemplates();
       void loadAiStatus();
+      void loadAiChannel();
     }
     if (view === 'sales') {
       void activateSalesView();
@@ -7569,6 +7570,57 @@ import {
     pill.textContent = `${s.templates_autosend} из ${s.templates_enabled} отвечают сами`;
     pill.className = 'pill pill-ok';
   }
+
+  // ===== Режим обкатки =====
+  // Пока клиника присматривается к ответам, ассистент должен писать только
+  // своим. Настройка живёт в БД, а не в конфиге сервера: включать её —
+  // решение владельца, а не повод идти к разработчику.
+  async function loadAiChannel() {
+    const chk = document.getElementById('aiTestMode');
+    if (!chk) return;
+    const r = await apiCall('GET', '/api/salons/ai/channel');
+    if (!r.ok) return;
+    const on = !!r.data?.test_mode;
+    chk.checked = on;
+    const box = document.getElementById('aiTestBox');
+    if (box) box.hidden = !on;
+    const inp = document.getElementById('aiTestUsers');
+    if (inp) inp.value = (r.data?.test_users || []).join(', ');
+    const hint = document.getElementById('aiTestHint');
+    if (hint) {
+      const list = r.data?.test_users || [];
+      hint.textContent = on
+        ? (list.length ? `отвечает только: ${list.map(u => '@' + u).join(', ')}` : 'список пуст — не отвечает никому')
+        : 'отвечает всем клиентам';
+    }
+  }
+
+  async function saveAiChannel(testMode, users) {
+    const msg = document.getElementById('aiTestMsg');
+    const r = await apiCall('PUT', '/api/salons/ai/channel', {
+      test_mode: testMode,
+      ...(users !== undefined ? { test_users: users } : {}),
+    });
+    if (r.ok) {
+      await loadAiChannel();
+      if (msg) { msg.textContent = 'Сохранено'; setTimeout(() => { msg.textContent = ''; }, 2000); }
+    } else if (msg) {
+      msg.textContent = r.data?.error || 'Не удалось сохранить';
+    }
+    return r.ok;
+  }
+
+  document.getElementById('aiTestMode')?.addEventListener('change', (e) => {
+    const on = e.target.checked;
+    const box = document.getElementById('aiTestBox');
+    if (box) box.hidden = !on;
+    void saveAiChannel(on);
+  });
+
+  document.getElementById('aiTestSave')?.addEventListener('click', () => {
+    const inp = document.getElementById('aiTestUsers');
+    void saveAiChannel(true, inp ? inp.value : '');
+  });
 
   async function loadAiTemplates() {
     const r = await apiCall('GET', '/api/salons/ai/templates');

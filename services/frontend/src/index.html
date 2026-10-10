@@ -2897,6 +2897,32 @@
                 </div>
               </div>
 
+              <!-- Режим обкатки: пока клиника присматривается к ответам,
+                   ассистент пишет только перечисленным аккаунтам. -->
+              <div class="card" style="margin-bottom:12px;padding:14px 16px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <label class="switch-row" style="display:flex;align-items:center;gap:8px;margin:0;">
+                    <input type="checkbox" id="aiTestMode">
+                    <b>Режим обкатки</b>
+                  </label>
+                  <span class="hint" id="aiTestHint">отвечать только указанным аккаунтам</span>
+                </div>
+                <div id="aiTestBox" style="margin-top:10px;" hidden>
+                  <label class="field" style="margin:0;">
+                    <span>Кому отвечать (ники Instagram через запятую)</span>
+                    <input type="text" id="aiTestUsers" placeholder="it.izberbash, my_account">
+                  </label>
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+                    <button type="button" class="btn-primary btn-sm" id="aiTestSave">Сохранить</button>
+                    <span class="hint" id="aiTestMsg"></span>
+                  </div>
+                  <div class="hint" style="margin-top:8px;line-height:1.5;">
+                    Остальные диалоги продолжают сохраняться в переписку —
+                    ассистент просто не отвечает на них.
+                  </div>
+                </div>
+              </div>
+
               <div id="aiTplList" class="data-list"></div>
             </div>
           </div>

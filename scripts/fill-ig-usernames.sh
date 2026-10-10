@@ -42,13 +42,18 @@ for id in $IDS; do
   pic=$(printf  '%s' "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("profile_pic") or "")' 2>/dev/null || true)
 
   if [ -n "$name" ]; then
-    docker compose exec -T postgres psql -U samaya -d samaya -q <<SQL
-UPDATE instagram.threads
-   SET username = $$${name}$$,
-       full_name = NULLIF($$${full}$$, ''),
-       avatar_url = NULLIF($$${pic}$$, '')
- WHERE thread_id = '${id}';
-SQL
+    # Значения передаём параметрами psql, а не вставкой в текст запроса:
+    # долларовые кавычки ($$) bash раскрывает как переменную, и в SQL
+    # попадал мусор вида «3155849sokolova.sell3155849».
+    docker compose exec -T \
+      -e V_USER="$name" -e V_FULL="$full" -e V_PIC="$pic" -e V_ID="$id" \
+      postgres psql -U samaya -d samaya -q \
+      -c "UPDATE instagram.threads
+             SET username = :'u',
+                 full_name = NULLIF(:'f', ''),
+                 avatar_url = NULLIF(:'p', '')
+           WHERE thread_id = :'i'" \
+      -v u="$name" -v f="$full" -v p="$pic" -v i="$id" 
     printf '  %-20s @%s\n' "$id" "$name"
     ok=$((ok+1))
   else

@@ -7,7 +7,7 @@
 // Классификацию делает salon-service, а не этот сервис: шаблоны и журнал
 // живут там, и вторая копия логики разошлась бы с первой при первой же
 // правке. Сюда возвращается уже готовое решение.
-import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient, threadHasName } from './store.js';
+import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient, threadHasName, threadUsername, channelSettings } from './store.js';
 import { sendMessage, fetchProfile } from './graph.js';
 
 const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
@@ -68,6 +68,11 @@ async function askAssistant(text, threadId, clientName) {
 export async function handleMessages(items) {
   const stats = { saved: 0, replied: 0, drafts: 0, skipped: 0 };
 
+  // Режим обкатки берём из БД: владелец переключает его в админке, и
+  // настройка должна действовать сразу, без перезапуска контейнера.
+  // Одно чтение на пачку — внутри цикла это был бы запрос на сообщение.
+  const { testMode, testUsers } = await channelSettings('instagram');
+
   for (const it of items) {
     // Ник собеседника: webhook его не присылает, только IGSID, и в списке
     // диалогов строка выглядит как «без имени». Запрашиваем профиль, но
@@ -109,6 +114,18 @@ export async function handleMessages(items) {
     // медленном ответе webhook. Если сообщение не новое, отвечать второй
     // раз нельзя.
     if (!res.saved) continue;
+
+    // Режим обкатки: отвечаем только аккаунтам из белого списка.
+    // Сообщение уже сохранено выше — администратор увидит переписку
+    // целиком, просто ассистент в неё не вмешивается.
+    if (testMode) {
+      const who = (profile?.username || await threadUsername(it.threadId) || '').toLowerCase();
+      if (!who || !testUsers.includes(who)) {
+        stats.skipped += 1;
+        console.log(`[IG] ${who ? '@' + who : it.threadId}: режим обкатки — ассистент не отвечает`);
+        continue;
+      }
+    }
 
     // Связывание по номеру из текста.
     if (!clientId && it.text) {

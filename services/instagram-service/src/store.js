@@ -59,6 +59,37 @@ export async function threadHasName(threadId) {
 }
 
 /**
+ * Настройки канала: режим обкатки и список тестовых аккаунтов.
+ *
+ * Читаются из БД при каждом сообщении, а не из окружения: владелец
+ * переключает режим в админке, и правка должна действовать сразу, без
+ * перезапуска контейнера.
+ */
+export async function channelSettings(channel = 'instagram') {
+  if (!COMPANY_ID) return { testMode: false, testUsers: [] };
+  const { rows } = await pool.query(
+    `SELECT test_mode, test_users FROM ai.channel_settings
+      WHERE company_id = $1 AND channel = $2`,
+    [COMPANY_ID, channel],
+  );
+  const r = rows[0];
+  return {
+    testMode: !!r?.test_mode,
+    testUsers: (r?.test_users ?? []).map(s => String(s).replace(/^@/, '').toLowerCase()),
+  };
+}
+
+/** Ник диалога, если он уже сохранён. */
+export async function threadUsername(threadId) {
+  if (!COMPANY_ID) return null;
+  const { rows } = await pool.query(
+    `SELECT username FROM instagram.threads WHERE thread_id = $1`,
+    [threadId],
+  );
+  return rows[0]?.username || null;
+}
+
+/**
  * Создать или обновить диалог. Возвращает текущую привязку к клиенту:
  * сообщения этого диалога должны получить тот же client_id.
  */

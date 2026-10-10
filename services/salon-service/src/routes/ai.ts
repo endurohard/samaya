@@ -192,6 +192,59 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * GET /api/salons/ai/channel — режим канала.
+ *
+ * Режим обкатки: ассистент отвечает только перечисленным аккаунтам.
+ * Пока клиника присматривается к ответам, это единственный безопасный
+ * способ проверить поведение на живых сообщениях.
+ */
+router.get('/channel', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT test_mode, test_users, updated_at
+         FROM ai.channel_settings
+        WHERE company_id = $1 AND channel = 'instagram'`,
+      [req.auth!.company_id],
+    );
+    return res.json(rows[0] ?? { test_mode: false, test_users: [], updated_at: null });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/** PUT /api/salons/ai/channel — включить/выключить режим обкатки. */
+router.put('/channel', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const body = z.object({
+      test_mode: z.boolean().optional(),
+      // Ники принимаем и строкой через запятую (как вводит человек), и
+      // массивом (как шлёт интерфейс). Собачку снимаем: её ставят по
+      // привычке, а сравнение идёт с «голым» ником из профиля.
+      test_users: z.union([z.string(), z.array(z.string())]).optional(),
+    }).parse(req.body);
+
+    const users = body.test_users === undefined ? undefined
+      : (Array.isArray(body.test_users) ? body.test_users : body.test_users.split(','))
+          .map(s => s.trim().replace(/^@/, '').toLowerCase())
+          .filter(Boolean);
+
+    const { rows } = await pool.query(
+      `INSERT INTO ai.channel_settings (company_id, channel, test_mode, test_users, updated_by)
+            VALUES ($1, 'instagram', COALESCE($2, false), COALESCE($3, '{}'), $4)
+       ON CONFLICT (company_id, channel) DO UPDATE
+          SET test_mode  = COALESCE($2, ai.channel_settings.test_mode),
+              test_users = COALESCE($3, ai.channel_settings.test_users),
+              updated_by = $4
+      RETURNING test_mode, test_users, updated_at`,
+      [req.auth!.company_id, body.test_mode ?? null, users ?? null, req.auth!.sub],
+    );
+    return res.json(rows[0]);
+  } catch (e) {
+    return next(e);
+  }
+});
+
 /** GET /api/salons/ai/log — журнал решений. */
 router.get('/log', manage, async (req: ExpressRequest, res, next) => {
   try {
