@@ -78,7 +78,24 @@ export async function sendTelegram(
     } as RequestInit);
     const data = (await r.json()) as { ok?: boolean; description?: string };
     if (!r.ok || !data.ok) {
-      return { ok: false, reason: data.description || `HTTP ${r.status}` };
+      const why = data.description || `HTTP ${r.status}`;
+      // Удалённая или неверная тема — не повод терять уведомление: шлём в
+      // общую ленту, иначе менеджер просто не узнает, что клиент ждёт.
+      if (target.threadId && /thread not found|TOPIC_DELETED|message thread/i.test(why)) {
+        const retry = await fetch(`https://api.telegram.org/bot${target.token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...body, message_thread_id: undefined }),
+          signal: AbortSignal.timeout(15_000),
+          dispatcher: tgDispatcher,
+        } as RequestInit);
+        const second = (await retry.json()) as { ok?: boolean; description?: string };
+        if (second.ok) {
+          console.warn(`[tg] тема ${target.threadId} недоступна (${why}) — отправлено в общую ленту`);
+          return { ok: true };
+        }
+      }
+      return { ok: false, reason: why };
     }
     return { ok: true };
   } catch (e) {

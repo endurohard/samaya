@@ -7696,7 +7696,9 @@ import {
       list.innerHTML = items.map((it) => {
         const where = it.topic_name
           ? 'тема «' + escapeHtml(it.topic_name) + '»'
-          : (it.thread_id ? 'тема ' + it.thread_id : 'общая лента');
+          : (it.thread_id
+            ? 'тема ' + it.thread_id
+            : 'общая тема (General)');
         // Кнопки подстановки: переписывать id из восемнадцати цифр руками —
         // верный способ ошибиться и потом искать, почему не доходит.
         const fill = ['instagram', 'whatsapp'].map((ch) => '<button type="button" '
