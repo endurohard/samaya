@@ -36,7 +36,20 @@ app.post('/api/instagram/webhook',
     res.sendStatus(200);
 
     const items = parseWebhook(body);
-    if (!items.length) return;
+    if (!items.length) {
+      // Молчание без следа выглядит как поломка: запрос дошёл, ответ 200,
+      // в логах пусто. Пишем, ЧТО именно пришло, — обычно это событие
+      // другого поля (live_comments, messaging_seen), на которое отвечать
+      // не нужно.
+      const fields = (body?.entry ?? [])
+        .flatMap(e => [
+          ...(e.messaging ? ['messaging'] : []),
+          ...((e.changes ?? []).map(c => c.field)),
+        ]);
+      console.log('[IG][webhook] событие без сообщений, поля:',
+        fields.length ? fields.join(', ') : 'нет');
+      return;
+    }
     try {
       const stats = await handleMessages(items);
       console.log('[IG][webhook]', JSON.stringify(stats));

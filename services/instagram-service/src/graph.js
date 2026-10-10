@@ -101,7 +101,23 @@ export function verifyChallenge(query) {
 export function parseWebhook(body) {
   const out = [];
   for (const entry of body?.entry ?? []) {
-    for (const m of entry.messaging ?? []) {
+    // Два формата одного события.
+    //
+    // Живой Direct приходит как entry[].messaging[] — так описано в
+    // документации Messenger Platform, и так шлёт Instagram в бою.
+    //
+    // Но кнопка «Отправить на сервер» в кабинете Meta шлёт формат подписок
+    // Graph API: entry[].changes[] с field: "messages", а само событие
+    // лежит в changes[].value. Без второй ветки тестовое событие молча
+    // проходит мимо: сервис отвечает 200, в логах пусто, и выглядит это
+    // как будто webhook не работает.
+    const events = [
+      ...(entry.messaging ?? []),
+      ...(entry.changes ?? [])
+        .filter(c => c.field === 'messages' && c.value)
+        .map(c => c.value),
+    ];
+    for (const m of events) {
       const msg = m.message;
       if (!msg) continue;
       // Удаление сообщения клиентом: отдельное событие, не текст.
