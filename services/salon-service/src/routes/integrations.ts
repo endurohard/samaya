@@ -256,10 +256,15 @@ async function probeInstagram(token: string): Promise<Probe> {
     `https://graph.instagram.com/${IG_VERSION}/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`,
   );
   if (ig.status === 200 && ig.body.id) {
+    // Долгоживущий токен Instagram Login действует 60 дней и продлевается
+    // через GET /refresh_access_token?grant_type=ig_refresh_token. Срок
+    // записываем всегда: без него админка показывает «бессрочный», и
+    // приём сообщений однажды встаёт без объяснения.
+    const igExpires = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
     return {
       ok: true,
       token,
-      expires_at: null,
+      expires_at: igExpires,
       meta: {
         transport: 'instagram_login',
         host: 'graph.instagram.com',

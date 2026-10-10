@@ -543,6 +543,10 @@ services:
       # наружу без авторизации.
       INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-}
       INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+      # Секрет приложения INSTAGRAM (со страницы «API setup with Instagram
+      # login») — им подписаны уведомления в варианте Instagram Login, и он
+      # не совпадает с секретом основного приложения Meta.
+      INSTAGRAM_IG_APP_SECRET: ${INSTAGRAM_IG_APP_SECRET:-}
       # Автоответ по шаблонам. Умолчание false: клиника — медицинские
       # услуги, и отправка без человека должна быть осознанным решением.
       # Даже при true уходят только темы, которым это разрешено в шаблоне.

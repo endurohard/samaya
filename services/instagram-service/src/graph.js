@@ -21,6 +21,11 @@ const VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN || '';
 // Секрет приложения Meta. Нужен, чтобы проверять подпись входящих: без неё
 // webhook-эндпоинт принимает что угодно от кого угодно.
 const APP_SECRET = process.env.INSTAGRAM_APP_SECRET || '';
+// Секрет ПРИЛОЖЕНИЯ INSTAGRAM — он свой, со страницы «API setup with
+// Instagram login», и не совпадает с секретом основного приложения Meta.
+// В варианте Instagram Login уведомления подписаны именно им: проверка
+// чужим секретом даёт вечное «подпись не совпадает».
+const IG_APP_SECRET = process.env.INSTAGRAM_IG_APP_SECRET || '';
 
 const PROXY = process.env.INSTAGRAM_SOCKS_PROXY || '';
 
@@ -68,17 +73,26 @@ export async function credentials() {
  * первого несовпавшего байта и позволяет подобрать подпись.
  */
 export function verifySignature(rawBody, header) {
-  if (!APP_SECRET) return { ok: false, reason: 'INSTAGRAM_APP_SECRET не задан' };
+  // Два возможных секрета: у Instagram Login — секрет приложения Instagram,
+  // у Facebook Login — секрет основного приложения. Какой именно подписал
+  // уведомление, заранее не известно, поэтому проверяем оба и принимаем,
+  // если совпал любой. Это не ослабляет защиту: подобрать нужно по-прежнему
+  // полный HMAC, просто допустимых ключей два.
+  const secrets = [IG_APP_SECRET, APP_SECRET].filter(Boolean);
+  if (!secrets.length) {
+    return { ok: false, reason: 'не задан ни INSTAGRAM_IG_APP_SECRET, ни INSTAGRAM_APP_SECRET' };
+  }
   if (!header) return { ok: false, reason: 'нет заголовка подписи' };
 
   const got = String(header).replace(/^sha256=/, '');
-  const want = crypto.createHmac('sha256', APP_SECRET).update(rawBody).digest('hex');
   const a = Buffer.from(got, 'hex');
-  const b = Buffer.from(want, 'hex');
-  if (a.length !== b.length) return { ok: false, reason: 'подпись не совпадает' };
-  return crypto.timingSafeEqual(a, b)
-    ? { ok: true }
-    : { ok: false, reason: 'подпись не совпадает' };
+  for (const secret of secrets) {
+    const want = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    const b = Buffer.from(want, 'hex');
+    // timingSafeEqual требует равной длины и не терпит мусорного заголовка.
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return { ok: true };
+  }
+  return { ok: false, reason: 'подпись не совпадает' };
 }
 
 /** Ответ на подключение webhook (GET-проверка от Meta). */
@@ -155,9 +169,19 @@ export function parseWebhook(body) {
 export async function sendMessage(recipientIgsid, text) {
   const cred = await credentials();
   if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
-  if (!cred.igId) return { ok: false, error: 'в интеграции не записан id аккаунта Instagram' };
+  // Для Instagram Login id не нужен — он зашит в токен (путь /me/messages).
+  if (!cred.igId && !cred.host.includes('graph.instagram.com')) {
+    return { ok: false, error: 'в интеграции не записан id аккаунта Instagram' };
+  }
 
-  const url = `https://${cred.host}/${cred.version}/${cred.igId}/messages`;
+  // Путь зависит от варианта подключения:
+  //   Instagram Login  -> graph.instagram.com/<ver>/me/messages
+  //   Facebook Login   -> graph.facebook.com/<ver>/<ig-id>/messages
+  // У Instagram Login идентификатор аккаунта берётся из самого токена, и
+  // подстановка igId в путь даёт ошибку «Unsupported post request».
+  const viaInstagramLogin = cred.host.includes('graph.instagram.com');
+  const target = viaInstagramLogin ? 'me' : cred.igId;
+  const url = `https://${cred.host}/${cred.version}/${target}/messages`;
   try {
     const r = await fetch(url, {
       method: 'POST',
