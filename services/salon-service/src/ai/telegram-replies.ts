@@ -73,7 +73,10 @@ async function deliver(channel: string, threadKey: string, text: string): Promis
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${IG_TOKEN}`,
+        // Именно X-Internal-Token: authenticate в instagram-service ждёт
+        // внутренний токен в этом заголовке, а Bearer разбирает как JWT
+        // пользователя и отвечает 401 unauthorized.
+        'X-Internal-Token': IG_TOKEN,
       },
       body: JSON.stringify({ thread_id: threadKey, message: text }),
       signal: AbortSignal.timeout(25_000),
