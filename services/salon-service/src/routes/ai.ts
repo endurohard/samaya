@@ -235,10 +235,17 @@ router.get('/telegram', manage, async (req: ExpressRequest, res, next) => {
       [companyId],
     );
     const token = tok.rows[0]?.token || '';
+    // Если бот видел ровно одну группу, отдаём её id — фронт подставит его
+    // в пустые поля, чтобы владелец не переписывал четырнадцать цифр.
+    const chats = await pool.query<{ chat_id: string }>(
+      `SELECT DISTINCT chat_id FROM ai.telegram_seen WHERE company_id = $1::uuid`,
+      [companyId],
+    );
     return res.json({
       items: rows,
       bot_configured: !!token,
       bot_hint: token ? '…' + token.slice(-6) : '',
+      only_chat_id: chats.rows.length === 1 ? chats.rows[0].chat_id : null,
     });
   } catch (e) { return next(e); }
 });

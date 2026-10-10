@@ -7593,8 +7593,12 @@ import {
         ? 'бот подключён ' + (r.data.bot_hint || '')
         : 'бот не подключён';
     }
+    // Группа обычно одна: если бот её уже видел, подставляем id сразу —
+    // переписывать четырнадцать цифр из списка ниже незачем.
+    const onlyChat = r.data?.only_chat_id || '';
     box.innerHTML = AI_TG_CHANNELS.map((ch) => {
       const cur = items.find((x) => x.channel === ch.key) || {};
+      if (!cur.chat_id && onlyChat) cur.chat_id = onlyChat;
       const on = cur.enabled ? 'checked' : '';
       return '<div class="card" style="padding:12px;margin-bottom:10px;">'
         + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
@@ -7643,6 +7647,16 @@ import {
       const chat = document.querySelector('[data-tg-chat="' + ch + '"]')?.value.trim() || '';
       const thr = document.querySelector('[data-tg-thread="' + ch + '"]')?.value.trim() || '';
       const on = document.querySelector('[data-tg-on="' + ch + '"]')?.checked || false;
+      // Частая путаница: id группы (-100…, 14 цифр) вставляют в поле темы.
+      // Сервер отвечает коротким «validation», по которому не догадаться.
+      if (thr && (Number(thr) < 1 || thr.length > 7)) {
+        if (state) state.textContent = 'в поле «id темы» попал id группы — тема это небольшое число, например 5';
+        return;
+      }
+      if (!chat) {
+        if (state) state.textContent = 'заполните id группы (вида -100…)';
+        return;
+      }
       if (state) state.textContent = 'сохраняю…';
       const r = await apiCall('PUT', '/api/salons/ai/telegram/' + ch, {
         chat_id: chat || null,
