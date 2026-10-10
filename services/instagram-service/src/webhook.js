@@ -146,7 +146,11 @@ export async function handleMessages(items) {
       continue;
     }
 
-    const d = await askAssistant(it.text, it.threadId, null);
+    // Ник передаём обязательно: без него уведомление менеджеру приходит
+    // с голым идентификатором вида #1444632931106388, по которому нельзя
+    // понять, кто написал, и приходится искать диалог в CRM вручную.
+    const who = profile?.username || await threadUsername(it.threadId);
+    const d = await askAssistant(it.text, it.threadId, who ? '@' + who : null);
     if (!d.ok) {
       console.warn(`[IG][ии] ${it.threadId}: ${d.reason}`);
       stats.drafts++;

@@ -124,8 +124,13 @@ export async function notifyNeedsReply(opts: {
   draft?: string | null;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const icon = opts.channel === 'whatsapp' ? '💬' : '📸';
+  // Ник оформляем ссылкой на профиль: менеджер открывает переписку прямо
+  // из уведомления, а не ищет её по имени в приложении.
+  const nick = opts.who.startsWith('@')
+    ? `<a href="https://instagram.com/${esc(opts.who.slice(1))}">${esc(opts.who)}</a>`
+    : esc(opts.who);
   const lines = [
-    `${icon} <b>Нужен ответ</b> — ${esc(opts.who)}`,
+    `${icon} <b>Нужен ответ</b> — ${opts.channel === 'instagram' ? nick : esc(opts.who)}`,
     '',
     esc(String(opts.question || '').slice(0, 400)),
   ];
