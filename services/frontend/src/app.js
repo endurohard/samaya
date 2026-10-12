@@ -8078,40 +8078,36 @@ import {
     }
 
     list.innerHTML = aiTemplates.map((t) => {
-      // У выключенной темы режим ответа не показываем: «отвечает сам» и
-      // «не отвечает» рядом — прямое противоречие на вид.
-      const flags = [];
-      if (t.enabled === false) {
-        flags.push('<span class="pill pill-warn" style="font-size:11px;">не отвечает</span>');
-      } else if (t.autosend) {
-        flags.push('<span class="pill pill-ok" style="font-size:11px;">отвечает сам</span>');
-      } else {
-        flags.push('<span class="pill pill-mute" style="font-size:11px;">через админа</span>');
-      }
-
+      // Режим — одной меткой с цветной точкой, как в форме. У выключенной
+      // темы «отвечает сам» не показываем: рядом с «не отвечает» это читалось
+      // как противоречие.
+      const mode = aiTplMode(t);
+      const modeLbl = { auto: 'отвечает сам', draft: 'черновик админу', off: 'не отвечает' }[mode];
       const confirming = aiPendingDelete === t.id;
+      const matcher = (t.matcher || '').length > 160 ? t.matcher.slice(0, 160) + '…' : (t.matcher || '');
       return `
-        <div class="row-item" style="align-items:flex-start;">
-          <div class="row-main">
-            <div class="row-name">${escapeHtml(t.title)} ${flags.join(' ')}</div>
-            <div class="row-meta" style="margin-top:2px;">${escapeHtml(t.body)}</div>
-            <div class="row-meta" style="margin-top:4px;opacity:.75;">
-              когда: ${escapeHtml((t.matcher || '').slice(0, 120))}${(t.matcher || '').length > 120 ? '…' : ''}
-            </div>
-          </div>
-          ${confirming ? `
-            <div style="display:flex;gap:6px;align-items:center;">
-              <span class="hint" style="color:#991b1b;">Удалить?</span>
+        <div class="ai-tpl-card${mode === 'off' ? ' is-off' : ''}">
+          <div class="ai-tpl-card-head">
+            <span class="ai-tpl-card-title">${escapeHtml(t.title)}</span>
+            <span class="ai-mode-tag is-${mode}"><span class="ai-mode-dot is-${mode}" aria-hidden="true"></span>${modeLbl}</span>
+            <span class="ai-tpl-card-actions">
+            ${confirming ? `
+              <span class="hint" style="color:#991b1b;">Удалить шаблон?</span>
               <button type="button" class="btn-danger-outline btn-xs ai-del-yes" data-id="${escapeHtml(t.id)}">Да</button>
               <button type="button" class="btn-ghost btn-xs ai-del-no">Нет</button>
-            </div>
-          ` : `
-            <button type="button" class="btn-ghost btn-xs ai-tpl-toggle"
-                    data-id="${escapeHtml(t.id)}" data-on="${t.enabled === false ? '0' : '1'}"
-                    title="${t.enabled === false ? 'Включить ответы по этой теме' : 'Перестать отвечать на эту тему'}">${t.enabled === false ? 'Включить' : 'Выключить'}</button>
-            <button type="button" class="btn-ghost btn-xs ai-tpl-edit" data-id="${escapeHtml(t.id)}">Изм.</button>
-            <button type="button" class="fin-del-btn ai-tpl-del" data-id="${escapeHtml(t.id)}" aria-label="Удалить">×</button>
-          `}
+            ` : `
+              <button type="button" class="btn-ghost btn-xs ai-tpl-toggle"
+                      data-id="${escapeHtml(t.id)}" data-on="${t.enabled === false ? '0' : '1'}"
+                      title="${t.enabled === false ? 'Включить ответы по этой теме' : 'Перестать отвечать на эту тему'}">${t.enabled === false ? 'Включить' : 'Выключить'}</button>
+              <button type="button" class="btn-ghost btn-xs ai-tpl-edit" data-id="${escapeHtml(t.id)}">Изменить</button>
+              <button type="button" class="fin-del-btn ai-tpl-del" data-id="${escapeHtml(t.id)}" aria-label="Удалить шаблон «${escapeHtml(t.title)}»">×</button>
+            `}
+            </span>
+          </div>
+          <div class="ai-tpl-card-grid">
+            <div><div class="ai-tpl-card-lbl">Когда клиент пишет</div><div class="ai-tpl-card-when">${escapeHtml(matcher)}</div></div>
+            <div><div class="ai-tpl-card-lbl">Ассистент отвечает</div><div class="ai-bubble ai-bubble--out">${escapeHtml(t.body)}</div></div>
+          </div>
         </div>`;
     }).join('');
 
@@ -8164,6 +8160,12 @@ import {
     document.getElementById('aiTplAutosend').checked = !!t?.autosend;
     document.getElementById('aiTplEnabled').checked = t ? !!t.enabled : true;
     document.getElementById('aiTplOrder').value = t?.sort_order ?? 100;
+    const mode = t ? aiTplMode(t) : 'draft';
+    document.querySelectorAll('input[name="aiTplMode"]').forEach((r) => { r.checked = r.value === mode; });
+    const ft = document.getElementById('aiTplFormTitle');
+    if (ft) ft.textContent = t ? `Шаблон «${t.title}»` : 'Новый шаблон';
+    aiTplSyncMode();
+    aiTplPreview();
     // Ключ темы показываем только для справки у существующего шаблона: по нему
     // связан журнал решений, и смена ключа оторвала бы историю от шаблона.
     // У нового его ещё нет — сервер сделает ключ из названия.
@@ -8175,8 +8177,66 @@ import {
     aiTplSetMsg('');
 
     form.hidden = false;
-    document.getElementById('aiTplTitle').focus();
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('aiTplTitle').focus({ preventScroll: true });
   }
+
+  // Режим ответа одним значением вместо двух флажков: «включён» и
+  // «автоотправка» по отдельности давали бессмысленные сочетания.
+  function aiTplMode(t) {
+    if (t.enabled === false) return 'off';
+    return t.autosend ? 'auto' : 'draft';
+  }
+
+  function aiTplSyncMode() {
+    const mode = document.querySelector('input[name="aiTplMode"]:checked')?.value || 'draft';
+    document.getElementById('aiTplEnabled').checked = mode !== 'off';
+    document.getElementById('aiTplAutosend').checked = mode === 'auto';
+    const warn = document.getElementById('aiTplModeWarn');
+    if (warn) {
+      // Подсказываем только там, где автоответ рискован: по словам в названии
+      // и описании темы. Это совет, а не запрет.
+      const txt = (document.getElementById('aiTplTitle').value + ' ' + document.getElementById('aiTplMatcher').value).toLowerCase();
+      warn.hidden = !(mode === 'auto' && /цен|стоим|прайс|здоров|противопок|беремен|жалоб|возврат|болит|аллерг/.test(txt));
+    }
+    aiTplPreview();
+  }
+
+  // Предпросмотр как в мессенджере: пример вопроса берём из «ёлочек» в
+  // описании темы, ответ — из текста с подставленным именем.
+  function aiTplPreview() {
+    const matcher = document.getElementById('aiTplMatcher')?.value || '';
+    const body = document.getElementById('aiTplBody')?.value.trim() || '';
+    const ex = matcher.match(/«([^»]{2,120})»/);
+    const inEl = document.getElementById('aiTplPrevIn');
+    const outEl = document.getElementById('aiTplPrevOut');
+    const meta = document.getElementById('aiTplPrevMeta');
+    if (inEl) inEl.textContent = ex ? ex[1] : 'Пример вопроса появится, если указать его в «ёлочках» в шаге 2';
+    if (inEl) inEl.classList.toggle('is-placeholder', !ex);
+    if (outEl) {
+      outEl.textContent = body ? body.replace(/\{name\}/g, 'Амина') : 'Здесь появится ответ';
+      outEl.classList.toggle('is-placeholder', !body);
+    }
+    const mode = document.querySelector('input[name="aiTplMode"]:checked')?.value || 'draft';
+    if (meta) {
+      meta.textContent = { auto: 'уйдёт сразу, без проверки', draft: 'сначала увидит администратор', off: 'не отправится — тема выключена' }[mode];
+      meta.className = 'ai-preview-meta is-' + mode;
+    }
+    document.querySelector('.ai-preview-chat')?.classList.toggle('is-off', mode === 'off');
+  }
+
+  document.querySelectorAll('input[name="aiTplMode"]').forEach((r) => r.addEventListener('change', aiTplSyncMode));
+  ['aiTplMatcher', 'aiTplBody'].forEach((id) => document.getElementById(id)?.addEventListener('input', aiTplPreview));
+  ['aiTplTitle', 'aiTplMatcher'].forEach((id) => document.getElementById(id)?.addEventListener('input', aiTplSyncMode));
+  document.getElementById('aiTplInsertName')?.addEventListener('click', () => {
+    const ta = document.getElementById('aiTplBody');
+    if (!ta) return;
+    const at = ta.selectionStart ?? ta.value.length;
+    ta.value = ta.value.slice(0, at) + '{name}' + ta.value.slice(ta.selectionEnd ?? at);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = at + 6;
+    aiTplPreview();
+  });
 
   function aiTplSetMsg(text, kind) {
     const el = document.getElementById('aiTplMsg');
@@ -8192,6 +8252,7 @@ import {
   });
 
   document.getElementById('aiTplSave')?.addEventListener('click', async () => {
+    aiTplSyncMode();
     const id = document.getElementById('aiTplId').value;
     const payload = {
       title: document.getElementById('aiTplTitle').value.trim(),
@@ -8947,7 +9008,9 @@ async function openWaChat(phone, silent = false) {
     const dt = new Date(m.sent_at);
     const day = dt.toDateString() === new Date().toDateString()
       ? 'СЕГОДНЯ'
-      : dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+      : dt.toLocaleDateString('ru-RU', dt.getFullYear() === new Date().getFullYear()
+        ? { day: 'numeric', month: 'long' }
+        : { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
     if (day !== lastDay) { parts.push('<div class="wa-day">' + escapeHtml(day) + '</div>'); lastDay = day; }
     const time = dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const media = m.has_media
@@ -14856,7 +14919,11 @@ function waAttachChatToClient(phoneDigits, row) {
           // ответил. У автоответов подписи нет — там остаётся «Мы».
           const who = out ? (m.author_name ? escapeHtml(m.author_name) : 'Мы') : 'Клиент';
           const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-          const body = escapeHtml(m.body || '') || (m.has_media ? '<span class="ig-msg-media"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>Вложение</span>' : '');
+          const body = escapeHtml(m.body || '') || (m.has_media ? '<span class="ig-msg-media"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>Вложение</span>'
+            // Пустое сообщение без вложения — это стикер, реакция или
+            // «поделиться постом»: API Instagram отдаёт их без текста, и
+            // без подписи в ленте оставался пустой серый пузырь.
+            : '<span class="ig-msg-empty">стикер, реакция или пост — откройте в Instagram</span>');
           // Подпись — под пузырём, как «Просмотрено» в Direct: кто из
           // администраторов ответил и во сколько.
           parts.push('<div class="ig-msg' + (out ? ' ig-msg--out' : ' ig-msg--in') + '">'
@@ -14973,7 +15040,7 @@ function waAttachChatToClient(phoneDigits, row) {
         <input type="checkbox" class="ig-pick" data-tid="${escapeHtml(t.thread_id)}" ${checked} style="margin-top:3px;">
         <span style="flex:1;min-width:0;">
           <span style="font-weight:600;">${escapeHtml(who)}</span>${name}${client}
-          <span class="char-count" style="margin-left:6px;">место в инбоксе ${t.inbox_pos}, сообщений ${t.msgs}</span>
+          <span class="char-count" style="margin-left:6px;">${t.asked_at ? 'писал(а) ' + escapeHtml(new Date(t.asked_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })) + ' · ' : ''}сообщений ${t.msgs}</span>
           ${t.matched_phrase ? `<div class="hint" style="margin-top:2px;">«${escapeHtml(t.matched_phrase)}»</div>` : ''}
         </span>
       </label>`;
@@ -15004,6 +15071,35 @@ function waAttachChatToClient(phoneDigits, row) {
     }
   }
 
+  // Период обращения для поиска. null — за всё время, false — свой период
+  // не заполнен. Границы — с полуночи, «по» включительно.
+  let _igPeriod = 'all';
+  function igPeriodRange() {
+    if (_igPeriod === 'all') return null;
+    if (_igPeriod === 'custom') {
+      let f = document.getElementById('igFrom')?.value;
+      let t = document.getElementById('igTo')?.value;
+      if (!f && !t) return false;
+      if (f && t && f > t) [f, t] = [t, f];
+      const out = {};
+      if (f) out.from = new Date(f + 'T00:00:00').toISOString();
+      if (t) { const d = new Date(t + 'T00:00:00'); d.setDate(d.getDate() + 1); out.to = d.toISOString(); }
+      return out;
+    }
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - Number(_igPeriod) + 1);
+    return { from: d.toISOString() };
+  }
+
+  document.getElementById('igPeriod')?.addEventListener('click', (e) => {
+    const pill = e.target.closest('[data-ig-period]');
+    if (!pill) return;
+    _igPeriod = pill.dataset.igPeriod;
+    document.querySelectorAll('#igPeriod .period-pill').forEach((p) => p.classList.toggle('active', p === pill));
+    const rng = document.getElementById('igPeriodRange');
+    if (rng) rng.hidden = _igPeriod !== 'custom';
+    if (_igPeriod === 'custom') document.getElementById('igFrom')?.focus();
+  });
+
   async function igSearch() {
     const t1 = document.getElementById('igSearchTerm1')?.value?.trim();
     const t2 = document.getElementById('igSearchTerm2')?.value?.trim();
@@ -15011,8 +15107,10 @@ function waAttachChatToClient(phoneDigits, row) {
     const countEl = document.getElementById('igSearchCount');
     if (!terms.length) { toast('Заполните хотя бы одно условие'); return; }
 
+    const range = igPeriodRange();
+    if (range === false) { toast('Укажите даты периода'); return; }
     if (countEl) countEl.textContent = 'ищу…';
-    const { ok, data } = await apiCall('POST', '/api/instagram/search', { terms });
+    const { ok, data } = await apiCall('POST', '/api/instagram/search', { terms, ...(range || {}) });
     if (!ok) {
       if (countEl) countEl.textContent = '';
       toast(data?.error || 'Поиск не удался');

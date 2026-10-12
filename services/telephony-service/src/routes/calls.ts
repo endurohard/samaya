@@ -50,11 +50,28 @@ router.get('/calls', requirePermission('telephony.view'), async (req, res, next)
               c.client_id, c.handled_by,
               mk.caller_kind, mk.processed_at,
               m.display_name AS master_name,
-              cl.full_name AS client_name
+              cl.full_name AS client_name,
+              -- Итог звонка для журнала. Перезвон — первый контакт с номером
+              -- после пропущенного; запись — созданная в течение суток.
+              cb.started_at AS called_back_at,
+              (bk.id IS NOT NULL) AS booked
          FROM telephony.calls c
          LEFT JOIN salons.masters m ON m.id = c.master_id
          LEFT JOIN clients.clients cl ON cl.id = c.client_id
          LEFT JOIN telephony.call_marks mk ON mk.call_id = c.id
+         LEFT JOIN LATERAL (
+           SELECT x.started_at FROM telephony.calls x
+            WHERE c.status = 'missed' AND x.company_id = c.company_id
+              AND x.client_digits = c.client_digits AND x.started_at > c.started_at
+              AND (x.direction = 'outbound' OR x.status = 'answered')
+            ORDER BY x.started_at LIMIT 1
+         ) cb ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT b.id FROM bookings.bookings b
+            WHERE c.client_id IS NOT NULL AND b.company_id = c.company_id AND b.client_id = c.client_id
+              AND b.created_at BETWEEN c.started_at AND c.started_at + interval '1 day'
+            LIMIT 1
+         ) bk ON TRUE
          ${where}
          ORDER BY c.started_at DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,

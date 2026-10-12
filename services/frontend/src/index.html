@@ -2699,8 +2699,28 @@
                     попал бы каждый, кому его отправляли.
                   </div>
                   <input id="igSearchTerm1" type="text" placeholder="липосакц|лл" value="липосакц|лл" autocomplete="off">
-                  <input id="igSearchTerm2" type="text" placeholder="ног|бедр|галифе|голен|ляшк|колен"
-                         value="ног|бедр|галифе|голен|ляшк|колен" autocomplete="off" style="margin-top:8px;">
+                  <input id="igSearchTerm2" type="text" placeholder="ног|бедр|бедер|галифе|голен|ляшк|колен"
+                         value="ног|бедр|бедер|галифе|голен|ляшк|колен" autocomplete="off" style="margin-top:8px;">
+                  <!-- Период обращения: отбираем тех, кто писал по теме в эти
+                       даты, а не всех за всю историю переписки. -->
+                  <div class="ig-period">
+                    <span class="ig-period-lbl">Когда обращались</span>
+                    <div class="period-pills" id="igPeriod" role="tablist" aria-label="Период обращения">
+                      <button type="button" class="period-pill active" data-ig-period="all">За всё время</button>
+                      <button type="button" class="period-pill" data-ig-period="7">7 дней</button>
+                      <button type="button" class="period-pill" data-ig-period="30">30 дней</button>
+                      <button type="button" class="period-pill" data-ig-period="90">3 месяца</button>
+                      <button type="button" class="period-pill" data-ig-period="custom">Свой период</button>
+                    </div>
+                    <span class="ig-period-range" id="igPeriodRange" hidden>
+                      <label>с <input type="date" id="igFrom"></label>
+                      <label>по <input type="date" id="igTo"></label>
+                    </span>
+                  </div>
+                  <div class="hint" style="margin-top:4px;">
+                    У переписки, загруженной со страницы Instagram до подключения API, даты приблизительные —
+                    для неё лучше брать период с запасом.
+                  </div>
                   <div class="broadcast-meta-row" style="justify-content:flex-start;gap:10px;margin-top:10px;">
                     <button type="button" class="btn-primary btn-sm" id="igSearchBtn">Найти</button>
                     <span class="char-count" id="igSearchCount"></span>
@@ -2713,12 +2733,10 @@
                     <button type="button" class="btn-ghost btn-xs" id="igSelectNone">Снять все</button>
                     <span class="char-count" id="igSelectedCount">выбрано 0</span>
                   </div>
-                  <!-- Позиция в инбоксе вместо даты: у сохранённых сообщений
-                       время недостоверно (Instagram отдаёт «2 ч» вместо даты),
-                       а порядок вычитки повторяет порядок инбокса. -->
+                  <!-- Дата — когда клиент последний раз писал по теме в пределах
+                       выбранного периода. -->
                   <div class="hint" style="margin:6px 0;">
-                    «Место в инбоксе»: чем меньше число, тем свежее диалог. Точных дат у переписки
-                    пока нет — Instagram отдаёт относительное время («2 ч», «вчера»).
+                    «Писал(а)» — когда клиент последний раз спрашивал об этом в выбранный период.
                   </div>
                   <div id="igSearchList"
                        style="max-height:320px;overflow:auto;border:1px solid var(--border,#2a2a35);border-radius:8px;"></div>
@@ -3020,49 +3038,96 @@
 
               <!-- Форма добавления/правки. Inline, а не модальное окно:
                    админку открывают во встроенном браузере VS Code. -->
-              <div id="aiTplForm" class="card" hidden
-                   style="background:#faf8f7;border-style:dashed;margin-bottom:12px;">
-                <div class="set-form">
-                  <input type="hidden" id="aiTplId">
+              <div id="aiTplForm" class="ai-tpl-form" hidden>
+                <!-- Форма в три шага слева и живой предпросмотр справа:
+                     «что спросят → что ответим → как ответим». Раньше это были
+                     три поля и два флажка подряд, и сочетание «отправлять без
+                     подтверждения» + «выключен» выглядело как рабочее. Режим
+                     теперь один выбор из трёх, флажки остались скрытыми —
+                     сохранение читает их как раньше. -->
+                <div class="ai-tpl-form-head">
+                  <h3 id="aiTplFormTitle">Новый шаблон</h3>
+                  <span class="hint" id="aiTplTopicHint" hidden></span>
+                </div>
+                <input type="hidden" id="aiTplId">
+                <input type="checkbox" id="aiTplAutosend" hidden>
+                <input type="checkbox" id="aiTplEnabled" checked hidden>
 
-                  <label for="aiTplTitle">Название темы</label>
-                  <input type="text" id="aiTplTitle" maxlength="200" placeholder="Например: Стоимость услуг">
-                  <!-- Ключ темы не спрашиваем: он нужен классификатору, а не
-                       человеку, и генерируется из названия на сервере. У уже
-                       созданного шаблона показываем его только для справки —
-                       менять нельзя, по ключу связан журнал решений. -->
-                  <div class="hint" id="aiTplTopicHint" hidden></div>
-
-                  <label for="aiTplMatcher" style="margin-top:10px;">Когда применять (описание для ассистента)</label>
-                  <textarea id="aiTplMatcher" rows="4" maxlength="2000"
-                            placeholder="Вопрос о стоимости услуги, прайсе, акциях. НЕ сюда споры об уплаченной сумме — это жалоба. Пример: «сколько стоит чистка лица»."></textarea>
-                  <div class="hint">Самое важное поле: именно его читает ассистент, выбирая тему.</div>
-
-                  <label for="aiTplBody" style="margin-top:10px;">Текст ответа клиенту</label>
-                  <textarea id="aiTplBody" rows="4" maxlength="2000"
-                            placeholder="Текст уйдёт клиенту дословно. {name} — имя клиента, если оно известно."></textarea>
-
-                  <div style="margin-top:10px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
-                      <input type="checkbox" id="aiTplAutosend"> Отправлять без подтверждения
-                    </label>
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
-                      <input type="checkbox" id="aiTplEnabled" checked> Включён
-                    </label>
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;">
-                      Порядок <input type="number" id="aiTplOrder" value="100" min="0" max="10000" style="width:80px;">
-                    </label>
+                <div class="ai-tpl-grid">
+                  <div class="ai-tpl-steps">
+                    <div class="ai-step">
+                      <span class="ai-step-num" aria-hidden="true">1</span>
+                      <div class="ai-step-body">
+                        <label for="aiTplTitle">Название темы</label>
+                        <input type="text" id="aiTplTitle" maxlength="200" placeholder="Например: Стоимость услуг">
+                        <div class="hint">Видно только вам — в списке шаблонов и в журнале.</div>
+                      </div>
+                    </div>
+                    <div class="ai-step">
+                      <span class="ai-step-num" aria-hidden="true">2</span>
+                      <div class="ai-step-body">
+                        <label for="aiTplMatcher">Когда клиент пишет…</label>
+                        <textarea id="aiTplMatcher" rows="4" maxlength="2000"
+                                  placeholder="Вопрос о стоимости услуги, прайсе, акциях. НЕ сюда споры об уплаченной сумме — это жалоба. Пример: «сколько стоит чистка лица»."></textarea>
+                        <div class="hint">Самое важное поле: по нему ассистент выбирает тему. Опишите, что сюда входит, что <b>не</b> входит, и дайте пример в «ёлочках» — он появится в предпросмотре.</div>
+                      </div>
+                    </div>
+                    <div class="ai-step">
+                      <span class="ai-step-num" aria-hidden="true">3</span>
+                      <div class="ai-step-body">
+                        <label for="aiTplBody">…ассистент отвечает</label>
+                        <textarea id="aiTplBody" rows="4" maxlength="2000"
+                                  placeholder="Текст уйдёт клиенту дословно."></textarea>
+                        <div class="hint">Уходит дословно. <button type="button" class="ai-chip-btn" id="aiTplInsertName">+ {name}</button> — подставится имя клиента, если оно известно.</div>
+                      </div>
+                    </div>
                   </div>
-                  <div class="hint" style="margin-top:4px;">
-                    Автоотправку включайте только там, где ошибиться нечем. Вопросы о здоровье,
-                    ценах и жалобы безопаснее оставлять на подтверждение администратора.
-                  </div>
 
-                  <div class="form-actions" style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-                    <button type="button" class="btn-primary btn-sm" id="aiTplSave">Сохранить</button>
-                    <button type="button" class="btn-ghost btn-sm" id="aiTplCancel">Отмена</button>
-                    <span id="aiTplMsg" class="hint"></span>
+                  <div class="ai-tpl-side">
+                    <div class="ai-preview" aria-label="Как это увидит клиент">
+                      <div class="ai-preview-title">Как это увидит клиент</div>
+                      <div class="ai-preview-chat">
+                        <div class="ai-bubble ai-bubble--in" id="aiTplPrevIn">сколько стоит чистка лица?</div>
+                        <div class="ai-bubble ai-bubble--out" id="aiTplPrevOut">Здесь появится ответ</div>
+                        <div class="ai-preview-meta" id="aiTplPrevMeta"></div>
+                      </div>
+                    </div>
+
+                    <fieldset class="ai-mode">
+                      <legend>Как отвечать</legend>
+                      <label class="ai-mode-opt">
+                        <input type="radio" name="aiTplMode" value="auto">
+                        <span class="ai-mode-dot is-auto" aria-hidden="true"></span>
+                        <span><b>Сам, сразу</b><small>ответ уходит без участия администратора</small></span>
+                      </label>
+                      <label class="ai-mode-opt">
+                        <input type="radio" name="aiTplMode" value="draft" checked>
+                        <span class="ai-mode-dot is-draft" aria-hidden="true"></span>
+                        <span><b>Черновик администратору</b><small>текст ждёт проверки и отправки в «Сообщениях»</small></span>
+                      </label>
+                      <label class="ai-mode-opt">
+                        <input type="radio" name="aiTplMode" value="off">
+                        <span class="ai-mode-dot is-off" aria-hidden="true"></span>
+                        <span><b>Не отвечать</b><small>тема выключена, ассистент молчит</small></span>
+                      </label>
+                      <div class="ai-mode-warn" id="aiTplModeWarn" hidden>
+                        Здоровье, цены и жалобы безопаснее оставлять черновиком: там ошибка стоит дороже.
+                      </div>
+                    </fieldset>
+
+                    <details class="ai-more">
+                      <summary>Дополнительно</summary>
+                      <label for="aiTplOrder">Приоритет</label>
+                      <input type="number" id="aiTplOrder" value="100" min="0" max="10000">
+                      <div class="hint">Порядок тем в списке и в подсказке ассистенту: меньшее число — выше. Обычно трогать не нужно.</div>
+                    </details>
                   </div>
+                </div>
+
+                <div class="ai-tpl-actions">
+                  <button type="button" class="btn-primary btn-sm" id="aiTplSave">Сохранить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="aiTplCancel">Отмена</button>
+                  <span id="aiTplMsg" class="hint"></span>
                 </div>
               </div>
 

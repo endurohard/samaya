@@ -5,7 +5,7 @@ import fsp from 'fs/promises';
 import { randomUUID } from 'crypto';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
-import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName } from './store.js';
+import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone } from './store.js';
 import { Monitor } from './monitor.js';
 import { authenticate } from './auth.js';
 
@@ -513,6 +513,28 @@ app.get('/api/whatsapp/media/:waId', async (req, res) => {
     res.set('Content-Type', m.mime || 'application/octet-stream');
     if (m.name) res.set('Content-Disposition', `inline; filename="${encodeURIComponent(m.name)}"`);
     return res.sendFile(m.abs);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Чаты для раздела «Сообщения» ──
+// Только чтение из базы: окно WhatsApp не трогаем, опрашивать можно часто.
+app.get('/api/whatsapp/chats', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 100, 300);
+    return res.json({ items: await listChats(limit) });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/whatsapp/chats/:phone/messages', async (req, res) => {
+  try {
+    const digits = digitsOf(req.params.phone);
+    if (!digits) return res.status(400).json({ error: 'bad phone' });
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    return res.json({ items: await listByPhone(digits, limit) });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

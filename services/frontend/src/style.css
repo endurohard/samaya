@@ -5799,6 +5799,7 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .ig-msg-who, .ig-msg-time { font-size: 11px; color: #737373; margin: 2px 8px 0; }
 .ig-msg--in .ig-msg-who { display: none; }
 .ig-msg-media { display: inline-flex; align-items: center; gap: 6px; font-style: normal; }
+.ig-msg-empty { font-size: 13px; font-style: italic; opacity: .75; }
 .ig-empty { font-size: 13px; color: #737373; padding: 24px 16px; text-align: center; margin: auto; }
 
 /* Черновик ИИ: отдельной панелью над полем ввода, в цвете админки — он не

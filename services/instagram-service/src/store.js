@@ -196,14 +196,19 @@ export async function listThreads(limit = 100) {
  * (Instagram отдаёт «2 ч» вместо даты), а порядок вычитки повторяет порядок
  * инбокса — свежие диалоги сверху. Это оценка давности, а не дата.
  */
-export async function searchThreads({ terms = [], onlyIncoming = true, limit = 300 } = {}) {
+export async function searchThreads({ terms = [], onlyIncoming = true, limit = 300, from = null, to = null } = {}) {
   if (!COMPANY_ID) return [];
   const clean = terms
     .map(t => String(t || '').trim())
     .filter(Boolean);
   if (!clean.length) return [];
 
-  const params = [COMPANY_ID];
+  // Период обращения: условие должно встретиться в сообщении клиента,
+  // написанном в эти даты. Так отбирают «кто спрашивал про ЛЛ в сентябре»,
+  // а не всех за всю историю. $2/$3 — границы, NULL = без ограничения.
+  const params = [COMPANY_ID, from || null, to || null];
+  const period = `AND ($2::timestamptz IS NULL OR m.sent_at >= $2::timestamptz)
+         AND ($3::timestamptz IS NULL OR m.sent_at < $3::timestamptz)`;
   const conds = [];
   for (const term of clean) {
     // Варианты условия → один регэксп. Экранируем служебные символы: человек
@@ -217,6 +222,8 @@ export async function searchThreads({ terms = [], onlyIncoming = true, limit = 3
       .split('|')
       .map(v => v.trim())
       .filter(Boolean)
+      // «ё» приводим к «е» с обеих сторон: клиент пишет «бёдра», фильтр — «бедр».
+      .map(v => v.replace(/ё/gi, 'е'))
       .map(v => '\\m' + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       .join('|');
     if (!rx) continue;
@@ -226,7 +233,8 @@ export async function searchThreads({ terms = [], onlyIncoming = true, limit = 3
        WHERE m.thread_id = t.thread_id
          AND m.company_id = t.company_id
          ${onlyIncoming ? 'AND m.from_me = FALSE' : ''}
-         AND m.body ~* $${params.length})`);
+         ${period}
+         AND translate(m.body, 'Ёё', 'Ее') ~* $${params.length})`);
   }
   if (!conds.length) return [];
 
@@ -244,14 +252,18 @@ export async function searchThreads({ terms = [], onlyIncoming = true, limit = 3
             (SELECT left(regexp_replace(m.body, '\\s+', ' ', 'g'), 160)
                FROM instagram.messages m
               WHERE m.thread_id = t.thread_id AND m.from_me = FALSE
-                AND m.body ~* $2
-              ORDER BY m.created_at LIMIT 1) AS matched_phrase
+                AND translate(m.body, 'Ёё', 'Ее') ~* $4 ${period}
+              ORDER BY m.created_at LIMIT 1) AS matched_phrase,
+            -- когда клиент последний раз писал по теме (в пределах периода)
+            (SELECT max(m.sent_at) FROM instagram.messages m
+              WHERE m.thread_id = t.thread_id AND m.from_me = FALSE
+                AND translate(m.body, 'Ёё', 'Ее') ~* $4 ${period}) AS asked_at
        FROM instagram.threads t
        JOIN pos p ON p.thread_id = t.thread_id
        LEFT JOIN clients.clients c ON c.id = t.client_id
       WHERE t.company_id = $1
         AND ${conds.join(' AND ')}
-      ORDER BY p.inbox_pos
+      ORDER BY asked_at DESC NULLS LAST, p.inbox_pos
       LIMIT $${params.length}`,
     params,
   );

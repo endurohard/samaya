@@ -273,6 +273,54 @@ export async function unlinkedChats(limit = 50) {
   return r.rows;
 }
 
+// Список чатов для вкладки «WhatsApp» в разделе «Сообщения»: по одному
+// диалогу на номер, свежие сверху. Прочтений WhatsApp Web нам не отдаёт,
+// поэтому «ждут ответа» считаем сами: входящие после нашего последнего
+// исходящего. Для администратора это и есть смысл непрочитанного — клиенту
+// ещё никто не ответил.
+export async function listChats(limit = 100) {
+  const r = await pool.query(
+    `WITH last_out AS (
+       SELECT phone_digits, max(sent_at) AS at
+         FROM whatsapp.messages
+        WHERE company_id = $1 AND from_me = true
+        GROUP BY phone_digits
+     )
+     SELECT m.phone_digits,
+            max(m.client_id::text)::uuid AS client_id,
+            c.full_name AS client_name,
+            max(m.sent_at) AS last_at,
+            (array_agg(m.body ORDER BY m.sent_at DESC, m.created_at DESC))[1] AS last_body,
+            (array_agg(m.from_me ORDER BY m.sent_at DESC, m.created_at DESC))[1] AS last_from_me,
+            (array_agg((m.media_path IS NOT NULL) ORDER BY m.sent_at DESC, m.created_at DESC))[1] AS last_has_media,
+            count(*) FILTER (WHERE m.from_me = false AND (lo.at IS NULL OR m.sent_at > lo.at))::int AS waiting
+       FROM whatsapp.messages m
+       LEFT JOIN last_out lo ON lo.phone_digits = m.phone_digits
+       LEFT JOIN clients.clients c ON c.id = m.client_id
+      WHERE m.company_id = $1
+      GROUP BY m.phone_digits, c.full_name
+      ORDER BY max(m.sent_at) DESC
+      LIMIT $2`,
+    [COMPANY_ID, limit],
+  );
+  return r.rows;
+}
+
+// Переписка по номеру — для чата во вкладке «WhatsApp». По номеру, а не по
+// клиенту: новые номера ещё не привязаны к карточке, а писать им нужно.
+export async function listByPhone(phoneDigits, limit = 200) {
+  const r = await pool.query(
+    `SELECT wa_id, from_me, body, msg_type, media_name, media_mime, media_size,
+            (media_path IS NOT NULL) AS has_media, ack, sent_at, author_name, client_id
+       FROM whatsapp.messages
+      WHERE company_id = $1 AND phone_digits = $2
+      ORDER BY sent_at DESC, created_at DESC
+      LIMIT $3`,
+    [COMPANY_ID, phoneDigits, limit],
+  );
+  return r.rows.reverse();
+}
+
 export async function mediaOf(waId) {
   const r = await pool.query(
     `SELECT media_path, media_name, media_mime FROM whatsapp.messages

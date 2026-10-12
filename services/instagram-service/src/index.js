@@ -365,7 +365,8 @@ app.post('/api/instagram/send', async (req, res) => {
 // варианты внутри условия — через «|».
 app.post('/api/instagram/search', async (req, res) => {
   try {
-    const { terms, only_incoming: onlyIncoming, limit } = req.body || {};
+    const { terms, only_incoming: onlyIncoming, limit, from, to } = req.body || {};
+    const okDate = (v) => (v && !Number.isNaN(new Date(v).getTime()) ? new Date(v).toISOString() : null);
     if (!Array.isArray(terms) || !terms.length) {
       return res.status(400).json({ error: 'нужен массив terms' });
     }
@@ -373,6 +374,8 @@ app.post('/api/instagram/search', async (req, res) => {
       terms,
       onlyIncoming: onlyIncoming !== false,
       limit: Math.min(Number(limit) || 300, 500),
+      from: okDate(from),
+      to: okDate(to),
     });
     res.json({ total: rows.length, threads: rows });
   } catch (e) {

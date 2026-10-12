@@ -743,11 +743,12 @@ a.btn-ghost:hover { text-decoration: none; }
 .tel-row > .card { flex: 1 1 420px; min-width: 0; margin: 0; }
 .tel-callbacks-card { border-color: #ecd9d9; }
 .tel-callbacks { display: flex; flex-direction: column; }
-.tel-cb { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--bg-soft); flex-wrap: wrap; }
+.tel-cb { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bg-soft); }
 .tel-cb:first-child { border-top: 0; }
 .tel-cb-ico { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; background: #fbeaea; color: #a33a3c;
   display: flex; align-items: center; justify-content: center; }
-.tel-cb-main { flex: 1 1 200px; min-width: 0; }
+.tel-cb-main { flex: 1 1 0; min-width: 0; }
+.tel-cb > .btn-primary, .tel-cb > .btn-ghost { flex: 0 0 auto; }
 .tel-cb-name { font-weight: 600; }
 .tel-cb-name span { font-weight: 400; color: var(--text-dim); }
 .tel-cb-info { font-size: 12px; color: var(--text-dim); }
@@ -793,4 +794,90 @@ a.btn-ghost:hover { text-decoration: none; }
   .tel-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tel-kpi-val { font-size: 24px; }
   .tel-hours { gap: 3px; }
+  .tel-cb { flex-wrap: wrap; }
+  .tel-cb-main { flex: 1 1 calc(100% - 50px); }
+  .tel-cb-wait { margin-left: 46px; margin-right: auto; }
 }
+
+/* ===== AI ассистент: форма шаблона и список =====
+   Слева три шага «название → когда клиент пишет → что отвечаем», справа
+   предпросмотр в виде переписки и режим ответа одним выбором. */
+.ai-tpl-form { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(42, 35, 32, .06); }
+.ai-tpl-form-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+.ai-tpl-form-head h3 { margin: 0; font-size: 18px; font-weight: 600; }
+.ai-tpl-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 24px; align-items: start; }
+.ai-tpl-steps { display: flex; flex-direction: column; gap: 18px; }
+.ai-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; }
+.ai-step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--primary-soft); color: var(--primary);
+  font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; margin-top: -2px; }
+.ai-step-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ai-step-body > label { font-weight: 600; font-size: var(--fs-md, 14px); }
+.ai-step-body .hint { margin: 0; }
+.ai-chip-btn { border: 1px solid var(--border-strong); background: var(--bg-soft); color: var(--text); border-radius: 6px;
+  padding: 0 6px; font: inherit; font-size: 12px; font-style: normal; cursor: pointer; }
+
+.ai-tpl-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 12px; }
+.ai-preview { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.ai-preview-title { padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--text-dim);
+  background: var(--bg-soft); border-bottom: 1px solid var(--border); }
+.ai-preview-chat { padding: 14px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+.ai-preview-chat.is-off .ai-bubble--out { opacity: .4; text-decoration: line-through; }
+.ai-bubble { max-width: 85%; padding: 8px 12px; border-radius: 16px; font-size: 14px; line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word; }
+.ai-bubble--in { align-self: flex-start; background: #efefef; color: #262626; border-bottom-left-radius: 4px; }
+.ai-bubble--out { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+.ai-bubble.is-placeholder { opacity: .55; font-style: italic; }
+.ai-preview-meta { align-self: flex-end; font-size: 12px; }
+.ai-preview-meta.is-auto { color: #2f7d52; }
+.ai-preview-meta.is-draft { color: #8a6023; }
+.ai-preview-meta.is-off { color: var(--text-dim); }
+
+.ai-mode { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ai-mode legend { font-weight: 600; font-size: var(--fs-md, 14px); margin-bottom: 6px; padding: 0; }
+.ai-mode-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box;
+  border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; margin: 0; }
+.ai-mode-opt:hover { border-color: var(--border-strong); }
+.ai-mode-opt:has(input:checked) { border-color: var(--primary); background: #fbf6f6; }
+.ai-mode-opt input { margin: 0; accent-color: var(--primary); }
+.ai-mode-opt b { display: block; font-weight: 600; }
+.ai-mode-opt small { display: block; font-size: 12px; color: var(--text-dim); }
+.ai-mode-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; display: inline-block; }
+.ai-mode-dot.is-auto { background: #2f9e5b; }
+.ai-mode-dot.is-draft { background: #d39b2a; }
+.ai-mode-dot.is-off { background: #b8aca5; }
+.ai-mode-warn { font-size: 12px; color: #8a6023; background: #faf1e3; border-radius: 8px; padding: 8px 10px; }
+.ai-more summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-dim); }
+.ai-more[open] { display: flex; flex-direction: column; gap: 6px; }
+.ai-more label { font-size: var(--fs-sm); font-weight: 500; margin-top: 6px; }
+.view-aiassistant .ai-more input { width: 120px; }
+.ai-tpl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px;
+  padding-top: 14px; border-top: 1px solid var(--border); }
+
+#aiTplList { display: flex; flex-direction: column; gap: 10px; }
+.ai-tpl-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; background: #fff; }
+.ai-tpl-card.is-off { background: var(--bg); }
+.ai-tpl-card.is-off .ai-bubble--out { background: #b8aca5; }
+.ai-tpl-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.ai-tpl-card-title { font-weight: 600; font-size: 15px; }
+.ai-mode-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 10px 2px 8px;
+  border-radius: 999px; background: var(--bg-soft); color: var(--text-dim); }
+.ai-mode-tag.is-auto { background: #e7f4ec; color: #2f7d52; }
+.ai-mode-tag.is-draft { background: #faf1e3; color: #8a6023; }
+.ai-tpl-card-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.ai-tpl-card-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 10px; }
+.ai-tpl-card-lbl { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+.ai-tpl-card-when { font-size: 13px; color: var(--text-dim); line-height: 1.45; }
+.ai-tpl-card .ai-bubble--out { max-width: 100%; display: inline-block; font-size: 13px; }
+
+@media (max-width: 900px) {
+  .ai-tpl-grid, .ai-tpl-card-grid { grid-template-columns: 1fr; }
+  .ai-tpl-side { position: static; }
+  .ai-tpl-card-actions { margin-left: 0; width: 100%; }
+}
+
+/* Поиск по переписке Instagram: период обращения */
+.ig-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.ig-period-lbl { font-size: var(--fs-sm); font-weight: 500; }
+.ig-period-range { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ig-period-range label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-dim); margin: 0; }
