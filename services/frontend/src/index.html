@@ -1221,51 +1221,88 @@
 
         <!-- View: salary (Sprint 1 — Tab 1 + Tab 4 + 2 заглушки) -->
         <!-- View: telephony -->
-        <section class="view" data-view="telephony" hidden>
+        <section class="view view-telephony" data-view="telephony" hidden>
           <nav class="subnav" id="telSubnav">
-            <button type="button" class="subnav-item active" data-tel-tab="calls">Журнал звонков</button>
+            <button type="button" class="subnav-item active" data-tel-tab="calls">Обзор и журнал</button>
             <button type="button" class="subnav-item" data-tel-tab="tickets">AI-заявки <span class="tel-tab-badge" id="telTicketsBadge" hidden>0</span></button>
             <button type="button" class="subnav-item" data-tel-tab="extensions">Номера сотрудников</button>
           </nav>
 
           <!-- Tab: журнал -->
           <div id="telTabCalls" class="tel-tab">
+            <!-- Период — один на весь экран: и метрики, и график, и журнал
+                 считаются за него. Свой период — для разбора конкретных дней
+                 («что было в праздники»), готовые — для ежедневного взгляда. -->
+            <div class="tel-periodbar">
+              <div class="period-pills" id="telPeriod" role="tablist" aria-label="Период">
+                <button type="button" class="period-pill" data-tel-period="today">Сегодня</button>
+                <button type="button" class="period-pill" data-tel-period="yesterday">Вчера</button>
+                <button type="button" class="period-pill active" data-tel-period="week">7 дней</button>
+                <button type="button" class="period-pill" data-tel-period="month">30 дней</button>
+                <button type="button" class="period-pill" data-tel-period="thismonth">Этот месяц</button>
+                <button type="button" class="period-pill" data-tel-period="custom">Свой период</button>
+              </div>
+              <form class="tel-range" id="telRange" hidden>
+                <label class="tel-range-field"><span>с</span><input type="date" id="telFrom" required></label>
+                <label class="tel-range-field"><span>по</span><input type="date" id="telTo" required></label>
+                <button type="submit" class="btn-primary btn-sm">Показать</button>
+              </form>
+              <span class="tel-period-label" id="telPeriodLabel"></span>
+              <div class="data-head-spacer"></div>
+              <span class="tel-sync" id="telSyncState"></span>
+              <button class="btn-secondary btn-sm" id="telSyncBtn" type="button" title="Перечитать журнал из ВАТС">Обновить</button>
+            </div>
+
+            <div class="tel-kpis" id="telKpis"></div>
+
+            <div class="tel-row">
+              <div class="card tel-callbacks-card">
+                <div class="data-head">
+                  <h2 class="card-title">Нужно перезвонить</h2>
+                  <span class="counter" id="telCallbacksCounter">0</span>
+                  <div class="data-head-spacer"></div>
+                  <span class="hint">пропущенные без ответного звонка</span>
+                </div>
+                <div id="telCallbacks" class="tel-callbacks"></div>
+              </div>
+              <div class="card tel-hours-card">
+                <div class="data-head">
+                  <h2 class="card-title">Когда звонят</h2>
+                  <div class="data-head-spacer"></div>
+                  <span class="tel-legend"><i class="is-ok"></i>отвечено</span>
+                  <span class="tel-legend"><i class="is-miss"></i>пропущено</span>
+                </div>
+                <div id="telHours" class="tel-hours" role="img" aria-label="Входящие звонки по часам"></div>
+                <div id="telHoursNote" class="tel-note" hidden></div>
+              </div>
+            </div>
+
             <div class="card data-card">
               <div class="data-head">
-                <h2 class="card-title">Звонки</h2>
+                <h2 class="card-title">Журнал звонков</h2>
                 <span class="counter" id="telCallsCounter">0</span>
-                <div class="data-head-spacer"></div>
-                <span class="tel-sync" id="telSyncState"></span>
-                <button class="btn-secondary btn-sm" id="telSyncBtn" type="button" title="Перечитать журнал из ВАТС">Обновить</button>
               </div>
-
               <div class="tel-toolbar">
-                <div class="period-pills" id="telPeriod" role="tablist" aria-label="Период">
-                  <button type="button" class="period-pill" data-tel-period="today">Сегодня</button>
-                  <button type="button" class="period-pill active" data-tel-period="week">Неделя</button>
-                  <button type="button" class="period-pill" data-tel-period="month">Месяц</button>
-                </div>
-                <select id="telDirection" title="Направление">
+                <select id="telDirection" title="Направление" aria-label="Направление">
                   <option value="">Все звонки</option>
                   <option value="inbound">Входящие</option>
                   <option value="outbound">Исходящие</option>
                 </select>
-                <select id="telStatus" title="Результат">
+                <select id="telStatus" title="Результат" aria-label="Результат">
                   <option value="">Любой результат</option>
                   <option value="answered">Отвечены</option>
                   <option value="missed">Пропущены</option>
                 </select>
-                <select id="telMaster" title="Сотрудник">
+                <select id="telMaster" title="Сотрудник" aria-label="Сотрудник">
                   <option value="">Все сотрудники</option>
                 </select>
-                <input id="telNumber" type="search" placeholder="Номер клиента" />
+                <input id="telNumber" type="search" placeholder="Номер клиента" aria-label="Номер клиента" />
               </div>
-
-              <div class="tel-metrics" id="telSummary"></div>
-
+              <div class="tel-metrics" id="telSummary" hidden></div>
               <!-- Линию не выносим в колонку: у входящих она всегда одна и та же,
                    у исходящих её нет — столбец повторял одно значение на всю
                    высоту экрана. Ушла подписью под номером. -->
+              <div class="tel-table-wrap">
               <table class="data-table tel-table" id="telCallsTable">
                 <thead>
                   <tr>
@@ -1274,18 +1311,27 @@
                     <th>Клиент</th>
                     <th>Принял</th>
                     <th class="text-right">Разговор</th>
+                    <th>Итог</th>
                     <th class="tel-col-play"></th>
                   </tr>
                 </thead>
-                <tbody><tr><td colspan="6" class="table-empty">Загрузка…</td></tr></tbody>
+                <tbody><tr><td colspan="7" class="table-empty">Загрузка…</td></tr></tbody>
               </table>
-
+              </div>
               <div class="tel-more">
                 <button class="btn-secondary btn-sm" id="telMoreBtn" type="button" hidden>Показать ещё</button>
               </div>
             </div>
-          </div>
 
+            <div class="card">
+              <div class="data-head">
+                <h2 class="card-title">Кто на телефоне</h2>
+                <div class="data-head-spacer"></div>
+                <span class="hint">отвеченные звонки за период</span>
+              </div>
+              <div id="telStaff" class="tel-staff"></div>
+            </div>
+          </div>
           <!-- Tab: заявки AI-оператора -->
           <div id="telTabTickets" class="tel-tab" hidden>
             <div class="card data-card">
@@ -2736,20 +2782,20 @@
                        его отправить или отклонить. -->
                   <div class="ig-draft" id="igDraft" hidden>
                     <div class="ig-draft-head">
-                      <span>Черновик ответа</span>
+                      <span>✦ Черновик ответа</span>
                       <span id="igDraftSafe" class="pill pill-mute"></span>
                     </div>
                     <textarea id="igDraftText" rows="3"></textarea>
                     <div class="ig-draft-actions">
-                      <button type="button" class="btn-primary btn-sm" id="igDraftSend">Отправить</button>
                       <button type="button" class="btn-ghost btn-sm" id="igDraftDrop">Отклонить</button>
+                      <button type="button" class="btn-primary btn-sm" id="igDraftSend">Отправить черновик</button>
                     </div>
                   </div>
 
                   <div class="ig-chat-form">
-                    <input type="text" id="igChatInput" placeholder="Ответ клиенту…" autocomplete="off">
-                    <button type="button" class="btn-ghost btn-sm" id="igSuggest" title="Предложить ответ">ИИ</button>
-                    <button type="button" class="btn-primary btn-sm" id="igChatSend">Отправить</button>
+                    <input type="text" id="igChatInput" placeholder="Сообщение…" autocomplete="off" aria-label="Ответ клиенту">
+                    <button type="button" class="ig-ai-btn" id="igSuggest" title="Предложить ответ">ИИ</button>
+                    <button type="button" class="ig-send-btn" id="igChatSend">Отправить</button>
                   </div>
                   <div class="ig-chat-status" id="igChatStatus"></div>
                 </div>
@@ -2757,7 +2803,51 @@
             </div>
           </div><!-- /msgTabInstagram -->
 
-          <div class="messages-layout" id="msgTabWhatsapp" hidden>
+          <div id="msgTabWhatsapp" hidden>
+
+            <!-- Переписка WhatsApp. Окно повторяет WhatsApp Web, чтобы
+                 администратор узнавал привычный интерфейс; рассылка — за
+                 кнопкой, потому что открывают раздел ради диалогов, а не ради
+                 рассылки. Данные из базы (whatsapp.messages), окно WhatsApp
+                 при просмотре не трогается. -->
+            <div class="card wa-inbox-card">
+              <div class="card-head">
+                <h2 class="card-title">WhatsApp</h2>
+                <span id="waInboxStatus" class="pill pill-mute">проверяю…</span>
+                <div class="card-head-actions">
+                  <button type="button" class="btn-ghost btn-sm" id="waInboxRefresh">Обновить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="waBroadcastToggle" aria-expanded="false">Рассылка</button>
+                </div>
+              </div>
+              <div class="wa-inbox">
+                <div class="wa-inbox-side">
+                  <div class="wa-inbox-search">
+                    <input type="search" id="waInboxSearch" placeholder="Поиск по имени или номеру" aria-label="Поиск по чатам" autocomplete="off">
+                    <div class="wa-inbox-filters" role="tablist" aria-label="Фильтр чатов">
+                      <button type="button" class="wa-chip is-active" data-wa-filter="all">Все</button>
+                      <button type="button" class="wa-chip" data-wa-filter="waiting">Ждут ответа</button>
+                      <button type="button" class="wa-chip" data-wa-filter="new">Новые номера</button>
+                    </div>
+                  </div>
+                  <div class="wa-inbox-list" id="waInboxList"><div class="wa-inbox-empty">Загрузка…</div></div>
+                </div>
+                <div class="wa-inbox-chat">
+                  <div class="wa-inbox-head" id="waInboxHead"><span class="wa-inbox-head-empty">Выберите чат</span></div>
+                  <div class="wa-inbox-thread" id="waInboxThread">
+                    <div class="wa-inbox-empty">Сообщения появятся здесь</div>
+                  </div>
+                  <form class="wa-inbox-compose" id="waInboxForm" hidden>
+                    <input type="text" id="waInboxInput" placeholder="Введите сообщение" autocomplete="off" aria-label="Ответ клиенту">
+                    <button type="submit" class="wa-send-btn" id="waInboxSend" aria-label="Отправить">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 20.5L21 12 3 3.5l2.5 7L14 12l-8.5 1.5z"/></svg>
+                    </button>
+                  </form>
+                  <div class="wa-inbox-status" id="waInboxStatusLine"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="messages-layout" id="waBroadcastWrap" hidden>
 
             <!-- Входящие с номеров, которых нет в базе клиентов -->
             <div class="card" id="waUnlinkedCard" hidden>
@@ -2898,6 +2988,7 @@
               </div>
             </div>
 
+            </div><!-- /waBroadcastWrap -->
           </div><!-- /msgTabWhatsapp -->
         </section>
 
@@ -2936,11 +3027,11 @@
 
                   <label for="aiTplTitle">Название темы</label>
                   <input type="text" id="aiTplTitle" maxlength="200" placeholder="Например: Стоимость услуг">
-
-                  <label for="aiTplTopic">Ключ темы</label>
-                  <input type="text" id="aiTplTopic" maxlength="64" placeholder="price"
-                         pattern="[a-z][a-z0-9_]*" autocapitalize="off" spellcheck="false">
-                  <div class="hint">Латиницей, без пробелов. Нужен классификатору; менять потом не стоит.</div>
+                  <!-- Ключ темы не спрашиваем: он нужен классификатору, а не
+                       человеку, и генерируется из названия на сервере. У уже
+                       созданного шаблона показываем его только для справки —
+                       менять нельзя, по ключу связан журнал решений. -->
+                  <div class="hint" id="aiTplTopicHint" hidden></div>
 
                   <label for="aiTplMatcher" style="margin-top:10px;">Когда применять (описание для ассистента)</label>
                   <textarea id="aiTplMatcher" rows="4" maxlength="2000"

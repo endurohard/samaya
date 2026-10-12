@@ -5221,13 +5221,41 @@ import {
     return `${Math.floor(s / 60)}:${telPad(s % 60)}`;
   }
 
+  // Границы периода. Готовые периоды — от полуночи по локальному времени,
+  // а не «минус 24 часа»: «Сегодня» в 9 утра должно показывать утро, а не
+  // вчерашний вечер. Свой период — включительно по обе даты.
   function telRange() {
-    const to = new Date();
-    const from = new Date();
-    if (telState.period === 'today') from.setHours(0, 0, 0, 0);
-    else if (telState.period === 'week') from.setDate(from.getDate() - 7);
-    else from.setDate(from.getDate() - 30);
+    const now = new Date();
+    const midnight = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+    let from = midnight(now);
+    let to = now;
+    switch (telState.period) {
+      case 'today': break;
+      case 'yesterday':
+        from.setDate(from.getDate() - 1);
+        to = midnight(now);
+        break;
+      case 'week': from.setDate(from.getDate() - 6); break;
+      case 'month': from.setDate(from.getDate() - 29); break;
+      case 'thismonth': from.setDate(1); break;
+      case 'custom': {
+        const f = telState.customFrom ? new Date(telState.customFrom + 'T00:00:00') : midnight(now);
+        const t = telState.customTo ? new Date(telState.customTo + 'T00:00:00') : midnight(now);
+        t.setDate(t.getDate() + 1);
+        from = f; to = t;
+        break;
+      }
+      default: from.setDate(from.getDate() - 6);
+    }
     return { from: from.toISOString(), to: to.toISOString() };
+  }
+
+  function telPeriodLabel() {
+    const { from, to } = telRange();
+    const f = new Date(from);
+    const t = new Date(new Date(to).getTime() - 1);
+    const fmt = (d) => `${d.getDate()} ${MONTHS_RU_GENITIVE[d.getMonth()]}`;
+    return f.toDateString() === t.toDateString() ? fmt(f) : `${fmt(f)} – ${fmt(t)}`;
   }
 
   function telQuery() {
@@ -5276,11 +5304,11 @@ import {
     if (!tbody) return;
 
     if (error) {
-      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">Не удалось загрузить журнал</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">Не удалось загрузить журнал</td></tr>';
       return;
     }
     if (!telState.items.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">За период звонков нет</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">За период звонков нет</td></tr>';
       if (more) more.hidden = true;
       if (counter) counter.textContent = '0';
       if (summary) summary.innerHTML = '';
@@ -5303,7 +5331,7 @@ import {
       const day = telDayLabel(c.started_at);
       if (day !== lastDay) {
         lastDay = day;
-        rows.push(`<tr class="tel-day"><td colspan="6">${escapeHtml(day)}</td></tr>`);
+        rows.push(`<tr class="tel-day"><td colspan="7">${escapeHtml(day)}</td></tr>`);
       }
       const inbound = c.direction === 'inbound';
       const d = new Date(c.started_at);
@@ -5341,6 +5369,7 @@ import {
         <td>${clientCell}</td>
         <td>${whoCell}</td>
         <td class="text-right tel-dur">${missed ? '<span class="tel-missed-mark">пропущен</span>' : telFmtDur(c.duration_sec)}</td>
+        <td>${telOutcome(c)}</td>
         <td class="tel-col-play">${c.has_recording ? '<button type="button" class="tel-play" data-tel-play title="Прослушать запись" aria-label="Прослушать запись">▶</button>' : ''}</td>
       </tr>`);
     });
@@ -5348,6 +5377,177 @@ import {
 
     if (more) more.hidden = telState.items.length >= (t?.total ?? 0);
   }
+
+  // Итог звонка одной меткой: чем закончилось обращение — записью, заявкой
+  // AI-оператора, перезвоном или ничем. Без неё журнал отвечал только на
+  // «кто и сколько говорил», а администратору нужно «что с клиентом дальше».
+  function telOutcome(c) {
+    if (c.booked) return '<span class="tel-out is-booked">записан</span>';
+    if (c.handled_by === 'ai') return '<span class="tel-out is-ai">AI-заявка</span>';
+    if (c.status === 'missed' && c.direction === 'inbound') {
+      if (c.caller_kind === 'staff') return '<span class="tel-out">сотрудник</span>';
+      if (c.called_back_at) {
+        const min = Math.max(1, Math.round((new Date(c.called_back_at) - new Date(c.started_at)) / 60000));
+        const after = min < 60 ? `${min} мин` : (min < 1440 ? `${Math.round(min / 60)} ч` : `${Math.round(min / 1440)} д`);
+        return `<span class="tel-out is-late">перезвонили через ${after}</span>`;
+      }
+      if (c.processed_at) return '<span class="tel-out">обработан</span>';
+      return '<span class="tel-out is-miss">не перезвонили</span>';
+    }
+    return '';
+  }
+
+  function telDelta(cur, prev, { lowerIsBetter = false, pct = true } = {}) {
+    if (prev == null || !Number.isFinite(prev)) return '';
+    const diff = cur - prev;
+    if (!diff) return '<span class="tel-kpi-delta">как раньше</span>';
+    const good = lowerIsBetter ? diff < 0 : diff > 0;
+    const val = pct && prev ? `${diff > 0 ? '+' : '−'}${Math.abs(Math.round(diff / prev * 100))}%`
+      : `${diff > 0 ? '+' : '−'}${Math.abs(diff)}`;
+    return `<span class="tel-kpi-delta ${good ? 'is-good' : 'is-bad'}" title="к прошлому периоду той же длины">${val}</span>`;
+  }
+
+  function telAgo(iso) {
+    const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (min < 60) return `${Math.max(1, min)} мин`;
+    if (min < 1440) return `${Math.floor(min / 60)} ч ${telPad(min % 60)} мин`;
+    return `${Math.floor(min / 1440)} д`;
+  }
+
+  let telStatsSeq = 0;
+  async function loadTelStats() {
+    const kpis = document.getElementById('telKpis');
+    if (!kpis) return;
+    const seq = ++telStatsSeq;
+    const { from, to } = telRange();
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
+    const r = await apiCall('GET', `/api/telephony/stats?${new URLSearchParams({ from, to, tz })}`);
+    if (seq !== telStatsSeq) return; // пока грузили, выбрали другой период
+    if (!r.ok) {
+      kpis.innerHTML = '<div class="hint">Сводка недоступна — журнал ниже работает.</div>';
+      return;
+    }
+    renderTelStats(r.data || {});
+  }
+
+  function renderTelStats(d) {
+    const t = d.totals || {};
+    const p = d.prev || {};
+    const missShare = t.total ? Math.round(t.missed / t.total * 100) : 0;
+    const waiting = (d.callbacks || []).length;
+    const overHour = (d.callbacks || []).filter((c) => Date.now() - new Date(c.last_at) > 3600e3).length;
+    const conv = t.total ? Math.round(t.booked / t.total * 100) : 0;
+    const prevConv = p.total ? Math.round(p.booked / p.total * 100) : null;
+    const kpi = (label, value, delta, note, cls = '') => `
+      <div class="tel-kpi ${cls}">
+        <div class="tel-kpi-label">${label}</div>
+        <div class="tel-kpi-row"><span class="tel-kpi-val">${value}</span>${delta}</div>
+        <div class="tel-kpi-note">${note}</div>
+      </div>`;
+    document.getElementById('telKpis').innerHTML = [
+      kpi('Всего звонков', t.total ?? 0, telDelta(t.total, p.total), `${t.inbound ?? 0} входящих · ${t.outbound ?? 0} исходящих`),
+      kpi('Пропущено', t.missed ?? 0, `<span class="tel-kpi-delta ${missShare > 10 ? 'is-bad' : ''}">${missShare}%</span>`,
+        `из них перезвонили ${t.called_back ?? 0}`, t.missed ? 'is-miss' : ''),
+      kpi('Ждут перезвона', waiting, overHour ? `<span class="tel-kpi-delta is-bad">дольше часа: ${overHour}</span>` : '',
+        waiting ? 'список ниже' : 'всем перезвонили', waiting ? 'is-miss' : ''),
+      kpi('Средний разговор', telFmtDur(t.avg_talk_sec), telDelta(t.avg_talk_sec, p.avg_talk_sec, { pct: false }).replace(/([+−])(\d+)/, '$1$2 с'),
+        'по отвеченным звонкам'),
+      kpi('AI-оператор', t.ai ?? 0, telDelta(t.ai, p.ai), 'принял, когда линия занята'),
+      kpi('Звонок → запись', `${conv}%`, prevConv == null ? '' : telDelta(conv, prevConv, { pct: false }).replace(/([+−]\d+)/, '$1 п.'),
+        `${t.booked ?? 0} записей в течение суток`),
+    ].join('');
+
+    // Кому перезвонить
+    const cbBox = document.getElementById('telCallbacks');
+    const cbCounter = document.getElementById('telCallbacksCounter');
+    if (cbCounter) cbCounter.textContent = String(waiting);
+    if (cbBox) {
+      cbBox.innerHTML = waiting ? d.callbacks.map((c) => {
+        const longWait = Date.now() - new Date(c.last_at) > 3600e3;
+        const name = c.client_name || 'Новый номер';
+        const info = [
+          c.attempts > 1 ? `звонил ${c.attempts} раза` : 'звонил 1 раз',
+          c.handled_by === 'ai' ? 'говорил с AI-оператором' : '',
+          `последний — ${telFmtWhen(c.last_at)}`,
+        ].filter(Boolean).join(' · ');
+        return `<div class="tel-cb" data-call="${escapeHtml(c.call_id)}">
+          <span class="tel-cb-ico" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/><path d="M16 3l5 5M21 3l-5 5"/></svg>
+          </span>
+          <div class="tel-cb-main">
+            <div class="tel-cb-name">${escapeHtml(name)} <span>${escapeHtml(c.client_number || '')}</span></div>
+            <div class="tel-cb-info">${escapeHtml(info)}</div>
+          </div>
+          <div class="tel-cb-wait ${longWait ? 'is-long' : ''}">ждёт ${escapeHtml(telAgo(c.last_at))}</div>
+          <a class="btn-primary btn-sm" href="tel:${escapeHtml(c.client_number || '')}">Позвонить</a>
+          <button type="button" class="btn-ghost btn-sm" data-tel-cb-done title="Убрать из списка: вопрос решён другим путём">Готово</button>
+        </div>`;
+      }).join('') : '<div class="empty">Всем перезвонили — пропущенных без ответа нет.</div>';
+    }
+
+    // Нагрузка по часам: только рабочие часы, где были звонки, плюс
+    // соседние, чтобы график не прыгал от периода к периоду.
+    const hoursBox = document.getElementById('telHours');
+    const note = document.getElementById('telHoursNote');
+    const hours = d.hours || [];
+    if (hoursBox) {
+      if (!hours.length) {
+        hoursBox.innerHTML = '<div class="empty">За период входящих нет</div>';
+        if (note) note.hidden = true;
+      } else {
+        const lo = Math.min(9, ...hours.map((h) => h.hour));
+        const hi = Math.max(20, ...hours.map((h) => h.hour));
+        const by = new Map(hours.map((h) => [h.hour, h]));
+        const max = Math.max(1, ...hours.map((h) => h.answered + h.missed));
+        const bars = [];
+        for (let h = lo; h <= hi; h++) {
+          const v = by.get(h) || { answered: 0, missed: 0 };
+          const okH = Math.round(v.answered / max * 100);
+          const missH = Math.round(v.missed / max * 100);
+          bars.push(`<div class="tel-hour" title="${h}:00–${h + 1}:00 · отвечено ${v.answered}, пропущено ${v.missed}">
+            <div class="tel-hour-bar"><span class="is-miss" style="height:${missH}%"></span><span class="is-ok" style="height:${okH}%"></span></div>
+            <div class="tel-hour-lbl">${h}</div></div>`);
+        }
+        hoursBox.innerHTML = bars.join('');
+        // Вывод словами: график показывает «когда», подпись — «что с этим делать».
+        const worst = hours.slice().sort((a, b) => b.missed - a.missed)[0];
+        if (note) {
+          if (worst && worst.missed >= 2) {
+            note.hidden = false;
+            note.textContent = `Больше всего пропусков в ${worst.hour}:00–${worst.hour + 1}:00 — ${worst.missed} из ${worst.answered + worst.missed} входящих.`
+              + (worst.ai ? ` AI-оператор принял ${worst.ai}.` : '');
+          } else note.hidden = true;
+        }
+      }
+    }
+
+    // Сотрудники
+    const staffBox = document.getElementById('telStaff');
+    if (staffBox) {
+      const staff = d.staff || [];
+      staffBox.innerHTML = staff.length ? staff.map((s) => {
+        const name = s.is_ai ? 'AI-оператор' : (s.name || `Номер ${s.extension}`);
+        const sub = s.is_ai ? 'автоответ' : (s.name ? `доб. ${s.extension || '—'}` : 'не привязан к сотруднику');
+        return `<div class="tel-staff-card ${s.name || s.is_ai ? '' : 'is-raw'}">
+          <div class="tel-staff-head">
+            <span class="tel-staff-ava" style="background:${s.is_ai ? '#2b201e' : stringToColor(s.key || name)}">${escapeHtml(s.is_ai ? 'ИИ' : name.charAt(0).toUpperCase())}</span>
+            <div><div class="tel-staff-name">${escapeHtml(name)}</div><div class="tel-staff-sub">${escapeHtml(sub)}</div></div>
+          </div>
+          <div class="tel-staff-nums"><span><b>${s.calls}</b> звонков</span><span><b>${telFmtDur(s.avg_sec)}</b> в среднем</span><span><b>${s.booked}</b> записей</span></div>
+        </div>`;
+      }).join('') : '<div class="empty">За период отвеченных звонков нет</div>';
+    }
+  }
+
+  document.getElementById('telCallbacks')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-tel-cb-done]');
+    if (!btn) return;
+    const row = btn.closest('[data-call]');
+    btn.disabled = true;
+    const r = await apiCall('POST', `/api/telephony/calls/${row.dataset.call}/mark`, { processed: true });
+    if (!r.ok) { btn.disabled = false; toast('Не удалось отметить'); return; }
+    void loadTelStats();
+  });
 
   async function loadTelStatus() {
     const el = document.getElementById('telSyncState');
@@ -5376,7 +5576,7 @@ import {
   async function activateTelephonyView() {
     if (!cachedMasters.length) await loadMasters();
     telFillMasters();
-    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus(), loadTelTickets()]);
+    await Promise.all([telReloadAll(), loadTelStatus(), loadTelTickets()]);
   }
 
   // Запись тянем фетчем с токеном и отдаём плееру blob-ссылкой: тег <audio> не
@@ -5486,12 +5686,47 @@ import {
     if (tab === 'tickets') void loadTelTickets();
   });
 
+  function telReloadAll() {
+    const lbl = document.getElementById('telPeriodLabel');
+    if (lbl) lbl.textContent = telPeriodLabel();
+    return Promise.all([loadTelCalls({ reset: true }), loadTelStats()]);
+  }
+
   document.getElementById('telPeriod')?.addEventListener('click', (e) => {
     const pill = e.target.closest('[data-tel-period]');
     if (!pill) return;
-    telState.period = pill.dataset.telPeriod;
     document.querySelectorAll('#telPeriod .period-pill').forEach((p) => p.classList.toggle('active', p === pill));
-    void loadTelCalls({ reset: true });
+    const range = document.getElementById('telRange');
+    if (pill.dataset.telPeriod === 'custom') {
+      // Свой период: сначала даты, загрузка — по «Показать». Подставляем
+      // текущий выбранный период, чтобы не вбивать обе даты с нуля.
+      if (range) range.hidden = false;
+      const { from, to } = telRange();
+      const iso = (d) => `${d.getFullYear()}-${telPad(d.getMonth() + 1)}-${telPad(d.getDate())}`;
+      const fEl = document.getElementById('telFrom');
+      const tEl = document.getElementById('telTo');
+      if (fEl && !fEl.value) fEl.value = iso(new Date(from));
+      if (tEl && !tEl.value) tEl.value = iso(new Date(new Date(to).getTime() - 1));
+      if (tEl) tEl.max = iso(new Date());
+      if (fEl) fEl.max = iso(new Date());
+      fEl?.focus();
+      return;
+    }
+    if (range) range.hidden = true;
+    telState.period = pill.dataset.telPeriod;
+    void telReloadAll();
+  });
+
+  document.getElementById('telRange')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    let f = document.getElementById('telFrom')?.value;
+    let t = document.getElementById('telTo')?.value;
+    if (!f || !t) return;
+    if (f > t) [f, t] = [t, f]; // перепутали местами — не ругаемся, а меняем
+    telState.period = 'custom';
+    telState.customFrom = f;
+    telState.customTo = t;
+    void telReloadAll();
   });
 
   ['telDirection', 'telStatus', 'telMaster'].forEach((id) => {
@@ -5518,7 +5753,7 @@ import {
     await apiCall('POST', '/api/telephony/sync', {});
     btn.disabled = false;
     btn.textContent = prev;
-    await Promise.all([loadTelCalls({ reset: true }), loadTelStatus(), loadTelTickets()]);
+    await Promise.all([telReloadAll(), loadTelStatus(), loadTelTickets()]);
   });
 
   document.querySelector('#telCallsTable')?.addEventListener('click', (e) => {
@@ -7509,6 +7744,7 @@ import {
     const wa = document.getElementById('msgTabWhatsapp');
     if (ig) ig.hidden = (tab !== 'instagram');
     if (wa) wa.hidden = (tab !== 'whatsapp');
+    if (tab === 'whatsapp') startWaInbox();
   }
 
   document.getElementById('messagesSubnav')?.addEventListener('click', (e) => {
@@ -7923,15 +8159,19 @@ import {
 
     document.getElementById('aiTplId').value = t?.id || '';
     document.getElementById('aiTplTitle').value = t?.title || '';
-    document.getElementById('aiTplTopic').value = t?.topic || '';
     document.getElementById('aiTplMatcher').value = t?.matcher || '';
     document.getElementById('aiTplBody').value = t?.body || '';
     document.getElementById('aiTplAutosend').checked = !!t?.autosend;
     document.getElementById('aiTplEnabled').checked = t ? !!t.enabled : true;
     document.getElementById('aiTplOrder').value = t?.sort_order ?? 100;
-    // Ключ темы у существующего шаблона не меняем: по нему связан журнал
-    // решений, и смена ключа оторвала бы историю от шаблона.
-    document.getElementById('aiTplTopic').disabled = !!t;
+    // Ключ темы показываем только для справки у существующего шаблона: по нему
+    // связан журнал решений, и смена ключа оторвала бы историю от шаблона.
+    // У нового его ещё нет — сервер сделает ключ из названия.
+    const topicHint = document.getElementById('aiTplTopicHint');
+    if (topicHint) {
+      topicHint.hidden = !t;
+      topicHint.textContent = t ? `Ключ темы: ${t.topic} (задан при создании, не меняется)` : '';
+    }
     aiTplSetMsg('');
 
     form.hidden = false;
@@ -7961,12 +8201,10 @@ import {
       enabled: document.getElementById('aiTplEnabled').checked,
       sort_order: Number(document.getElementById('aiTplOrder').value) || 100,
     };
-    if (!id) payload.topic = document.getElementById('aiTplTopic').value.trim();
+    // Ключ темы в запрос не кладём: при создании его генерирует сервер из
+    // названия, при правке он неизменен.
 
     if (!payload.title) { aiTplSetMsg('Укажите название темы', 'error'); return; }
-    if (!id && !/^[a-z][a-z0-9_]*$/.test(payload.topic || '')) {
-      aiTplSetMsg('Ключ темы: латиница в нижнем регистре, без пробелов', 'error'); return;
-    }
     if (payload.matcher.length < 10) {
       aiTplSetMsg('Опишите подробнее, когда применять тему — от этого зависит точность', 'error'); return;
     }
@@ -8571,6 +8809,231 @@ async function loadWaUnlinked() {
   } catch { /* раздел не критичен — покажем при следующем открытии */ }
 }
 
+// ── Переписка WhatsApp в разделе «Сообщения» ──
+// Окно в духе WhatsApp Web: список чатов слева, лента и ответ справа.
+// Читаем из базы, поэтому опрос дешёвый и сеанс WhatsApp не трогает.
+let _waChats = [];
+let _waChatPhone = null;
+let _waFilter = 'all';
+let _waInboxTimer = null;
+
+function waFmtPhone(d) {
+  const x = String(d || '');
+  if (x.length === 11 && x.startsWith('7')) {
+    return `+7 ${x.slice(1, 4)} ${x.slice(4, 7)}-${x.slice(7, 9)}-${x.slice(9)}`;
+  }
+  return '+' + x;
+}
+
+function waAgo(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  }
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Вчера';
+  if (now - d < 6 * 864e5) return d.toLocaleDateString('ru-RU', { weekday: 'short' });
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+const WA_AVA_COLORS = ['#c0587a', '#5b7fd1', '#3f9d8a', '#c7843a', '#8a62c4', '#d06a4c', '#6b7c85'];
+function waAvatar(label, seed) {
+  let h = 0;
+  for (const ch of String(seed || label)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return '<span class="wa-ava" aria-hidden="true" style="background:' + WA_AVA_COLORS[h % WA_AVA_COLORS.length] + '">'
+    + escapeHtml(label) + '</span>';
+}
+
+const WA_TICKS = '<svg class="wa-ticks" width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1 6l3 3 6-7M6 9l1 1 6-8"/></svg>';
+
+async function loadWaInboxStatus() {
+  const pill = document.getElementById('waInboxStatus');
+  if (!pill) return;
+  const r = await apiCall('GET', '/api/whatsapp/status');
+  if (!r.ok) { pill.className = 'pill pill-warn'; pill.textContent = 'WhatsApp недоступен'; return; }
+  const st = r.data || {};
+  if (st.test_mode) { pill.className = 'pill pill-mute'; pill.textContent = 'тест-режим'; }
+  else if (st.ready) { pill.className = 'pill pill-ok'; pill.textContent = 'подключён'; }
+  else { pill.className = 'pill pill-warn'; pill.textContent = 'не подключён'; }
+}
+
+async function loadWaChats() {
+  const list = document.getElementById('waInboxList');
+  if (!list) return;
+  const r = await apiCall('GET', '/api/whatsapp/chats');
+  if (!r.ok) {
+    list.innerHTML = '<div class="wa-inbox-empty">Не удалось загрузить чаты</div>';
+    return;
+  }
+  _waChats = r.data?.items || [];
+  renderWaChats();
+}
+
+function renderWaChats() {
+  const list = document.getElementById('waInboxList');
+  if (!list) return;
+  const q = (document.getElementById('waInboxSearch')?.value || '').trim().toLowerCase();
+  const qDigits = q.replace(/\D/g, '');
+  const items = _waChats.filter((c) => {
+    if (_waFilter === 'waiting' && !c.waiting) return false;
+    if (_waFilter === 'new' && c.client_id) return false;
+    if (!q) return true;
+    return (c.client_name || '').toLowerCase().includes(q)
+      || (qDigits && String(c.phone_digits).includes(qDigits));
+  });
+  if (!items.length) {
+    list.innerHTML = '<div class="wa-inbox-empty">' + (_waChats.length ? 'Ничего не найдено' : 'Чатов пока нет') + '</div>';
+    return;
+  }
+  list.innerHTML = items.map((c) => {
+    const title = c.client_name || waFmtPhone(c.phone_digits);
+    const ava = c.client_name ? c.client_name.trim().charAt(0).toUpperCase() : '+7';
+    const last = c.last_body || (c.last_has_media ? 'Вложение' : '');
+    return '<button type="button" class="wa-chat-row' + (c.phone_digits === _waChatPhone ? ' is-active' : '')
+      + (c.waiting ? ' is-waiting' : '') + '" data-phone="' + escapeHtml(c.phone_digits) + '">'
+      + waAvatar(ava, c.phone_digits)
+      + '<span class="wa-chat-main">'
+      + '<span class="wa-chat-top"><span class="wa-chat-name">' + escapeHtml(title) + '</span>'
+      + '<span class="wa-chat-when">' + (c.last_at ? escapeHtml(waAgo(c.last_at)) : '') + '</span></span>'
+      + '<span class="wa-chat-bottom">'
+      + (c.last_from_me ? WA_TICKS : '')
+      + '<span class="wa-chat-last">' + escapeHtml(last.slice(0, 90)) + '</span>'
+      + (c.client_id ? '' : '<span class="wa-chat-tag">нет в базе</span>')
+      + (c.waiting ? '<span class="wa-chat-count" title="Сообщений без ответа">' + c.waiting + '</span>' : '')
+      + '</span></span></button>';
+  }).join('');
+}
+
+async function openWaChat(phone, silent = false) {
+  _waChatPhone = phone;
+  document.querySelectorAll('.wa-chat-row').forEach((el) => {
+    el.classList.toggle('is-active', el.dataset.phone === phone);
+  });
+  const chat = _waChats.find((c) => c.phone_digits === phone) || { phone_digits: phone };
+  const head = document.getElementById('waInboxHead');
+  const thread = document.getElementById('waInboxThread');
+  const form = document.getElementById('waInboxForm');
+  if (form) form.hidden = false;
+  if (head && !silent) {
+    const title = chat.client_name || waFmtPhone(phone);
+    head.innerHTML = waAvatar(chat.client_name ? chat.client_name.charAt(0).toUpperCase() : '+7', phone)
+      + '<div class="wa-inbox-head-main"><div class="wa-inbox-head-name">' + escapeHtml(title) + '</div>'
+      + '<div class="wa-inbox-head-sub">' + escapeHtml(chat.client_name ? waFmtPhone(phone) : 'нет в базе клиентов') + '</div></div>'
+      + '<a class="wa-icon-btn" href="tel:+' + escapeHtml(phone) + '" aria-label="Позвонить" title="Позвонить">'
+      + '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg></a>';
+  }
+  if (!thread) return;
+  if (!silent) thread.innerHTML = '<div class="wa-inbox-empty">Загрузка…</div>';
+  const r = await apiCall('GET', '/api/whatsapp/chats/' + encodeURIComponent(phone) + '/messages');
+  if (_waChatPhone !== phone) return; // пока грузили, открыли другой чат
+  if (!r.ok) { thread.innerHTML = '<div class="wa-inbox-empty">Не удалось загрузить переписку</div>'; return; }
+  const items = r.data?.items || [];
+  const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 60;
+
+  const parts = [];
+  // Номера нет в базе — как системная плашка WhatsApp прямо в ленте: тут же
+  // видно, почему переписка не попадёт в историю клиента, и что с этим делать.
+  if (!chat.client_id) {
+    parts.push('<div class="wa-sys" data-phone="' + escapeHtml(phone) + '">'
+      + 'Этого номера нет в базе клиентов — переписка не попадёт в историю клиента.'
+      + '<div class="wa-sys-actions">'
+      + '<button type="button" class="wa-pill-btn is-primary" data-wa-create>Создать клиента</button>'
+      + '<button type="button" class="wa-pill-btn" data-wa-attach>Добавить к существующему</button>'
+      + '</div></div>');
+  }
+  let lastDay = '';
+  for (const m of items) {
+    const dt = new Date(m.sent_at);
+    const day = dt.toDateString() === new Date().toDateString()
+      ? 'СЕГОДНЯ'
+      : dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+    if (day !== lastDay) { parts.push('<div class="wa-day">' + escapeHtml(day) + '</div>'); lastDay = day; }
+    const time = dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const media = m.has_media
+      ? '<a class="wa-media" href="/api/whatsapp/media/' + encodeURIComponent(m.wa_id) + '" target="_blank" rel="noopener">'
+        + escapeHtml(m.media_name || 'Вложение') + '</a>'
+      : '';
+    const read = m.from_me ? '<span class="wa-msg-ack' + (Number(m.ack) >= 3 ? ' is-read' : '') + '">' + WA_TICKS + '</span>' : '';
+    parts.push('<div class="wa-msg ' + (m.from_me ? 'wa-msg--out' : 'wa-msg--in') + '">'
+      + (m.from_me && m.author_name ? '<div class="wa-msg-author">' + escapeHtml(m.author_name) + '</div>' : '')
+      + media
+      + (m.body ? '<span class="wa-msg-text">' + escapeHtml(m.body) + '</span>' : '')
+      + '<span class="wa-msg-meta">' + time + read + '</span></div>');
+  }
+  if (!items.length) parts.push('<div class="wa-inbox-empty">Сообщений нет</div>');
+  thread.innerHTML = parts.join('');
+  if (atBottom || !silent) thread.scrollTop = thread.scrollHeight;
+}
+
+async function sendWaInbox() {
+  const input = document.getElementById('waInboxInput');
+  const status = document.getElementById('waInboxStatusLine');
+  const btn = document.getElementById('waInboxSend');
+  const text = String(input?.value || '').trim();
+  if (!text || !_waChatPhone) return;
+  if (btn) btn.disabled = true;
+  if (status) { status.textContent = 'Отправляю…'; status.className = 'wa-inbox-status'; }
+  const r = await apiCall('POST', '/api/whatsapp/send', { phone: '+' + _waChatPhone, message: text });
+  if (btn) btn.disabled = false;
+  if (!r.ok) {
+    // Причину показываем под полем, а не только тостом: тост легко пропустить,
+    // и тогда нажатие выглядит как «ничего не произошло».
+    if (status) { status.textContent = 'Не отправлено: ' + (r.data?.error || 'код ' + r.status); status.className = 'wa-inbox-status is-warn'; }
+    return;
+  }
+  if (input) input.value = '';
+  if (status) { status.textContent = ''; }
+  await Promise.all([openWaChat(_waChatPhone, true), loadWaChats()]);
+}
+
+function startWaInbox() {
+  void loadWaInboxStatus();
+  void loadWaChats().then(() => { if (_waChatPhone) void openWaChat(_waChatPhone, true); });
+  if (_waInboxTimer) clearInterval(_waInboxTimer);
+  _waInboxTimer = setInterval(() => {
+    const tab = document.getElementById('msgTabWhatsapp');
+    if (!tab || tab.hidden || document.hidden || tab.closest('.view')?.hidden) {
+      clearInterval(_waInboxTimer); _waInboxTimer = null; return;
+    }
+    void loadWaChats();
+    if (_waChatPhone) void openWaChat(_waChatPhone, true);
+  }, 10000);
+}
+
+document.getElementById('waInboxList')?.addEventListener('click', (e) => {
+  const row = e.target.closest('.wa-chat-row');
+  if (row) void openWaChat(row.dataset.phone);
+});
+document.getElementById('waInboxThread')?.addEventListener('click', (e) => {
+  const sys = e.target.closest('.wa-sys');
+  if (!sys) return;
+  const phone = sys.dataset.phone;
+  if (e.target.closest('[data-wa-create]')) void waCreateClientFromChat(phone);
+  else if (e.target.closest('[data-wa-attach]')) waAttachChatToClient(phone, sys);
+});
+document.getElementById('waInboxForm')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  void sendWaInbox();
+});
+document.getElementById('waInboxSearch')?.addEventListener('input', () => renderWaChats());
+document.querySelectorAll('[data-wa-filter]').forEach((b) => {
+  b.addEventListener('click', () => {
+    _waFilter = b.dataset.waFilter;
+    document.querySelectorAll('[data-wa-filter]').forEach((x) => x.classList.toggle('is-active', x === b));
+    renderWaChats();
+  });
+});
+document.getElementById('waInboxRefresh')?.addEventListener('click', () => startWaInbox());
+document.getElementById('waBroadcastToggle')?.addEventListener('click', (e) => {
+  const wrap = document.getElementById('waBroadcastWrap');
+  if (!wrap) return;
+  wrap.hidden = !wrap.hidden;
+  e.currentTarget.setAttribute('aria-expanded', String(!wrap.hidden));
+  e.currentTarget.textContent = wrap.hidden ? 'Рассылка' : 'Скрыть рассылку';
+  if (!wrap.hidden) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 async function waCreateClientFromChat(phoneDigits) {
   // Заводим клиента через обычную форму карточки с подставленным телефоном, а
   // не через prompt(): во встроенном браузере VS Code prompt() заблокирован, и
@@ -8630,6 +9093,7 @@ function waAttachChatToClient(phoneDigits, row) {
     if (!link.ok) { toast('Не удалось привязать: ' + (link.data?.error || link.status)); return; }
     toast('Переписка привязана к «' + name.split('+')[0].trim() + '»');
     await loadWaUnlinked();
+    if (document.getElementById('msgTabWhatsapp')?.hidden === false) startWaInbox();
   });
 }
 
@@ -14290,6 +14754,27 @@ function waAttachChatToClient(phoneDigits, row) {
     return loadIgThreadsInner();
   }
 
+  // Короткая давность как в Direct: «4 мин», «3 ч», «2 д», дальше — дата.
+  function igAgo(iso) {
+    const d = new Date(iso);
+    const min = Math.round((Date.now() - d.getTime()) / 60000);
+    if (min < 1) return 'сейчас';
+    if (min < 60) return min + ' мин';
+    if (min < 60 * 24) return Math.floor(min / 60) + ' ч';
+    if (min < 60 * 24 * 7) return Math.floor(min / 1440) + ' д';
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  }
+
+  const IG_AVA_COLORS = ['#c13584', '#5851db', '#e1306c', '#f77737', '#833ab4', '#405de6', '#fd1d1d'];
+  function igAvatar(name, ring) {
+    const n = String(name || '?');
+    let h = 0;
+    for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const color = IG_AVA_COLORS[h % IG_AVA_COLORS.length];
+    return '<span class="ig-ava' + (ring ? ' is-ring' : '') + '" aria-hidden="true">'
+      + '<span style="background:' + color + '">' + escapeHtml(n.replace(/^@/, '').charAt(0).toUpperCase()) + '</span></span>';
+  }
+
   async function loadIgThreadsInner() {
     const box = document.getElementById('igThreads');
     if (!box) return;
@@ -14303,19 +14788,24 @@ function waAttachChatToClient(phoneDigits, row) {
       box.innerHTML = items.map((t) => {
         const name = t.client_name || t.full_name || t.username || 'без имени';
         const nick = t.username ? '@' + t.username : '';
-        const when = t.last_at
-          ? new Date(t.last_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-          : '';
+        const when = t.last_at ? igAgo(t.last_at) : '';
         // Непривязанный диалог помечаем: без карточки клиента переписка не
         // попадёт в историю клиента и потеряется при следующем визите.
-        const unlinked = t.client_id ? '' : '<span class="ig-tag">нет карточки</span>';
-        const draft = t.ai_draft ? '<span class="ig-tag ig-tag--draft">черновик</span>' : '';
-        return '<div class="ig-thread' + (t.thread_id === _igThread ? ' is-active' : '') + '"'
-          + ' data-id="' + escapeHtml(t.thread_id) + '">'
-          + '<div class="ig-thread-top"><b>' + escapeHtml(name) + '</b>'
-          + '<span class="ig-thread-when">' + escapeHtml(when) + '</span></div>'
-          + '<div class="ig-thread-nick">' + escapeHtml(nick) + unlinked + draft + '</div>'
-          + '<div class="ig-thread-last">' + escapeHtml((t.last_body || '').slice(0, 80)) + '</div>'
+        const unlinked = t.client_id ? '' : '<span class="ig-tag">без карточки</span>';
+        const draft = t.ai_draft ? '<span class="ig-tag ig-tag--draft">черновик ИИ</span>' : '';
+        const unread = Number(t.unread) > 0;
+        // Как в Direct: непрочитанный диалог — жирным, с кольцом вокруг
+        // аватарки и синей точкой. Аватарку из Instagram не грузим: CSP
+        // админки не пускает внешние картинки, поэтому — инициал на цвете.
+        return '<div class="ig-thread' + (t.thread_id === _igThread ? ' is-active' : '') + (unread ? ' is-unread' : '') + '"'
+          + ' data-id="' + escapeHtml(t.thread_id) + '" data-name="' + escapeHtml(name) + '" data-nick="' + escapeHtml(nick) + '">'
+          + igAvatar(name, unread)
+          + '<div class="ig-thread-main">'
+          + '<div class="ig-thread-top"><b>' + escapeHtml(name) + '</b>' + unlinked + draft + '</div>'
+          + '<div class="ig-thread-last"><span>' + escapeHtml((t.last_body || nick).slice(0, 80)) + '</span>'
+          + (when ? '<span>· ' + escapeHtml(when) + '</span>' : '') + '</div>'
+          + '</div>'
+          + (unread ? '<span class="ig-thread-dot" aria-label="непрочитано"></span>' : '<span></span>')
           + '</div>';
       }).join('');
       box.querySelectorAll('.ig-thread').forEach((el) => {
@@ -14366,19 +14856,23 @@ function waAttachChatToClient(phoneDigits, row) {
           // ответил. У автоответов подписи нет — там остаётся «Мы».
           const who = out ? (m.author_name ? escapeHtml(m.author_name) : 'Мы') : 'Клиент';
           const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-          const body = escapeHtml(m.body || '') || (m.has_media ? '<i>вложение</i>' : '');
+          const body = escapeHtml(m.body || '') || (m.has_media ? '<span class="ig-msg-media"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>Вложение</span>' : '');
+          // Подпись — под пузырём, как «Просмотрено» в Direct: кто из
+          // администраторов ответил и во сколько.
           parts.push('<div class="ig-msg' + (out ? ' ig-msg--out' : ' ig-msg--in') + '">'
-            + '<div class="ig-msg-who">' + who + '</div>'
             + '<div class="ig-msg-body">' + body + '</div>'
-            + '<div class="ig-msg-time">' + time + '</div></div>');
+            + '<div class="ig-msg-time">' + (out ? who + ' · ' : '') + time + '</div></div>');
         }
         list.innerHTML = parts.join('');
       }
       if (atBottom || !silent) list.scrollTop = list.scrollHeight;
 
       if (head && !silent) {
-        const active = document.querySelector('.ig-thread.is-active b')?.textContent || 'Диалог';
-        head.textContent = active;
+        const el = document.querySelector('.ig-thread.is-active');
+        const name = el?.dataset.name || 'Диалог';
+        const nick = el?.dataset.nick || '';
+        head.innerHTML = igAvatar(name, false)
+          + '<div>' + escapeHtml(name) + (nick ? '<small>' + escapeHtml(nick) + '</small>' : '') + '</div>';
       }
       await loadIgDraft();
     } catch (e) {

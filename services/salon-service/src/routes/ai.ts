@@ -105,11 +105,64 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
 router.use(authenticate);
 const manage = requireRole(['owner', 'admin']);
 
+/**
+ * Ключ темы из названия: транслитерация RU→latin.
+ *
+ * Отдельная функция, а не slugify() из slug.ts: там разделитель — дефис, он
+ * годится для ЧПУ, но ключ темы уходит к классификатору идентификатором
+ * варианта и обязан совпадать с /^[a-z][a-z0-9_]*$/ — то есть подчёркивания.
+ *
+ * Если название без латиницы и кириллицы (одни эмодзи или иероглифы), вернётся
+ * пустая строка — вызывающий код подставит запасной ключ.
+ */
+export function topicKey(title: string): string {
+  const MULTI: Record<string, string> = {
+    ж: 'zh', ч: 'ch', ш: 'sh', щ: 'sch', ю: 'yu', я: 'ya', ё: 'yo', х: 'kh',
+  };
+  const SINGLE: Record<string, string> = {
+    а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', з: 'z', и: 'i', й: 'j',
+    к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+    у: 'u', ф: 'f', ц: 'c', ы: 'y', ь: '_', ъ: '_', э: 'e',
+  };
+  const out: string[] = [];
+  for (const ch of title.toLowerCase()) {
+    if (MULTI[ch] !== undefined) out.push(MULTI[ch]);
+    else if (SINGLE[ch] !== undefined) out.push(SINGLE[ch]);
+    else if (/[a-z0-9]/.test(ch)) out.push(ch);
+    else out.push('_');
+  }
+  const key = out.join('')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64)
+    .replace(/_+$/, '');
+  // Ключ обязан начинаться с буквы: название вида «2 подбородок» дало бы
+  // «2_podborodok», а это не проходит проверку.
+  return /^[a-z]/.test(key) ? key : (key ? `t_${key}`.slice(0, 64) : '');
+}
+
+/** Свободный ключ темы: base, base_2, base_3, … */
+async function freeTopic(companyId: string, base: string): Promise<string> {
+  const root = base || `tema_${Date.now().toString(36)}`;
+  for (let i = 1; i <= 50; i++) {
+    const candidate = i === 1 ? root : `${root}_${i}`.slice(0, 64);
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM ai.reply_templates WHERE company_id = $1 AND topic = $2`,
+      [companyId, candidate],
+    );
+    if (!rowCount) return candidate;
+  }
+  return `${root}_${Date.now().toString(36)}`.slice(0, 64);
+}
+
 const templateSchema = z.object({
   // Латиница и подчёркивания: ключ уходит в запрос к классификатору как
   // идентификатор варианта, пробелы и кириллица там только мешают.
+  //
+  // Необязателен: при создании ключ генерируется из названия, и администратору
+  // не нужно знать про транслитерацию вообще. Явно переданный — уважаем.
   topic: z.string().min(2).max(64).regex(/^[a-z][a-z0-9_]*$/,
-    'ключ темы: латиница в нижнем регистре, цифры и подчёркивания'),
+    'ключ темы: латиница в нижнем регистре, цифры и подчёркивания').optional(),
   title: z.string().min(1).max(200),
   matcher: z.string().min(10).max(2000),
   body: z.string().min(1).max(2000),
@@ -136,13 +189,17 @@ router.get('/templates', manage, async (req: ExpressRequest, res, next) => {
 router.post('/templates', manage, async (req: ExpressRequest, res, next) => {
   try {
     const t = templateSchema.parse(req.body);
+    // Ключ не прислали — делаем его из названия и подбираем свободный.
+    // Генерация на сервере, а не только в форме: ключ обязан быть уникальным
+    // внутри компании, а это знает только база.
+    const topic = t.topic ?? await freeTopic(req.auth!.company_id, topicKey(t.title));
     const { rows } = await pool.query(
       `INSERT INTO ai.reply_templates
          (company_id, topic, title, matcher, body, autosend, enabled, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING id, topic, title, matcher, body, autosend, enabled, sort_order, updated_at`,
       [
-        req.auth!.company_id, t.topic, t.title, t.matcher, t.body,
+        req.auth!.company_id, topic, t.title, t.matcher, t.body,
         t.autosend ?? false, t.enabled ?? true, t.sort_order ?? 100,
       ],
     );

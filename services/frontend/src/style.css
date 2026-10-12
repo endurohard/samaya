@@ -5750,62 +5750,86 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .wa-attach-empty { font-size: 13px; color: var(--text-dim); padding: 4px 2px; }
 
 /* ===== Instagram Direct =====
-   Два столбца: список диалогов и лента. Высота фиксированная, прокрутка
-   внутри каждого столбца — иначе длинная переписка растягивает карточку и
-   уводит поле ответа за пределы экрана. */
-.ig-layout { display: grid; grid-template-columns: 280px 1fr; gap: 12px; min-height: 420px; }
-.ig-threads { border: 1px solid var(--border); border-radius: 10px; overflow-y: auto;
-  max-height: 520px; background: #fafafa; }
-.ig-thread { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
-.ig-thread:hover { background: #f1f5f9; }
-.ig-thread.is-active { background: #e8f1fe; border-left: 3px solid #0095f6; }
-.ig-thread-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.ig-thread-top b { font-size: 13px; }
-.ig-thread-when { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
-.ig-thread-nick { font-size: 11px; color: var(--text-dim); margin: 2px 0; }
-.ig-thread-last { font-size: 12px; color: #475569; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.ig-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px;
-  font-size: 10px; background: #fee2e2; color: #b91c1c; }
-.ig-tag--draft { background: #dbeafe; color: #1d4ed8; }
+   Окно повторяет веб-версию Direct: администратор узнаёт привычный интерфейс
+   и не путает каналы. Акцент Samaya (бордовый) оставлен только у того, что
+   добавляет админка поверх Direct: черновик ИИ, метки, кнопка «ИИ».
+   Высота окна фиксирована, прокрутка внутри столбцов — иначе длинная
+   переписка уводит поле ответа за пределы экрана. */
+.ig-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr);
+  height: min(720px, calc(100vh - 230px)); min-height: 520px;
+  background: #fff; border: 1px solid #dbdbdb; border-radius: var(--radius-lg); overflow: hidden; }
+.ig-threads { border-right: 1px solid #dbdbdb; overflow-y: auto; background: #fff; padding: 6px 0; }
+.ig-thread { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px;
+  align-items: center; padding: 8px 16px; cursor: pointer; }
+.ig-thread:hover { background: #fafafa; }
+.ig-thread.is-active { background: #efefef; }
+.ig-ava { width: 56px; height: 56px; border-radius: 50%; padding: 2px; box-sizing: border-box; background: #fff; }
+.ig-ava.is-ring { background: linear-gradient(45deg, #feda75, #fa7e1e 30%, #d62976 60%, #962fbf 80%, #4f5bd5); }
+.ig-ava > span { width: 100%; height: 100%; border-radius: 50%; border: 2px solid #fff; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 18px; }
+.ig-thread-main { min-width: 0; }
+.ig-thread-top { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.ig-thread-top b { font-size: 14px; font-weight: 400; color: #262626; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ig-thread.is-unread .ig-thread-top b { font-weight: 600; }
+.ig-thread-last { display: flex; gap: 4px; font-size: 13px; color: #737373; margin-top: 2px; min-width: 0; }
+.ig-thread-last > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ig-thread-last > span:last-child { flex: 0 0 auto; }
+.ig-thread.is-unread .ig-thread-last { color: #262626; font-weight: 600; }
+.ig-thread-dot { width: 8px; height: 8px; border-radius: 50%; background: #0095f6; }
+.ig-tag { flex: 0 0 auto; display: inline-block; padding: 1px 6px; border-radius: 6px;
+  font-size: 11px; font-weight: 400; background: #faf1e3; color: #8a6023; }
+.ig-tag--draft { background: var(--primary-soft); color: var(--primary); }
 
-.ig-chat { display: flex; flex-direction: column; min-width: 0; }
-.ig-chat-head { font-weight: 600; font-size: 14px; padding: 0 0 8px; }
-.ig-chat-list { flex: 1; overflow-y: auto; max-height: 420px; padding: 10px;
-  background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
-  display: flex; flex-direction: column; gap: 6px; }
-.ig-day { align-self: center; font-size: 11px; color: var(--text-dim);
-  background: #e2e8f0; border-radius: 8px; padding: 2px 10px; margin: 6px 0; }
-.ig-msg { max-width: 72%; padding: 6px 10px; border-radius: 10px; }
-.ig-msg--in { align-self: flex-start; background: #fff; border: 1px solid var(--border); }
-.ig-msg--out { align-self: flex-end; background: #e8f1fe; }
-.ig-msg-who { font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 2px; }
-.ig-msg-body { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
-.ig-msg-time { font-size: 11px; color: #94a3b8; text-align: right; margin-top: 2px; }
-.ig-empty { font-size: 13px; color: var(--text-dim); padding: 16px; text-align: center; }
+.ig-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ig-chat-head { display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  border-bottom: 1px solid #dbdbdb; font-weight: 600; font-size: 16px; color: #262626; min-height: 44px; }
+.ig-chat-head .ig-ava { width: 44px; height: 44px; padding: 0; }
+.ig-chat-head .ig-ava > span { border: 0; font-size: 16px; }
+.ig-chat-head small { display: block; font-weight: 400; font-size: 13px; color: #737373; }
+.ig-chat-list { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 4px; background: #fff; }
+.ig-day { align-self: center; font-size: 12px; font-weight: 500; color: #737373; margin: 14px 0 8px; }
+.ig-msg { max-width: 62%; display: flex; flex-direction: column; }
+.ig-msg--in { align-self: flex-start; align-items: flex-start; }
+.ig-msg--out { align-self: flex-end; align-items: flex-end; }
+.ig-msg-body { padding: 8px 14px; border-radius: 18px; font-size: 15px; line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word; }
+.ig-msg--in .ig-msg-body { background: #efefef; color: #262626; }
+.ig-msg--out .ig-msg-body { background: #3797f0; color: #fff; }
+.ig-msg-who, .ig-msg-time { font-size: 11px; color: #737373; margin: 2px 8px 0; }
+.ig-msg--in .ig-msg-who { display: none; }
+.ig-msg-media { display: inline-flex; align-items: center; gap: 6px; font-style: normal; }
+.ig-empty { font-size: 13px; color: #737373; padding: 24px 16px; text-align: center; margin: auto; }
 
-/* Черновик ИИ: отдельной панелью над полем ввода, с видимой рамкой — он не
-   должен выглядеть как уже отправленный текст. */
-.ig-draft { margin-top: 8px; padding: 8px; border: 1px dashed #0095f6;
-  border-radius: 10px; background: #f0f7ff; }
-.ig-draft-head { display: flex; justify-content: space-between; align-items: center;
-  font-size: 12px; font-weight: 600; color: #1d4ed8; margin-bottom: 6px; }
-.ig-draft textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px;
-  padding: 6px 8px; font: inherit; font-size: 13px; resize: vertical; }
-.ig-draft-actions { display: flex; gap: 8px; margin-top: 6px; }
+/* Черновик ИИ: отдельной панелью над полем ввода, в цвете админки — он не
+   должен выглядеть как уже отправленное сообщение Direct. */
+.ig-draft { margin: 0 16px 10px; padding: 12px 14px; border: 1px solid #ecd9d9;
+  border-radius: 18px; background: #fbf6f6; }
+.ig-draft-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  font-size: 13px; font-weight: 600; color: var(--primary-dark); margin-bottom: 8px; }
+.ig-draft textarea { width: 100%; box-sizing: border-box; border: 1px solid #ecd9d9; border-radius: 12px;
+  padding: 10px 12px; font: inherit; font-size: 15px; line-height: 1.4; background: #fff; resize: vertical; }
+.ig-draft-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 
-.ig-chat-form { display: flex; gap: 8px; margin-top: 8px; }
-.ig-chat-form input { flex: 1; padding: 8px 10px; border: 1px solid var(--border);
-  border-radius: 8px; font: inherit; }
-.ig-chat-status { font-size: 12px; margin-top: 6px; color: var(--text-dim); min-height: 16px; }
-.ig-chat-status.is-ok { color: #0095f6; }
-.ig-chat-status.is-warn { color: #d97706; }
+.ig-chat-form { display: flex; align-items: center; gap: 6px; margin: 0 16px 6px;
+  min-height: 48px; padding: 0 6px 0 16px; border: 1px solid #dbdbdb; border-radius: 24px; }
+.ig-chat-form input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 15px; color: #262626; padding: 10px 0; }
+.ig-chat-form .ig-ai-btn { height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #ecd9d9;
+  background: #fbf6f6; color: var(--primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ig-chat-form .ig-send-btn { height: 40px; padding: 0 12px; border: 0; background: transparent;
+  color: #0095f6; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.ig-chat-form .ig-send-btn:hover { color: #00376b; }
+.ig-chat-status { font-size: 12px; margin: 0 20px 10px; color: var(--text-dim); min-height: 16px; }
+.ig-chat-status.is-ok { color: #2f7d52; }
+.ig-chat-status.is-warn { color: #8a6023; }
 
-.ig-live-wrap { margin: 8px 0; border: 1px solid var(--border); border-radius: 10px;
-  overflow: hidden; }
+.ig-live-wrap { margin: 0 0 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .ig-live-wrap iframe { width: 100%; height: 640px; border: 0; display: block; }
 
 @media (max-width: 900px) {
-  .ig-layout { grid-template-columns: 1fr; }
-  .ig-threads { max-height: 220px; }
+  .ig-layout { grid-template-columns: 1fr; height: auto; }
+  .ig-threads { max-height: 260px; border-right: 0; border-bottom: 1px solid #dbdbdb; }
+  .ig-chat-list { max-height: 60vh; }
+  .ig-msg { max-width: 85%; }
 }
