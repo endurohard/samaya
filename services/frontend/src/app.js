@@ -14445,6 +14445,187 @@ function waAttachChatToClient(phoneDigits, row) {
     }
   }
 
+  // ── Ручная кампания в Direct ──
+  // Найденные диалоги и отмеченные галочками получатели. Держим отдельно:
+  // снятая галочка не должна теряться при повторной отрисовке списка.
+  let _igFound = [];
+  let _igPicked = new Set();
+  let _igCampaignTimer = null;
+
+  const IG_PACES = {
+    safe:   { daily: 15, min: 180, max: 420 },
+    normal: { daily: 30, min: 90,  max: 240 },
+    brisk:  { daily: 50, min: 45,  max: 120 },
+  };
+
+  function igPace() {
+    const key = document.getElementById('igCampaignPace')?.value || 'normal';
+    return { key, ...(IG_PACES[key] || IG_PACES.normal) };
+  }
+
+  function renderIgFound() {
+    const list = document.getElementById('igSearchList');
+    const wrap = document.getElementById('igSearchResultWrap');
+    if (!list || !wrap) return;
+    if (!_igFound.length) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+
+    list.innerHTML = _igFound.map((t) => {
+      const who = t.username ? `@${t.username}` : (t.full_name || t.thread_id);
+      const name = t.full_name && t.username ? ` · ${escapeHtml(t.full_name)}` : '';
+      const client = t.client_name ? ` · карточка: ${escapeHtml(t.client_name)}` : '';
+      const checked = _igPicked.has(t.thread_id) ? 'checked' : '';
+      return `<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-bottom:1px solid var(--border,#2a2a35);cursor:pointer;">
+        <input type="checkbox" class="ig-pick" data-tid="${escapeHtml(t.thread_id)}" ${checked} style="margin-top:3px;">
+        <span style="flex:1;min-width:0;">
+          <span style="font-weight:600;">${escapeHtml(who)}</span>${name}${client}
+          <span class="char-count" style="margin-left:6px;">место в инбоксе ${t.inbox_pos}, сообщений ${t.msgs}</span>
+          ${t.matched_phrase ? `<div class="hint" style="margin-top:2px;">«${escapeHtml(t.matched_phrase)}»</div>` : ''}
+        </span>
+      </label>`;
+    }).join('');
+
+    list.querySelectorAll('.ig-pick').forEach((cb) => {
+      cb.addEventListener('change', (e) => {
+        const tid = e.target.getAttribute('data-tid');
+        if (e.target.checked) _igPicked.add(tid); else _igPicked.delete(tid);
+        updateIgSelected();
+      });
+    });
+    updateIgSelected();
+  }
+
+  function updateIgSelected() {
+    const el = document.getElementById('igSelectedCount');
+    if (el) el.textContent = `выбрано ${_igPicked.size}`;
+    const pace = igPace();
+    const eta = document.getElementById('igCampaignEta');
+    if (eta) {
+      if (!_igPicked.size) { eta.textContent = ''; return; }
+      const days = Math.ceil(_igPicked.size / pace.daily);
+      const avgMin = Math.round((pace.min + pace.max) / 2 / 60);
+      eta.textContent = `${_igPicked.size} получателей, пауза около ${avgMin} мин — `
+        + (days > 1 ? `примерно ${days} дн.` : 'уложится в один день')
+        + ` (не больше ${pace.daily} в сутки)`;
+    }
+  }
+
+  async function igSearch() {
+    const t1 = document.getElementById('igSearchTerm1')?.value?.trim();
+    const t2 = document.getElementById('igSearchTerm2')?.value?.trim();
+    const terms = [t1, t2].filter(Boolean);
+    const countEl = document.getElementById('igSearchCount');
+    if (!terms.length) { toast('Заполните хотя бы одно условие'); return; }
+
+    if (countEl) countEl.textContent = 'ищу…';
+    const { ok, data } = await apiCall('POST', '/api/instagram/search', { terms });
+    if (!ok) {
+      if (countEl) countEl.textContent = '';
+      toast(data?.error || 'Поиск не удался');
+      return;
+    }
+    _igFound = data.threads || [];
+    // Заново найденный список не наследует прежние галочки: условия изменились,
+    // и молча оставленный выбор отправил бы сообщение не тем людям.
+    _igPicked = new Set();
+    if (countEl) countEl.textContent = `найдено ${_igFound.length}`;
+    renderIgFound();
+  }
+
+  async function igCampaignStart() {
+    const msg = document.getElementById('igCampaignMessage')?.value?.trim();
+    const btn = document.getElementById('igCampaignStart');
+    if (!msg) { toast('Напишите текст сообщения'); return; }
+    if (!_igPicked.size) { toast('Отметьте получателей галочками'); return; }
+
+    const pace = igPace();
+    const days = Math.ceil(_igPicked.size / pace.daily);
+    const agree = await confirmInline(btn,
+      `Отправить ${_igPicked.size} получателям в Instagram Direct? `
+      + (days > 1 ? `При этом темпе — около ${days} дн., ` : '')
+      + 'отправка идёт в фоне, только с 10:00 до 20:00 МСК.',
+      'Запустить');
+    if (!agree) return;
+
+    const recipients = _igFound
+      .filter(t => _igPicked.has(t.thread_id))
+      .map(t => ({ thread_id: t.thread_id, username: t.username }));
+
+    const { ok, data } = await apiCall('POST', '/api/instagram/campaign/start',
+      { recipients, message: msg, pace: pace.key });
+    if (!ok) { toast(data?.error || 'Не удалось запустить'); return; }
+    toast(`Запущено: ${data.total} получателей`);
+    igCampaignPoll();
+  }
+
+  function igCampaignPoll() {
+    const progress = document.getElementById('igCampaignProgress');
+    const bar = document.getElementById('igCampaignBar');
+    const label = document.getElementById('igCampaignLabel');
+    const startBtn = document.getElementById('igCampaignStart');
+    const stopBtn = document.getElementById('igCampaignStop');
+    if (_igCampaignTimer) clearInterval(_igCampaignTimer);
+
+    const tick = async () => {
+      const { ok, data } = await apiCall('GET', '/api/instagram/campaign/status');
+      if (!ok || !data) return;
+      const done = (data.sent || 0) + (data.skipped || 0);
+      if (progress) progress.hidden = !(data.running || done);
+      if (bar && data.total) bar.style.width = `${Math.round(done / data.total * 100)}%`;
+      if (startBtn) startBtn.disabled = !!data.running;
+      if (stopBtn) stopBtn.hidden = !data.running;
+
+      if (label) {
+        let txt = `отправлено ${data.sent || 0} из ${data.total || 0}`;
+        if (data.skipped) txt += `, пропущено ${data.skipped}`;
+        if (data.failed?.length) txt += `, ошибок ${data.failed.length}`;
+        // Показываем причину паузы: кампания легально стоит часами (ночь,
+        // дневной лимит, перерыв), и без этого она выглядит зависшей.
+        if (data.running && data.paused_until) {
+          const until = new Date(data.paused_until);
+          txt += ` · ${data.pause_reason || 'перерыв'} до `
+            + until.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        }
+        if (!data.running && data.stopped_reason) txt += ` · ${data.stopped_reason}`;
+        else if (!data.running && done) txt += ' · завершено';
+        label.textContent = txt;
+      }
+
+      if (!data.running) { clearInterval(_igCampaignTimer); _igCampaignTimer = null; }
+    };
+    void tick();
+    _igCampaignTimer = setInterval(tick, 5000);
+  }
+
+  document.getElementById('igCampaignToggle')?.addEventListener('click', () => {
+    const wrap = document.getElementById('igCampaignWrap');
+    const btn = document.getElementById('igCampaignToggle');
+    if (!wrap) return;
+    wrap.hidden = !wrap.hidden;
+    if (btn) btn.textContent = wrap.hidden ? 'Отправка по списку' : 'Скрыть отправку';
+    // Кампания могла быть запущена в другой сессии — показываем её состояние.
+    if (!wrap.hidden) igCampaignPoll();
+  });
+  document.getElementById('igSearchBtn')?.addEventListener('click', () => { void igSearch(); });
+  document.getElementById('igSelectAll')?.addEventListener('click', () => {
+    _igPicked = new Set(_igFound.map(t => t.thread_id));
+    renderIgFound();
+  });
+  document.getElementById('igSelectNone')?.addEventListener('click', () => {
+    _igPicked = new Set();
+    renderIgFound();
+  });
+  document.getElementById('igCampaignPace')?.addEventListener('change', updateIgSelected);
+  document.getElementById('igCampaignMessage')?.addEventListener('input', (e) => {
+    const el = document.getElementById('igCampaignChars');
+    if (el) el.textContent = `${e.target.value.length} символов`;
+  });
+  document.getElementById('igCampaignStart')?.addEventListener('click', () => { void igCampaignStart(); });
+  document.getElementById('igCampaignStop')?.addEventListener('click', async () => {
+    const { ok } = await apiCall('POST', '/api/instagram/campaign/stop');
+    if (ok) toast('Останавливаю — текущее сообщение дойдёт до конца');
+  });
+
   document.getElementById('igRefresh')?.addEventListener('click', () => {
     void loadIgSession();
     void loadIgThreads();

@@ -9,10 +9,15 @@ import {
   listThreads, listThreadMessages, listByClient, linkThreadToClient,
   newIncoming, unreadCount, markAuthor, authorName,
   saveMessages, upsertThread, saveDraft, clearDraft, getDraft, pendingDrafts,
+  searchThreads,
 } from './store.js';
+import { Campaign, PACES } from './campaign.js';
 
 const PORT = Number(process.env.PORT || 3010);
 const monitor = new Monitor(ig);
+// Кампания отправляет через официальный API, а браузер держит запасным путём —
+// тот же порядок, что в одиночной отправке /api/instagram/send.
+const campaign = new Campaign(ig, sendMessage);
 const app = express();
 
 // Webhook Meta ДО express.json(): подпись считается по сырым байтам тела,
@@ -352,6 +357,54 @@ app.post('/api/instagram/send', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// ── Ручная кампания в Direct ──
+
+// Поиск получателей по переписке. Условия приходят списком, каждое обязательно;
+// варианты внутри условия — через «|».
+app.post('/api/instagram/search', async (req, res) => {
+  try {
+    const { terms, only_incoming: onlyIncoming, limit } = req.body || {};
+    if (!Array.isArray(terms) || !terms.length) {
+      return res.status(400).json({ error: 'нужен массив terms' });
+    }
+    const rows = await searchThreads({
+      terms,
+      onlyIncoming: onlyIncoming !== false,
+      limit: Math.min(Number(limit) || 300, 500),
+    });
+    res.json({ total: rows.length, threads: rows });
+  } catch (e) {
+    console.error('[IG][поиск]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/instagram/campaign/paces', (_req, res) => {
+  res.json(Object.entries(PACES).map(([key, p]) => ({
+    key,
+    label: p.label,
+    daily_limit: p.dailyLimit,
+    delay_min_sec: Math.round(p.minDelayMs / 1000),
+    delay_max_sec: Math.round(p.maxDelayMs / 1000),
+    batch_size: p.batchSize,
+  })));
+});
+
+app.post('/api/instagram/campaign/start', async (req, res) => {
+  const { recipients, message, pace } = req.body || {};
+  const r = campaign.start(recipients, message, pace, req.user || null);
+  if (!r.ok) return res.status(400).json(r);
+  res.status(202).json(r);
+});
+
+app.get('/api/instagram/campaign/status', (_req, res) => res.json(campaign.status()));
+
+app.post('/api/instagram/campaign/stop', (_req, res) => {
+  const r = campaign.stop();
+  if (!r.ok) return res.status(409).json(r);
+  res.json({ ok: true });
 });
 
 // ── ИИ-ответчик ──

@@ -179,6 +179,106 @@ export async function listThreads(limit = 100) {
   return r.rows;
 }
 
+/**
+ * Поиск диалогов по содержимому переписки — основа ручного отбора получателей.
+ *
+ * terms — список условий; диалог подходит, когда КАЖДОЕ выполнено хотя бы
+ * одним сообщением. Внутри условия варианты перечисляются через «|».
+ * Пример: ['липосакц|лл', 'ног|бедр|галифе'] — «спрашивал про липосакцию»
+ * И «называл ноги», причём в разных сообщениях одного диалога: человек пишет
+ * «ЛЛ» в одной реплике, а зону — в следующей.
+ *
+ * only_incoming по умолчанию включён, и это принципиально: в наших исходящих
+ * лежит прайс, где перечислены все зоны сразу, — по нему в выборку попадёт
+ * каждый, кому прайс вообще отправляли, а не тот, кто спрашивал.
+ *
+ * Отдаём ещё и позицию в инбоксе: у сохранённых сообщений время недостоверно
+ * (Instagram отдаёт «2 ч» вместо даты), а порядок вычитки повторяет порядок
+ * инбокса — свежие диалоги сверху. Это оценка давности, а не дата.
+ */
+export async function searchThreads({ terms = [], onlyIncoming = true, limit = 300 } = {}) {
+  if (!COMPANY_ID) return [];
+  const clean = terms
+    .map(t => String(t || '').trim())
+    .filter(Boolean);
+  if (!clean.length) return [];
+
+  const params = [COMPANY_ID];
+  const conds = [];
+  for (const term of clean) {
+    // Варианты условия → один регэксп. Экранируем служебные символы: человек
+    // пишет в фильтр «ног (галифе)», и скобки не должны ломать запрос.
+    //
+    // Каждый вариант привязываем к НАЧАЛУ слова (\m). Без этого «лл» находит
+    // «миллион», а «ног» — «многое»: подстрока внутри слова даёт мусор, из-за
+    // которого список получателей нельзя доверять. Конец слова намеренно
+    // свободен, чтобы «липосакц» ловил все падежи («липосакция», «липосакции»).
+    const rx = term
+      .split('|')
+      .map(v => v.trim())
+      .filter(Boolean)
+      .map(v => '\\m' + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+    if (!rx) continue;
+    params.push(rx);
+    conds.push(`EXISTS (
+      SELECT 1 FROM instagram.messages m
+       WHERE m.thread_id = t.thread_id
+         AND m.company_id = t.company_id
+         ${onlyIncoming ? 'AND m.from_me = FALSE' : ''}
+         AND m.body ~* $${params.length})`);
+  }
+  if (!conds.length) return [];
+
+  params.push(limit);
+  const r = await pool.query(
+    `WITH pos AS (
+       SELECT thread_id, row_number() OVER (ORDER BY created_at) AS inbox_pos
+         FROM instagram.threads WHERE company_id = $1
+     )
+     SELECT t.thread_id, t.username, t.full_name, t.client_id,
+            c.full_name AS client_name, c.phone::text AS client_phone,
+            p.inbox_pos,
+            (SELECT count(*)::int FROM instagram.messages m
+              WHERE m.thread_id = t.thread_id) AS msgs,
+            (SELECT left(regexp_replace(m.body, '\\s+', ' ', 'g'), 160)
+               FROM instagram.messages m
+              WHERE m.thread_id = t.thread_id AND m.from_me = FALSE
+                AND m.body ~* $2
+              ORDER BY m.created_at LIMIT 1) AS matched_phrase
+       FROM instagram.threads t
+       JOIN pos p ON p.thread_id = t.thread_id
+       LEFT JOIN clients.clients c ON c.id = t.client_id
+      WHERE t.company_id = $1
+        AND ${conds.join(' AND ')}
+      ORDER BY p.inbox_pos
+      LIMIT $${params.length}`,
+    params,
+  );
+  return r.rows;
+}
+
+/**
+ * Уже отправляли этот текст в диалог?
+ *
+ * Защита от повторной отправки: кампанию могут запустить второй раз после
+ * обрыва, и человек не должен получить одно и то же предложение дважды.
+ * Сравниваем по первым 120 знакам — хвост может отличаться подстановкой имени.
+ */
+export async function alreadySent(threadId, message) {
+  if (!COMPANY_ID) return false;
+  const head = String(message || '').trim().slice(0, 120);
+  if (!head) return false;
+  const r = await pool.query(
+    `SELECT 1 FROM instagram.messages
+      WHERE company_id = $1 AND thread_id = $2 AND from_me = TRUE
+        AND left(body, 120) = $3
+      LIMIT 1`,
+    [COMPANY_ID, threadId, head],
+  );
+  return r.rowCount > 0;
+}
+
 export async function listThreadMessages(threadId, limit = 200) {
   const r = await pool.query(
     `SELECT ig_id, from_me, body, msg_type, media_name, media_mime,

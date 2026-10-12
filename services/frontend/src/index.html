@@ -2633,6 +2633,83 @@
                 <div class="card-head-actions">
                   <button type="button" class="btn-ghost btn-sm" id="igRefresh">Обновить</button>
                   <button type="button" class="btn-ghost btn-sm" id="igLiveToggle">Окно Instagram</button>
+                  <button type="button" class="btn-ghost btn-sm" id="igCampaignToggle">Отправка по списку</button>
+                </div>
+              </div>
+
+              <!-- Ручная кампания: найти по переписке → отметить галочками →
+                   свой текст → отправка с паузами. Автоотбора «всем
+                   подходящим» здесь намеренно нет: в Direct массовая отправка
+                   незнакомым людям быстро приводит к чекпоинту, поэтому
+                   список всегда подтверждает человек. -->
+              <div id="igCampaignWrap" class="ig-campaign" hidden
+                   style="border:1px solid var(--border,#2a2a35);border-radius:12px;padding:14px;margin-bottom:14px;">
+                <div class="form-group">
+                  <label for="igSearchTerm1">Кого искать в переписке</label>
+                  <div class="hint" style="margin-bottom:8px;">
+                    Два условия, и оба должны встретиться в диалоге (можно в разных сообщениях).
+                    Варианты внутри условия — через вертикальную черту. Ищем только по сообщениям
+                    клиентов: в наших ответах лежит прайс со всеми зонами, и по нему в список
+                    попал бы каждый, кому его отправляли.
+                  </div>
+                  <input id="igSearchTerm1" type="text" placeholder="липосакц|лл" value="липосакц|лл" autocomplete="off">
+                  <input id="igSearchTerm2" type="text" placeholder="ног|бедр|галифе|голен|ляшк|колен"
+                         value="ног|бедр|галифе|голен|ляшк|колен" autocomplete="off" style="margin-top:8px;">
+                  <div class="broadcast-meta-row" style="justify-content:flex-start;gap:10px;margin-top:10px;">
+                    <button type="button" class="btn-primary btn-sm" id="igSearchBtn">Найти</button>
+                    <span class="char-count" id="igSearchCount"></span>
+                  </div>
+                </div>
+
+                <div id="igSearchResultWrap" hidden style="margin-top:12px;">
+                  <div class="broadcast-meta-row" style="justify-content:flex-start;gap:10px;">
+                    <button type="button" class="btn-ghost btn-xs" id="igSelectAll">Выбрать всех</button>
+                    <button type="button" class="btn-ghost btn-xs" id="igSelectNone">Снять все</button>
+                    <span class="char-count" id="igSelectedCount">выбрано 0</span>
+                  </div>
+                  <!-- Позиция в инбоксе вместо даты: у сохранённых сообщений
+                       время недостоверно (Instagram отдаёт «2 ч» вместо даты),
+                       а порядок вычитки повторяет порядок инбокса. -->
+                  <div class="hint" style="margin:6px 0;">
+                    «Место в инбоксе»: чем меньше число, тем свежее диалог. Точных дат у переписки
+                    пока нет — Instagram отдаёт относительное время («2 ч», «вчера»).
+                  </div>
+                  <div id="igSearchList"
+                       style="max-height:320px;overflow:auto;border:1px solid var(--border,#2a2a35);border-radius:8px;"></div>
+                </div>
+
+                <div class="form-group" style="margin-top:14px;">
+                  <label for="igCampaignMessage">Сообщение</label>
+                  <textarea id="igCampaignMessage" class="broadcast-textarea" rows="4"
+                    placeholder="Здравствуйте! Вы спрашивали про лазерную липосакцию ног — до конца месяца делаем скидку 15%. Если актуально, подберём дату."></textarea>
+                  <div class="broadcast-meta-row">
+                    <span class="char-count" id="igCampaignChars">0 символов</span>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="igCampaignPace">Темп отправки</label>
+                  <select id="igCampaignPace">
+                    <option value="safe">Осторожный — 15 в сутки, пауза 3–7 мин</option>
+                    <option value="normal" selected>Обычный — 30 в сутки, пауза 1,5–4 мин</option>
+                    <option value="brisk">Ускоренный — 50 в сутки, пауза 45 с – 2 мин (выше риск)</option>
+                  </select>
+                  <div class="hint" style="margin-top:6px;">
+                    Отправка только с 10:00 до 20:00 МСК, с перерывами после каждой пачки.
+                    Три ошибки подряд останавливают отправку — это признак ограничения аккаунта.
+                  </div>
+                  <div class="hint" id="igCampaignEta" style="margin-top:4px;"></div>
+                </div>
+
+                <div class="broadcast-meta-row" style="justify-content:flex-start;gap:10px;">
+                  <button type="button" class="btn-primary btn-sm" id="igCampaignStart">Запустить отправку</button>
+                  <button type="button" class="btn-danger-outline btn-sm" id="igCampaignStop" hidden>Остановить</button>
+                </div>
+                <div id="igCampaignProgress" hidden style="margin-top:10px;">
+                  <div class="broadcast-progress-bar" style="height:6px;background:var(--border,#2a2a35);border-radius:3px;overflow:hidden;">
+                    <div id="igCampaignBar" style="height:100%;width:0;background:var(--accent,#7c5cff);transition:width .3s;"></div>
+                  </div>
+                  <div class="char-count" id="igCampaignLabel" style="margin-top:6px;"></div>
                 </div>
               </div>
 
