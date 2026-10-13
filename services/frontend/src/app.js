@@ -15042,6 +15042,10 @@ function waAttachChatToClient(phoneDigits, row) {
           <span style="font-weight:600;">${escapeHtml(who)}</span>${name}${client}
           <span class="char-count" style="margin-left:6px;">${t.asked_at ? 'писал(а) ' + escapeHtml(new Date(t.asked_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })) + ' · ' : ''}сообщений ${t.msgs}</span>
           ${t.matched_phrase ? `<div class="hint" style="margin-top:2px;">«${escapeHtml(t.matched_phrase)}»</div>` : ''}
+          ${/* Вторая цитата — по условию зоны. Показываем, только если это
+                другое сообщение: иначе одна и та же фраза дублировалась бы. */ ''}
+          ${t.matched_zone && t.matched_zone !== t.matched_phrase
+            ? `<div class="hint" style="margin-top:2px;">«${escapeHtml(t.matched_zone)}»</div>` : ''}
         </span>
       </label>`;
     }).join('');

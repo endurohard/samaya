@@ -254,6 +254,15 @@ export async function searchThreads({ terms = [], onlyIncoming = true, limit = 3
               WHERE m.thread_id = t.thread_id AND m.from_me = FALSE
                 AND translate(m.body, 'Ёё', 'Ее') ~* $4 ${period}
               ORDER BY m.created_at LIMIT 1) AS matched_phrase,
+            -- Цитата по ПОСЛЕДНЕМУ условию (обычно это зона: ноги, живот).
+            -- Без неё в списке видна только фраза по первому условию, и строка
+            -- «сколько стоит липосакция живота?» выглядит попаданием не по теме,
+            -- хотя про ноги человек спросил следующим сообщением.
+            ${conds.length > 1 ? `(SELECT left(regexp_replace(m.body, '\\\\s+', ' ', 'g'), 160)
+               FROM instagram.messages m
+              WHERE m.thread_id = t.thread_id AND m.from_me = FALSE
+                AND translate(m.body, 'Ёё', 'Ее') ~* $${3 + conds.length} ${period}
+              ORDER BY m.created_at LIMIT 1)` : 'NULL'} AS matched_zone,
             -- когда клиент последний раз писал по теме (в пределах периода)
             (SELECT max(m.sent_at) FROM instagram.messages m
               WHERE m.thread_id = t.thread_id AND m.from_me = FALSE
