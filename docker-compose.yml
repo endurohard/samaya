@@ -505,6 +505,10 @@ services:
       INSTAGRAM_TEST_MODE: ${INSTAGRAM_TEST_MODE:-true}
       INSTAGRAM_SESSION_DIR: /data/session
       INSTAGRAM_MEDIA_DIR: /data/media
+      # Публичный адрес CRM: по нему Meta забирает исходящие вложения — Graph
+      # API принимает медиа только ссылкой, файл телом запроса не передать.
+      # Ссылка подписывается и живёт 15 минут.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://xn----7sbba0bamcgqf6c9k.xn--p1ai}
       # Тот же VLESS-мост, что и у WhatsApp: сессия заведена из Каспийска, и
       # её «переезд» на голландский адрес сервера — типовая причина
       # чекпоинта. Выходить надо местным адресом.

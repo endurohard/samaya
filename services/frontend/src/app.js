@@ -15358,6 +15358,59 @@ function waAttachChatToClient(phoneDigits, row) {
     }
   });
 
+  // Отправка вложения в Direct из админки.
+  //
+  // Файл уходит сырым телом (не JSON): base64 раздувает видео на треть.
+  // Сервис положит его на диск и передаст Meta подписанной ссылкой — Graph
+  // API принимает медиа только ссылкой, файлом его не отправить.
+  async function sendIgMedia(file) {
+    const status = document.getElementById('igChatStatus');
+    if (!file || !_igThread) return;
+
+    const LIMIT = 25 * 1024 * 1024; // предел Instagram на вложение
+    if (file.size > LIMIT) {
+      toast(`Файл слишком большой: ${(file.size / 1048576).toFixed(1)} МБ, предел 25 МБ`);
+      return;
+    }
+
+    if (status) { status.textContent = 'Отправляю вложение…'; status.className = 'ig-chat-status'; }
+    try {
+      const res = await fetch(
+        '/api/instagram/send-media?thread_id=' + encodeURIComponent(_igThread),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+            Authorization: `Bearer ${store.access}`,
+          },
+          body: file,
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const why = data?.error || data?.message || `ошибка ${res.status}`;
+        if (status) { status.textContent = 'Не отправлено: ' + why; status.className = 'ig-chat-status is-warn'; }
+        toast('Не отправлено: ' + why);
+        return;
+      }
+      if (status) { status.textContent = 'Вложение отправлено'; status.className = 'ig-chat-status'; }
+      await loadIgMessages();
+    } catch (e) {
+      if (status) { status.textContent = 'Не отправлено: ' + e.message; status.className = 'ig-chat-status is-warn'; }
+      toast('Не отправлено: ' + e.message);
+    }
+  }
+
+  document.getElementById('igAttach')?.addEventListener('click', () => {
+    if (!_igThread) { toast('Сначала выберите диалог'); return; }
+    document.getElementById('igSendFile')?.click();
+  });
+  document.getElementById('igSendFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // чтобы повторный выбор того же файла сработал
+    await sendIgMedia(file);
+  });
+
   document.getElementById('igChatSend')?.addEventListener('click', async () => {
     const input = document.getElementById('igChatInput');
     const btn = document.getElementById('igChatSend');

@@ -3,17 +3,20 @@ import ig from './instagram.js';
 import { Monitor } from './monitor.js';
 import { authenticate } from './auth.js';
 import { aiStatus, prepareReply } from './assistant.js';
-import { verifySignature, verifyChallenge, parseWebhook, webhookStatus, sendMessage, fetchProfile } from './graph.js';
+import { verifySignature, verifyChallenge, parseWebhook, webhookStatus, sendMessage, fetchProfile, sendMediaMessage } from './graph.js';
 import { handleMessages, autoreplyEnabled } from './webhook.js';
 import {
   listThreads, listThreadMessages, listByClient, linkThreadToClient,
   newIncoming, unreadCount, markAuthor, authorName,
   saveMessages, upsertThread, saveDraft, clearDraft, getDraft, pendingDrafts,
-  searchThreads, mediaOf, pool,
+  searchThreads, mediaOf, pool, saveOutgoingMedia, signMediaPath, signedMediaPath,
 } from './store.js';
 import { Campaign, PACES } from './campaign.js';
 
 const PORT = Number(process.env.PORT || 3010);
+// Публичный адрес CRM: по нему Meta забирает исходящие вложения. Без него
+// отправка фото невозможна — Graph API принимает медиа только ссылкой.
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const monitor = new Monitor(ig);
 // Кампания отправляет через официальный API, а браузер держит запасным путём —
 // тот же порядок, что в одиночной отправке /api/instagram/send.
@@ -200,6 +203,17 @@ app.post('/api/instagram/live/goto', async (req, res) => {
   }
 });
 
+// Публичная отдача исходящего вложения по подписанной ссылке.
+//
+// ДО authenticate намеренно: файл забирает сервер Meta безымянным запросом,
+// токена у него нет и быть не может. Доступ ограничен подписью с коротким
+// сроком и только каталогом outbox — входящую переписку так не достать.
+app.get('/api/instagram/public/:token', (req, res) => {
+  const abs = signedMediaPath(req.params.token);
+  if (!abs) return res.status(404).json({ error: 'ссылка недействительна или истекла' });
+  return res.sendFile(abs);
+});
+
 // Всё остальное — только по внутреннему токену или JWT админа.
 app.use('/api/instagram', authenticate);
 
@@ -356,6 +370,76 @@ app.post('/api/instagram/send', async (req, res) => {
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// Отправка вложения в Direct: админка шлёт файл сырым телом.
+//
+// Meta забирает медиа ТОЛЬКО по публичной ссылке — загрузить файл телом
+// запроса к Graph API нельзя. Поэтому кладём на диск, отдаём Meta подписанный
+// адрес, она скачивает сама.
+app.post('/api/instagram/send-media', express.raw({
+  type: ['image/*', 'video/*', 'audio/*', 'application/octet-stream'],
+  limit: '25mb', // предел Instagram на вложение в Direct
+}), async (req, res) => {
+  try {
+    const threadId = String(req.query.thread_id || '').trim();
+    if (!threadId) return res.status(400).json({ error: 'нужен thread_id' });
+
+    const ct = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const ALLOWED = [
+      'image/jpeg', 'image/png', 'image/webp',
+      'video/mp4', 'video/quicktime',
+      'audio/mpeg', 'audio/mp4',
+    ];
+    if (!ALLOWED.includes(ct)) {
+      return res.status(415).json({
+        error: 'unsupported_type',
+        message: 'Поддерживаются JPG, PNG, WEBP, MP4, MOV, MP3',
+      });
+    }
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || !buf.length) {
+      return res.status(400).json({ error: 'empty_body', message: 'Файл не получен' });
+    }
+
+    const saved = await saveOutgoingMedia(buf, ct);
+    const { token } = signMediaPath(saved.rel);
+    const publicUrl = `${PUBLIC_BASE_URL}/api/instagram/public/${token}`;
+    if (!/^https:\/\//i.test(publicUrl)) {
+      return res.status(500).json({
+        error: 'Meta скачивает вложение только по https — задайте PUBLIC_BASE_URL',
+      });
+    }
+
+    const kind = ct.startsWith('video') ? 'video' : (ct.startsWith('audio') ? 'audio' : 'image');
+    const r = await sendMediaMessage(threadId, publicUrl, kind);
+    if (!r.ok) return res.status(502).json({ error: r.error });
+
+    // В историю пишем сразу: иначе администратор не увидит отправленное до
+    // следующего входящего и решит, что фото не ушло.
+    try {
+      const clientId = await upsertThread({
+        thread_id: threadId, unread: 0, last_body: '[вложение]', last_at: new Date(),
+      });
+      await saveMessages(threadId, [{
+        from_me: true, body: '', stamp: new Date().toISOString(),
+        has_media: true, media_kind: kind,
+        // Файл уже у нас — перекачивать его из Meta незачем.
+        local_media: { rel: saved.rel, mime: saved.mime, size: saved.size },
+      }], clientId);
+      if (req.user?.id) {
+        await markAuthor(threadId, '', { id: req.user.id, name: await authorName(req.user.id) });
+      }
+    } catch (e) {
+      console.error('[IG][send-media] запись в историю не удалась:', e.message);
+    }
+
+    console.log(`[IG] вложение отправлено в ${threadId} (${kind}, ${Math.round(saved.size / 1024)} КБ)`);
+    return res.json({ ok: true, message_id: r.messageId });
+  } catch (e) {
+    console.error('[IG][send-media]', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 

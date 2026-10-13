@@ -172,6 +172,61 @@ export function parseWebhook(body) {
  * (правило Meta). Поэтому ошибку 10/551 переводим в понятный текст: иначе
  * администратор видит код и не понимает, что ответ просто опоздал.
  */
+/**
+ * Отправить вложение в Direct.
+ *
+ * Meta принимает медиа ТОЛЬКО по публичной ссылке: загрузить файл телом
+ * запроса нельзя. Поэтому файл сначала кладётся на диск, а сюда приходит
+ * его публичный адрес с временной подписью — см. publicMediaUrl().
+ */
+export async function sendMediaMessage(recipientIgsid, fileUrl, kind = 'image') {
+  const cred = await credentials();
+  if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
+  if (!cred.igId && !cred.host.includes('graph.instagram.com')) {
+    return { ok: false, error: 'в интеграции не записан id аккаунта Instagram' };
+  }
+  const viaInstagramLogin = cred.host.includes('graph.instagram.com');
+  const target = viaInstagramLogin ? 'me' : cred.igId;
+  const url = `https://${cred.host}/${cred.version}/${target}/messages`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cred.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipient: { id: String(recipientIgsid) },
+        message: {
+          attachment: {
+            type: kind === 'video' ? 'video' : (kind === 'audio' ? 'audio' : 'image'),
+            payload: { url: fileUrl, is_reusable: false },
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(60_000), // медиа Meta качает сама, это дольше текста
+      dispatcher,
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const err = body?.error || {};
+      let msg = err.message || `HTTP ${r.status}`;
+      if (err.code === 10 || err.error_subcode === 2534022) {
+        msg = 'прошло больше 24 часов с сообщения клиента — Instagram не принимает ответ';
+      } else if (err.code === 190) {
+        msg = 'токен недействителен или истёк — обновите его в Настройках';
+      } else if (/url/i.test(msg)) {
+        // Самая частая причина: Meta не смогла скачать файл по ссылке.
+        msg = `Instagram не смог забрать файл по ссылке: ${msg}`;
+      }
+      return { ok: false, error: msg, code: err.code };
+    }
+    return { ok: true, messageId: body.message_id || null };
+  } catch (e) {
+    return { ok: false, error: `сеть: ${e.message}` };
+  }
+}
+
 export async function sendMessage(recipientIgsid, text) {
   const cred = await credentials();
   if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };

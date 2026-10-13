@@ -65,6 +65,47 @@ async function setCursor(id: number): Promise<void> {
   );
 }
 
+/**
+ * Переслать фото/видео, отправленное менеджером реплаем в Telegram.
+ *
+ * Файл скачиваем у Telegram и отдаём instagram-service сырым телом — тот сам
+ * положит его на диск и передаст Meta подписанной ссылкой.
+ */
+async function deliverMedia(
+  tok: string, channel: string, threadKey: string, fileId: string, mime: string,
+): Promise<string | null> {
+  if (channel !== 'instagram') return 'канал пока не поддержан';
+  try {
+    // getFile отдаёт путь, по которому файл качается с api.telegram.org.
+    const meta = await fetch(`https://api.telegram.org/bot${tok}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      { signal: AbortSignal.timeout(20_000), dispatcher: tgDispatcher } as RequestInit);
+    const mj = await meta.json() as { ok?: boolean; result?: { file_path?: string } };
+    if (!mj.ok || !mj.result?.file_path) return 'Telegram не отдал файл';
+
+    const fileRes = await fetch(`https://api.telegram.org/file/bot${tok}/${mj.result.file_path}`,
+      { signal: AbortSignal.timeout(60_000), dispatcher: tgDispatcher } as RequestInit);
+    if (!fileRes.ok) return `Telegram ответил ${fileRes.status}`;
+    const buf = Buffer.from(await fileRes.arrayBuffer());
+
+    const r = await fetch(
+      `${IG_URL}/api/instagram/send-media?thread_id=${encodeURIComponent(threadKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': mime, 'X-Internal-Token': IG_TOKEN },
+        body: buf,
+        signal: AbortSignal.timeout(90_000),
+      },
+    );
+    if (!r.ok) {
+      const b = await r.text().catch(() => '');
+      return `сервис Instagram ответил ${r.status}: ${b.slice(0, 160)}`;
+    }
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
+
 /** Отправить ответ менеджера в канал клиента. */
 async function deliver(channel: string, threadKey: string, text: string): Promise<string | null> {
   if (channel !== 'instagram') return 'канал пока не поддержан';
@@ -169,7 +210,10 @@ async function tick(): Promise<void> {
     }
 
     const m = u.message;
-    if (!m?.reply_to_message || !m.text) continue;
+    // Реплай без текста и без вложения разбирать нечего.
+    if (!m?.reply_to_message) continue;
+    const hasMedia = !!(m.photo?.length || m.video || m.document);
+    if (!m.text && !m.caption && !hasMedia) continue;
 
     const r = await pool.query<{ channel: string; thread_key: string; who: string | null }>(
       `SELECT channel, thread_key, who FROM ai.telegram_outbox
@@ -181,11 +225,28 @@ async function tick(): Promise<void> {
     // переписываются между собой, и вмешиваться туда нельзя.
     if (!link) continue;
 
-    const why = await deliver(link.channel, link.thread_key, m.text);
+    let why: string | null = null;
+    if (hasMedia) {
+      // Фото Telegram отдаёт в нескольких размерах — берём последний,
+      // он самый крупный.
+      const photo = m.photo?.length ? m.photo[m.photo.length - 1] : null;
+      const fileId = photo?.file_id || m.video?.file_id || m.document?.file_id;
+      const mime = photo
+        ? 'image/jpeg'
+        : (m.video?.mime_type || m.document?.mime_type || 'application/octet-stream');
+      why = await deliverMedia(tok, link.channel, link.thread_key, fileId, mime);
+      // Подпись к фото уходит отдельным сообщением: Instagram не принимает
+      // текст и вложение одним запросом.
+      const caption = m.caption?.trim();
+      if (!why && caption) why = await deliver(link.channel, link.thread_key, caption);
+    } else {
+      why = await deliver(link.channel, link.thread_key, m.text);
+    }
+
     await react(tok, String(m.chat.id), Number(m.message_id), !why, why ?? undefined);
     console.log(why
       ? `[tg] ответ в ${link.who || link.thread_key} НЕ отправлен: ${why}`
-      : `[tg] ответ отправлен в ${link.who || link.thread_key}`);
+      : `[tg] ответ отправлен в ${link.who || link.thread_key}${hasMedia ? ' (вложение)' : ''}`);
   }
   if (last !== offset) await setCursor(last);
 }

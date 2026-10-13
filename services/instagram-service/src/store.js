@@ -211,6 +211,79 @@ async function fetchMedia(igId, threadId, url) {
 }
 
 /**
+ * Сохранить исходящее вложение на диск.
+ *
+ * Возвращает относительный путь. Каталог outbox отдельный: по нему же
+ * ограничен публичный доступ (см. signedMediaPath), чтобы подписанной ссылкой
+ * нельзя было вытащить входящую переписку клиентов.
+ */
+export async function saveOutgoingMedia(buf, mime) {
+  const EXT = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/quicktime': 'mov',
+    'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg',
+  };
+  const ext = EXT[mime] || 'bin';
+  const rel = path.join('outbox', `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`);
+  const abs = path.join(MEDIA_DIR, rel);
+  await fsp.mkdir(path.dirname(abs), { recursive: true });
+  const tmp = `${abs}.tmp`;
+  await fsp.writeFile(tmp, buf);
+  await fsp.rename(tmp, abs);
+  return { rel, size: buf.length, mime };
+}
+
+// Секрет подписи публичных ссылок. Своего не заводим: JWT_SECRET уже есть у
+// сервиса и обязателен при старте.
+const MEDIA_SIGN_SECRET = process.env.JWT_SECRET || '';
+
+/**
+ * Подписать путь к файлу для публичной отдачи.
+ *
+ * Meta скачивает вложение САМА, безымянным запросом — отдать его под токеном
+ * нельзя. Поэтому ссылка подписывается и живёт ограниченное время: столько,
+ * чтобы Meta успела забрать файл, и не дольше.
+ */
+export function signMediaPath(rel, ttlSec = 900) {
+  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const sig = crypto.createHmac('sha256', MEDIA_SIGN_SECRET)
+    .update(`${rel}|${exp}`).digest('hex').slice(0, 32);
+  return { token: Buffer.from(`${rel}|${exp}|${sig}`).toString('base64url') };
+}
+
+/**
+ * Проверить подпись и вернуть абсолютный путь к файлу.
+ * null — подпись неверна, срок истёк, файл вне outbox или его нет.
+ */
+export function signedMediaPath(token) {
+  try {
+    const raw = Buffer.from(String(token), 'base64url').toString('utf8');
+    const [rel, expStr, sig] = raw.split('|');
+    if (!rel || !expStr || !sig) return null;
+    if (Number(expStr) < Math.floor(Date.now() / 1000)) return null;
+
+    const expect = crypto.createHmac('sha256', MEDIA_SIGN_SECRET)
+      .update(`${rel}|${expStr}`).digest('hex').slice(0, 32);
+    // timingSafeEqual: сравнение подписи посимвольно даёт возможность её
+    // подобрать по времени ответа.
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expect);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+    // Публично отдаём ТОЛЬКО исходящие: иначе подписанной ссылкой можно было
+    // бы вытащить фото, присланные клиентами.
+    if (!rel.startsWith('outbox/')) return null;
+
+    const abs = path.join(MEDIA_DIR, rel);
+    if (!abs.startsWith(path.resolve(MEDIA_DIR))) return null;
+    if (!fs.existsSync(abs)) return null;
+    return abs;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Файл вложения по ig_id — для выдачи в админке и сохранения в архив.
  */
 export async function mediaOf(igId) {
@@ -239,8 +312,11 @@ export async function saveMessages(threadId, items, clientId) {
     // Файл качаем ДО вставки: ссылки Meta живут часы, и откладывать нельзя.
     // Скачиваем только для новых сообщений — проверяем наличие заранее, иначе
     // повторный обход диалога тянул бы те же файлы на каждом проходе.
-    let media = null;
-    if (it.media_url && /^https?:/i.test(it.media_url)) {
+    //
+    // local_media — файл, который мы сами только что отправили: он уже лежит
+    // на диске, перекачивать его из Meta незачем.
+    let media = it.local_media || null;
+    if (!media && it.media_url && /^https?:/i.test(it.media_url)) {
       const { rowCount } = await pool.query(
         `SELECT 1 FROM instagram.messages WHERE ig_id = $1`, [igId]);
       if (!rowCount) media = await fetchMedia(igId, threadId, it.media_url);
