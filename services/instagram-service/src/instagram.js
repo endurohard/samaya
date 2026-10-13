@@ -467,6 +467,9 @@ class InstagramManager {
             has_media: hasMedia,
             media_kind: audio ? 'voice' : (video ? 'video' : (img ? 'image' : null)),
             media_url: img?.src || video?.src || null,
+            // blob: — ссылка, живущая только внутри страницы; скачать её
+            // снаружи нельзя, поэтому такие вложения файлом не сохраняем.
+            media_fetchable: /^https?:/i.test(img?.src || video?.src || ''),
             from_me: fromMe,
             stamp,
             label,

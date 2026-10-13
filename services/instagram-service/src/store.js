@@ -10,8 +10,15 @@
 // администратором или по номеру, который человек сам написал в переписке.
 import pg from 'pg';
 import crypto from 'crypto';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import path from 'path';
 
 const COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '';
+// Тот же том, что у вложений WhatsApp, но свой каталог: файлы на диске, а не
+// в БД — переписка за год это гигабайты, которые иначе попадали бы в каждый
+// ночной pg_dump.
+const MEDIA_DIR = process.env.INSTAGRAM_MEDIA_DIR || '/data/media';
 
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -126,20 +133,110 @@ export async function upsertThread(t) {
  * Идемпотентно по ig_id: повторный обход не плодит дубли.
  * Возвращает, сколько записей добавлено новых.
  */
+/**
+ * Скачать вложение по ссылке Meta и положить на диск.
+ *
+ * Ссылки на медиа в Instagram ВРЕМЕННЫЕ — живут считанные часы. Поэтому файл
+ * забираем сразу при приёме сообщения: отложить «до открытия в админке»
+ * нельзя, к тому моменту ссылка уже протухнет и фото будет потеряно
+ * безвозвратно.
+ *
+ * Возвращает { rel, size, mime } или null, если скачать не вышло: вложение не
+ * повод терять само сообщение, оно сохранится и без файла.
+ */
+async function fetchMedia(igId, threadId, url) {
+  try {
+    // Прокси тот же, что у остальных запросов к Meta: сервер за границей,
+    // а cdninstagram ограничивает доступ по региону.
+    let dispatcher;
+    try {
+      const { ProxyAgent, Agent } = await import('undici');
+      const PROXY = process.env.INSTAGRAM_HTTP_PROXY || process.env.HTTPS_PROXY || '';
+      dispatcher = PROXY ? new ProxyAgent(PROXY) : new Agent({ connect: { timeout: 10_000 } });
+    } catch { dispatcher = undefined; }
+
+    const r = await fetch(url, { signal: AbortSignal.timeout(30_000), dispatcher });
+    if (!r.ok) {
+      console.warn(`[IG][медиа] ${igId}: Meta ответила ${r.status}`);
+      return null;
+    }
+    const mime = (r.headers.get('content-type') || '').split(';')[0].trim() || 'application/octet-stream';
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (!buf.length) return null;
+
+    const EXT = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+      'video/mp4': 'mp4', 'video/quicktime': 'mov',
+      'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg',
+    };
+    const ext = EXT[mime] || 'bin';
+    const safeThread = String(threadId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const rel = path.join(safeThread, `${String(igId).replace(/[^a-zA-Z0-9_-]/g, '_')}.${ext}`);
+    const abs = path.join(MEDIA_DIR, rel);
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+
+    // Пишем во временный файл и переименовываем: при обрыве в середине записи
+    // на диске не останется «половины» файла, который потом отдадут клиенту.
+    const tmp = `${abs}.tmp`;
+    await fsp.writeFile(tmp, buf);
+    await fsp.rename(tmp, abs);
+    console.log(`[IG][медиа] сохранено ${rel} (${Math.round(buf.length / 1024)} КБ)`);
+    return { rel, size: buf.length, mime };
+  } catch (e) {
+    console.warn(`[IG][медиа] ${igId}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Файл вложения по ig_id — для выдачи в админке и сохранения в архив.
+ */
+export async function mediaOf(igId) {
+  const r = await pool.query(
+    `SELECT media_path, media_name, media_mime FROM instagram.messages
+      WHERE ig_id = $1 AND media_path IS NOT NULL`,
+    [igId],
+  );
+  if (!r.rows[0]) return null;
+  const abs = path.join(MEDIA_DIR, r.rows[0].media_path);
+  // Защита от выхода за пределы каталога: media_path приходит из базы, но
+  // путь всё равно проверяем — сложенный из внешних данных он мог бы увести
+  // чтение в /etc.
+  if (!abs.startsWith(path.resolve(MEDIA_DIR))) return null;
+  if (!fs.existsSync(abs)) return null;
+  return { abs, name: r.rows[0].media_name, mime: r.rows[0].media_mime };
+}
+
 export async function saveMessages(threadId, items, clientId) {
   if (!COMPANY_ID || !items?.length) return { saved: 0 };
   let saved = 0;
   for (const it of items) {
     const igId = messageKey(threadId, it);
     const type = it.has_media ? (it.media_kind === 'voice' ? 'voice' : 'media') : 'text';
+
+    // Файл качаем ДО вставки: ссылки Meta живут часы, и откладывать нельзя.
+    // Скачиваем только для новых сообщений — проверяем наличие заранее, иначе
+    // повторный обход диалога тянул бы те же файлы на каждом проходе.
+    let media = null;
+    if (it.media_url && /^https?:/i.test(it.media_url)) {
+      const { rowCount } = await pool.query(
+        `SELECT 1 FROM instagram.messages WHERE ig_id = $1`, [igId]);
+      if (!rowCount) media = await fetchMedia(igId, threadId, it.media_url);
+    }
+
     const r = await pool.query(
       `INSERT INTO instagram.messages
-         (ig_id, company_id, thread_id, client_id, from_me, body, msg_type, sent_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         (ig_id, company_id, thread_id, client_id, from_me, body, msg_type, sent_at,
+          media_path, media_name, media_mime, media_size)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (ig_id) DO NOTHING`,
       [
         igId, COMPANY_ID, threadId, clientId || null,
         !!it.from_me, it.body || '', type, parseStamp(it.stamp),
+        media?.rel || null,
+        media ? path.basename(media.rel) : null,
+        media?.mime || null,
+        media?.size || null,
       ],
     );
     saved += r.rowCount;

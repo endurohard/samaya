@@ -104,6 +104,9 @@ export async function handleMessages(items) {
       stamp: it.at.toISOString(),
       has_media: !!it.mediaUrl,
       media_kind: it.type,
+      // Ссылка на файл: store скачает его сразу. Ссылки Meta живут часы,
+      // поэтому отложенная загрузка «при открытии в админке» не работает.
+      media_url: it.mediaUrl || null,
       // mid от Meta устойчив и уникален — он лучше вычисленного хеша,
       // но saveMessages считает ключ сам, поэтому передаём его в stamp.
     }], clientId);

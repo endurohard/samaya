@@ -5800,6 +5800,12 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .ig-msg--in .ig-msg-who { display: none; }
 .ig-msg-media { display: inline-flex; align-items: center; gap: 6px; font-style: normal; }
 .ig-msg-empty { font-size: 13px; font-style: italic; opacity: .75; }
+/* Вложение прямо в переписке: фото видно сразу, без перехода в Instagram. */
+.ig-msg-pic { display: block; max-width: 260px; max-height: 320px; border-radius: 10px; overflow: hidden; }
+.ig-msg-pic img, video.ig-msg-pic { display: block; max-width: 260px; max-height: 320px;
+  width: auto; height: auto; border-radius: 10px; }
+.ig-msg-save { display: inline-block; margin-top: 4px; font-size: 12px; opacity: .75; text-decoration: underline; }
+.ig-msg-save:hover { opacity: 1; }
 .ig-empty { font-size: 13px; color: #737373; padding: 24px 16px; text-align: center; margin: auto; }
 
 /* Черновик ИИ: отдельной панелью над полем ввода, в цвете админки — он не

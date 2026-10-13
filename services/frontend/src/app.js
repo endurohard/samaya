@@ -14919,11 +14919,38 @@ function waAttachChatToClient(phoneDigits, row) {
           // ответил. У автоответов подписи нет — там остаётся «Мы».
           const who = out ? (m.author_name ? escapeHtml(m.author_name) : 'Мы') : 'Клиент';
           const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-          const body = escapeHtml(m.body || '') || (m.has_media ? '<span class="ig-msg-media"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>Вложение</span>'
-            // Пустое сообщение без вложения — это стикер, реакция или
-            // «поделиться постом»: API Instagram отдаёт их без текста, и
-            // без подписи в ленте оставался пустой серый пузырь.
-            : '<span class="ig-msg-empty">стикер, реакция или пост — откройте в Instagram</span>');
+          // Картинку показываем прямо в переписке, а не значком «Вложение»:
+          // администратору нужно увидеть присланное фото зоны, не открывая
+          // Instagram. Ссылка ведёт на наш сервис (файл на диске), поэтому
+          // работает и через месяцы — ссылки Meta живут часы.
+          const mediaUrl = m.has_media ? `/api/instagram/media/${encodeURIComponent(m.ig_id)}` : null;
+          const isImage = mediaUrl && (!m.media_mime || /^image\//.test(m.media_mime));
+          const isVideo = mediaUrl && /^video\//.test(m.media_mime || '');
+          let mediaHtml = '';
+          if (isImage) {
+            mediaHtml = `<a href="${mediaUrl}" target="_blank" rel="noopener" class="ig-msg-pic">
+              <img src="${mediaUrl}" alt="Вложение" loading="lazy"></a>
+              <a class="ig-msg-save" href="${mediaUrl}?download=1" download>Сохранить</a>`;
+          } else if (isVideo) {
+            mediaHtml = `<video src="${mediaUrl}" controls preload="metadata" class="ig-msg-pic"></video>
+              <a class="ig-msg-save" href="${mediaUrl}?download=1" download>Сохранить</a>`;
+          } else if (mediaUrl) {
+            // Голосовые и файлы: проигрывателя не рисуем, но скачать даём.
+            mediaHtml = `<a class="ig-msg-save" href="${mediaUrl}?download=1" download>Скачать вложение</a>`;
+          }
+
+          const text = escapeHtml(m.body || '');
+          const body = mediaHtml
+            ? mediaHtml + (text ? `<div style="margin-top:6px;">${text}</div>` : '')
+            : (text
+              // Вложение есть, но файла нет: сообщение пришло до того, как
+              // сервис научился их скачивать, либо ссылка Meta уже протухла.
+              || (m.msg_type === 'media' || m.msg_type === 'voice'
+                ? '<span class="ig-msg-empty">вложение не сохранено — откройте в Instagram</span>'
+                // Пустое сообщение без вложения — это стикер, реакция или
+                // «поделиться постом»: API Instagram отдаёт их без текста, и
+                // без подписи в ленте оставался пустой серый пузырь.
+                : '<span class="ig-msg-empty">стикер, реакция или пост — откройте в Instagram</span>'));
           // Подпись — под пузырём, как «Просмотрено» в Direct: кто из
           // администраторов ответил и во сколько.
           parts.push('<div class="ig-msg' + (out ? ' ig-msg--out' : ' ig-msg--in') + '">'

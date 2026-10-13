@@ -9,7 +9,7 @@ import {
   listThreads, listThreadMessages, listByClient, linkThreadToClient,
   newIncoming, unreadCount, markAuthor, authorName,
   saveMessages, upsertThread, saveDraft, clearDraft, getDraft, pendingDrafts,
-  searchThreads,
+  searchThreads, mediaOf,
 } from './store.js';
 import { Campaign, PACES } from './campaign.js';
 
@@ -356,6 +356,26 @@ app.post('/api/instagram/send', async (req, res) => {
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// Файл вложения: просмотр в карточке и сохранение в архив.
+//
+// Отдаём с диска, а не редиректом на Meta: ссылки Instagram живут часы, и
+// через сутки архив превратился бы в набор битых картинок.
+app.get('/api/instagram/media/:igId', async (req, res) => {
+  try {
+    const m = await mediaOf(req.params.igId);
+    if (!m) return res.status(404).json({ error: 'вложение не найдено' });
+    if (m.mime) res.type(m.mime);
+    // inline — чтобы фото открывалось в браузере; «Сохранить как…» всё равно
+    // доступно. download=1 просит принудительное скачивание.
+    const dl = req.query.download === '1';
+    res.setHeader('Content-Disposition',
+      `${dl ? 'attachment' : 'inline'}; filename="${encodeURIComponent(m.name || 'file')}"`);
+    return res.sendFile(m.abs);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
