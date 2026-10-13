@@ -149,17 +149,34 @@ export async function upsertThread(t) {
  * Возвращает { rel, size, mime } или null, если скачать не вышло: вложение не
  * повод терять само сообщение, оно сохранится и без файла.
  */
+// Диспетчер для скачивания вложений. Создаётся один раз: новый ProxyAgent на
+// каждый файл открывал бы отдельное соединение к мосту.
+//
+// Прокси берём из INSTAGRAM_SOCKS_PROXY — той же переменной, что graph.js.
+// Системные HTTP(S)_PROXY в контейнере указывают на 127.0.0.1:1080, то есть
+// на localhost САМОГО контейнера, где ничего не слушает: по ним скачивание
+// падало с «fetch failed». Мост живёт на host.docker.internal.
+let mediaDispatcher;
+let mediaDispatcherReady = false;
+async function dispatcherFor() {
+  if (mediaDispatcherReady) return mediaDispatcher;
+  mediaDispatcherReady = true;
+  try {
+    const { ProxyAgent, Agent } = await import('undici');
+    const proxy = process.env.INSTAGRAM_SOCKS_PROXY || '';
+    mediaDispatcher = proxy
+      ? new ProxyAgent(proxy)
+      : new Agent({ connect: { timeout: 10_000 } });
+  } catch (e) {
+    console.error('[IG][медиа] undici недоступен:', e.message);
+    mediaDispatcher = undefined;
+  }
+  return mediaDispatcher;
+}
+
 async function fetchMedia(igId, threadId, url) {
   try {
-    // Прокси тот же, что у остальных запросов к Meta: сервер за границей,
-    // а cdninstagram ограничивает доступ по региону.
-    let dispatcher;
-    try {
-      const { ProxyAgent, Agent } = await import('undici');
-      const PROXY = process.env.INSTAGRAM_HTTP_PROXY || process.env.HTTPS_PROXY || '';
-      dispatcher = PROXY ? new ProxyAgent(PROXY) : new Agent({ connect: { timeout: 10_000 } });
-    } catch { dispatcher = undefined; }
-
+    const dispatcher = await dispatcherFor();
     const r = await fetch(url, { signal: AbortSignal.timeout(30_000), dispatcher });
     if (!r.ok) {
       console.warn(`[IG][медиа] ${igId}: Meta ответила ${r.status}`);
