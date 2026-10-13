@@ -113,7 +113,9 @@ export async function upsertThread(t) {
        username   = COALESCE(EXCLUDED.username, instagram.threads.username),
        full_name  = COALESCE(EXCLUDED.full_name, instagram.threads.full_name),
        avatar_url = COALESCE(EXCLUDED.avatar_url, instagram.threads.avatar_url),
-       unread     = EXCLUDED.unread,
+       -- NULL означает «не трогать счётчик»: догрузка имён обновляет только
+       -- профиль, и обнулять непрочитанные при этом нельзя.
+       unread     = COALESCE(EXCLUDED.unread, instagram.threads.unread),
        last_at    = GREATEST(COALESCE(EXCLUDED.last_at, instagram.threads.last_at),
                              COALESCE(instagram.threads.last_at, EXCLUDED.last_at)),
        last_body  = COALESCE(EXCLUDED.last_body, instagram.threads.last_body),
@@ -121,7 +123,10 @@ export async function upsertThread(t) {
      RETURNING client_id`,
     [
       t.thread_id, COMPANY_ID, t.username || null, t.full_name || null,
-      t.avatar || null, Number(t.unread) || 0,
+      t.avatar || null,
+      // Отличаем «не передали» от нуля: Number(null)||0 превращал бы
+      // отсутствие значения в 0 и сбрасывал счётчик непрочитанных.
+      t.unread === undefined || t.unread === null ? null : Number(t.unread) || 0,
       t.last_at || null, t.last_body || null,
     ],
   );

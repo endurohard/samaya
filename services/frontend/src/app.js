@@ -15249,6 +15249,22 @@ function waAttachChatToClient(phoneDigits, row) {
     if (ok) toast('Останавливаю — текущее сообщение дойдёт до конца');
   });
 
+  document.getElementById('igResolveNames')?.addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    const was = btn.textContent;
+    btn.textContent = 'Определяю…';
+    const { ok, data } = await apiCall('POST', '/api/instagram/threads/resolve-names', { limit: 50 });
+    btn.disabled = false;
+    btn.textContent = was;
+    if (!ok) { toast(data?.error || 'Не удалось определить имена'); return; }
+    // Часть профилей Meta не отдаёт (закрытый аккаунт, человек удалился) —
+    // говорим об этом честно, иначе «проверено 50, найдено 12» выглядит сбоем.
+    toast(`Проверено ${data.checked}, определено ${data.found}`
+      + (data.unresolved ? `, недоступно ${data.unresolved}` : ''));
+    void loadIgThreads();
+  });
+
   document.getElementById('igRefresh')?.addEventListener('click', () => {
     void loadIgSession();
     void loadIgThreads();

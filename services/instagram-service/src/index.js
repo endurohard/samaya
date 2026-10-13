@@ -3,13 +3,13 @@ import ig from './instagram.js';
 import { Monitor } from './monitor.js';
 import { authenticate } from './auth.js';
 import { aiStatus, prepareReply } from './assistant.js';
-import { verifySignature, verifyChallenge, parseWebhook, webhookStatus, sendMessage } from './graph.js';
+import { verifySignature, verifyChallenge, parseWebhook, webhookStatus, sendMessage, fetchProfile } from './graph.js';
 import { handleMessages, autoreplyEnabled } from './webhook.js';
 import {
   listThreads, listThreadMessages, listByClient, linkThreadToClient,
   newIncoming, unreadCount, markAuthor, authorName,
   saveMessages, upsertThread, saveDraft, clearDraft, getDraft, pendingDrafts,
-  searchThreads, mediaOf,
+  searchThreads, mediaOf, pool,
 } from './store.js';
 import { Campaign, PACES } from './campaign.js';
 
@@ -375,6 +375,49 @@ app.get('/api/instagram/media/:igId', async (req, res) => {
       `${dl ? 'attachment' : 'inline'}; filename="${encodeURIComponent(m.name || 'file')}"`);
     return res.sendFile(m.abs);
   } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Догрузить имена диалогов, оставшихся «без имени».
+//
+// Нужно для переписок, заведённых раньше, чем сервис научился запрашивать
+// профиль у исходящих: администратор писал первым из приложения Instagram,
+// и ник взять было неоткуда.
+app.post('/api/instagram/threads/resolve-names', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.body?.limit) || 50, 200);
+    const { rows } = await pool.query(
+      `SELECT thread_id FROM instagram.threads
+        WHERE (username IS NULL OR username = '')
+        ORDER BY created_at DESC LIMIT $1`,
+      [limit],
+    );
+
+    let found = 0;
+    const failed = [];
+    for (const r of rows) {
+      const p = await fetchProfile(r.thread_id);
+      if (p?.username || p?.fullName) {
+        await upsertThread({
+          thread_id: r.thread_id,
+          username: p.username ?? null,
+          full_name: p.fullName ?? null,
+          avatar: p.avatarUrl ?? null,
+          unread: null,
+        });
+        found++;
+      } else {
+        failed.push(r.thread_id);
+      }
+      // Пауза между запросами: серия обращений к Graph API подряд упирается
+      // в лимит, и остаток пачки вернулся бы пустым.
+      await new Promise(s => setTimeout(s, 300));
+    }
+    console.log(`[IG] догрузка имён: обработано ${rows.length}, определено ${found}`);
+    return res.json({ checked: rows.length, found, unresolved: failed.length });
+  } catch (e) {
+    console.error('[IG] догрузка имён:', e.message);
     return res.status(500).json({ error: e.message });
   }
 });

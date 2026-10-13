@@ -76,10 +76,15 @@ export async function handleMessages(items) {
   for (const it of items) {
     // Ник собеседника: webhook его не присылает, только IGSID, и в списке
     // диалогов строка выглядит как «без имени». Запрашиваем профиль, но
-    // ТОЛЬКО для входящих и только если ника ещё нет — иначе лишний вызов
-    // к Meta на каждое сообщение в активной переписке.
+    // ТОЛЬКО если ника ещё нет — иначе лишний вызов к Meta на каждое
+    // сообщение в активной переписке.
+    //
+    // Для исходящих запрашиваем тоже: администратор часто пишет первым из
+    // приложения Instagram (ответ на сторис, комментарий), входящего в таком
+    // диалоге ещё не было — и без этого он навсегда оставался «без имени».
+    // threadId здесь всегда собеседник: у эха это recipient, см. parseWebhook.
     let profile = null;
-    if (!it.fromMe && !(await threadHasName(it.threadId))) {
+    if (!(await threadHasName(it.threadId))) {
       profile = await fetchProfile(it.threadId);
       if (profile?.username) {
         console.log(`[IG] диалог ${it.threadId} = @${profile.username}`);
