@@ -101,6 +101,51 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// Уведомление о вложении без текста.
+//
+// Классификатор здесь не зовём: разбирать нечего, темы у фото нет. Но менеджер
+// должен узнать о присланном файле — иначе фото зоны лежит в CRM незамеченным,
+// пока кто-нибудь не откроет переписку.
+router.post('/notify-media', serviceOrUser, async (req: ExpressRequest, res, next) => {
+  try {
+    const { thread_id, channel, client_name, kind } = z.object({
+      thread_id: z.string().max(200).nullish(),
+      channel: z.string().max(32).nullish(),
+      client_name: z.string().max(200).nullish(),
+      kind: z.string().max(32).nullish(),
+    }).parse(req.body);
+
+    const who = client_name || (thread_id ? '#' + thread_id : 'неизвестный');
+    const KIND: Record<string, string> = {
+      image: 'фото', video: 'видео', audio: 'голосовое',
+      voice: 'голосовое', share: 'пост', story_mention: 'упоминание в сторис',
+    };
+    const what = KIND[String(kind ?? '')] ?? 'вложение';
+
+    const r = await notifyNeedsReply({
+      channel: channel ?? 'instagram',
+      who,
+      question: `прислал(а) ${what} без текста`,
+      reason: 'вложение — нужен администратор',
+      draft: null,
+    });
+
+    if (r.ok && r.messageId && r.chatId && thread_id) {
+      await rememberNotification({
+        chatId: r.chatId,
+        messageId: r.messageId,
+        channel: channel ?? 'instagram',
+        threadKey: thread_id,
+        who,
+      }).catch((e) => console.warn('[ai] связь уведомления не сохранена:', e.message));
+    } else if (!r.ok && r.reason !== 'группа не настроена') {
+      console.warn('[ai] уведомление о вложении не ушло:', r.reason);
+    }
+
+    return res.json({ ok: r.ok, reason: r.ok ? null : r.reason });
+  } catch (e) { return next(e); }
+});
+
 // Всё остальное — только для вошедшего пользователя.
 router.use(authenticate);
 const manage = requireRole(['owner', 'admin']);

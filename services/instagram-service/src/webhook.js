@@ -32,6 +32,32 @@ function phoneFrom(text) {
   return d.length === 11 ? d : null;
 }
 
+/** Уведомить менеджера о вложении без текста. */
+async function notifyMedia(threadId, clientName, kind) {
+  try {
+    const r = await fetch(`${SALON_URL}/api/salons/ai/notify-media`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${INTERNAL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        thread_id: threadId, channel: 'instagram',
+        client_name: clientName, kind: kind || 'media',
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      console.warn(`[IG] уведомление о вложении не ушло: HTTP ${r.status} ${t.slice(0, 120)}`);
+    }
+  } catch (e) {
+    // Сбой уведомления не должен ронять обработку входящего: сообщение
+    // и файл уже сохранены.
+    console.warn('[IG] уведомление о вложении не ушло:', e.message);
+  }
+}
+
 /** Спросить у ассистента, что ответить. */
 async function askAssistant(text, threadId, clientName) {
   try {
@@ -148,9 +174,14 @@ export async function handleMessages(items) {
     }
 
     // Вложение без текста классифицировать нечем — такое всегда человеку.
+    // Но уведомить менеджера обязаны: иначе присланное фото зоны остаётся
+    // незамеченным до тех пор, пока кто-нибудь не откроет CRM. Классификатор
+    // не зовём (ему нечего разбирать), шлём уведомление напрямую.
     if (!it.text) {
       await saveDraft(it.threadId, null, false);
       stats.drafts++;
+      const whoMedia = profile?.username || await threadUsername(it.threadId);
+      void notifyMedia(it.threadId, whoMedia ? '@' + whoMedia : null, it.type);
       continue;
     }
 
