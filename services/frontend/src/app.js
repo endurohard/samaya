@@ -14923,20 +14923,23 @@ function waAttachChatToClient(phoneDigits, row) {
           // администратору нужно увидеть присланное фото зоны, не открывая
           // Instagram. Ссылка ведёт на наш сервис (файл на диске), поэтому
           // работает и через месяцы — ссылки Meta живут часы.
+          //
+          // Сам src подставляется позже, через fetch с токеном: браузер не
+          // добавляет заголовок Authorization к <img>/<video>, и прямая
+          // ссылка возвращала бы 401 — картинка выглядела как битая.
           const mediaUrl = m.has_media ? `/api/instagram/media/${encodeURIComponent(m.ig_id)}` : null;
           const isImage = mediaUrl && (!m.media_mime || /^image\//.test(m.media_mime));
           const isVideo = mediaUrl && /^video\//.test(m.media_mime || '');
           let mediaHtml = '';
           if (isImage) {
-            mediaHtml = `<a href="${mediaUrl}" target="_blank" rel="noopener" class="ig-msg-pic">
-              <img src="${mediaUrl}" alt="Вложение" loading="lazy"></a>
-              <a class="ig-msg-save" href="${mediaUrl}?download=1" download>Сохранить</a>`;
+            mediaHtml = `<img class="ig-msg-pic" data-media="${escapeHtml(mediaUrl)}" alt="Вложение">
+              <a class="ig-msg-save" data-save="${escapeHtml(mediaUrl)}" href="#">Сохранить</a>`;
           } else if (isVideo) {
-            mediaHtml = `<video src="${mediaUrl}" controls preload="metadata" class="ig-msg-pic"></video>
-              <a class="ig-msg-save" href="${mediaUrl}?download=1" download>Сохранить</a>`;
+            mediaHtml = `<video class="ig-msg-pic" data-media="${escapeHtml(mediaUrl)}" controls preload="metadata"></video>
+              <a class="ig-msg-save" data-save="${escapeHtml(mediaUrl)}" href="#">Сохранить</a>`;
           } else if (mediaUrl) {
             // Голосовые и файлы: проигрывателя не рисуем, но скачать даём.
-            mediaHtml = `<a class="ig-msg-save" href="${mediaUrl}?download=1" download>Скачать вложение</a>`;
+            mediaHtml = `<a class="ig-msg-save" data-save="${escapeHtml(mediaUrl)}" href="#">Скачать вложение</a>`;
           }
 
           const text = escapeHtml(m.body || '');
@@ -14958,6 +14961,9 @@ function waAttachChatToClient(phoneDigits, row) {
             + '<div class="ig-msg-time">' + (out ? who + ' · ' : '') + time + '</div></div>');
         }
         list.innerHTML = parts.join('');
+        // Вложения тянем с токеном и подставляем как blob: <img>/<video> сами
+        // заголовок Authorization не отправляют, и прямой src вернул бы 401.
+        void igLoadMedia(list);
       }
       if (atBottom || !silent) list.scrollTop = list.scrollHeight;
 
@@ -15248,6 +15254,70 @@ function waAttachChatToClient(phoneDigits, row) {
     const { ok } = await apiCall('POST', '/api/instagram/campaign/stop');
     if (ok) toast('Останавливаю — текущее сообщение дойдёт до конца');
   });
+
+  // Загрузка вложений Instagram с авторизацией.
+  //
+  // Файл отдаёт наш сервис за Kong, и запрос требует токена. Браузер не
+  // добавляет Authorization к <img src>, поэтому тянем файл сам, кладём в
+  // blob и подставляем. Один blob на элемент; созданные ссылки освобождаем
+  // при повторной отрисовке списка, иначе за день переписки накопятся
+  // десятки мегабайт в памяти вкладки.
+  const _igBlobs = new Map();
+  async function igLoadMedia(root) {
+    // Отзываем blob'ы прошлой отрисовки: элементы уже уничтожены.
+    for (const [, url] of _igBlobs) URL.revokeObjectURL(url);
+    _igBlobs.clear();
+
+    const nodes = root.querySelectorAll('[data-media]');
+    for (const el of nodes) {
+      const src = el.getAttribute('data-media');
+      try {
+        const res = await fetch(src, { headers: { Authorization: `Bearer ${store.access}` } });
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        _igBlobs.set(src, url);
+        el.src = url;
+      } catch {
+        // Файла нет или нет доступа — показываем честную подпись вместо
+        // битой картинки.
+        const note = document.createElement('span');
+        note.className = 'ig-msg-empty';
+        note.textContent = 'вложение недоступно';
+        el.replaceWith(note);
+      }
+    }
+
+    // Сохранение в архив: тем же токеном, с принудительным скачиванием.
+    root.querySelectorAll('[data-save]').forEach((a) => {
+      a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const src = a.getAttribute('data-save');
+        try {
+          const res = await fetch(`${src}?download=1`, {
+            headers: { Authorization: `Bearer ${store.access}` },
+          });
+          if (!res.ok) throw new Error(String(res.status));
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          // Имя файла берём из заголовка, иначе браузер сохранит его как
+          // «media» без расширения.
+          const cd = res.headers.get('content-disposition') || '';
+          const m = /filename="([^"]+)"/.exec(cd);
+          link.download = m ? decodeURIComponent(m[1]) : 'instagram-вложение';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          // Отзываем сразу: файл уже отдан на скачивание.
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        } catch (err) {
+          toast(`Не удалось скачать вложение (${err.message})`);
+        }
+      });
+    });
+  }
 
   document.getElementById('igResolveNames')?.addEventListener('click', async (e) => {
     const btn = e.target;
