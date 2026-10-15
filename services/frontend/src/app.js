@@ -7745,6 +7745,11 @@ import {
     if (ig) ig.hidden = (tab !== 'instagram');
     if (wa) wa.hidden = (tab !== 'whatsapp');
     if (tab === 'whatsapp') startWaInbox();
+    // Кампания живёт на сервере и переживает перезагрузку страницы. Без
+    // этого вызова администратор, вернувшийся в раздел (или зашедший с
+    // другого компьютера), не видел ни прогресса, ни кнопки «Остановить»,
+    // и прервать отправку через интерфейс было нельзя.
+    if (tab === 'instagram') igCampaignPoll();
   }
 
   document.getElementById('messagesSubnav')?.addEventListener('click', (e) => {
@@ -15187,6 +15192,49 @@ function waAttachChatToClient(phoneDigits, row) {
     igCampaignPoll();
   }
 
+  /**
+   * Отчёт по кампании: кому дошло, кому нельзя писать, где сбой.
+   * Администратору нужен поимённый список — по нему он перезванивает и
+   * понимает, до кого акция реально дошла.
+   */
+  function igRenderCampaignReport(data) {
+    const box = document.getElementById('igCampaignReport');
+    if (!box) return;
+    const delivered = data.delivered || [];
+    const blocked = data.blocked || [];
+    const failed = data.failed || [];
+    if (!delivered.length && !blocked.length && !failed.length) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const who = (r) => (r.username ? `@${esc(r.username)}` : esc(r.thread_id));
+    const time = (iso) => (iso
+      ? new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : '');
+
+    const group = (title, items, cls, body) => (items.length ? `
+      <details class="ig-report-group${cls ? ' ' + cls : ''}">
+        <summary>${title}: ${items.length}</summary>
+        <ul class="ig-report-list">${items.map(body).join('')}</ul>
+      </details>` : '');
+
+    box.hidden = false;
+    box.innerHTML = [
+      group('Доставлено', delivered, 'ok', (r) => `
+        <li><span class="ig-report-who">${who(r)}</span>
+            <span class="ig-report-time">${time(r.at)}</span>
+            <div class="ig-report-body">${esc(r.body)}</div></li>`),
+      group('Нельзя писать первым (окно 24 ч)', blocked, 'muted', (r) => `
+        <li><span class="ig-report-who">${who(r)}</span></li>`),
+      group('Ошибки отправки', failed, 'bad', (r) => `
+        <li><span class="ig-report-who">${who(r)}</span>
+            <span class="ig-report-err">${esc(r.error)}</span></li>`),
+    ].join('');
+  }
+
   function igCampaignPoll() {
     const progress = document.getElementById('igCampaignProgress');
     const bar = document.getElementById('igCampaignBar');
@@ -15203,11 +15251,26 @@ function waAttachChatToClient(phoneDigits, row) {
       if (bar && data.total) bar.style.width = `${Math.round(done / data.total * 100)}%`;
       if (startBtn) startBtn.disabled = !!data.running;
       if (stopBtn) stopBtn.hidden = !data.running;
+      // Если кампания идёт, блок отправки должен быть раскрыт — иначе
+      // кнопка «Остановить» есть в разметке, но внутри скрытого блока.
+      if (data.running) {
+        const wrap = document.getElementById('igCampaignWrap');
+        if (wrap?.hidden) {
+          wrap.hidden = false;
+          const tgl = document.getElementById('igCampaignToggle');
+          if (tgl) tgl.textContent = 'Скрыть отправку';
+        }
+      }
 
       if (label) {
+        // Счётчики разведены: «не доставлено» — запрет Instagram (окно
+        // 24 часов), «ошибок» — настоящие сбои. Раньше всё валилось в
+        // «ошибки», и штатная работа выглядела аварией.
+        const blocked = data.blocked_total ?? 0;
+        const failed = data.failed_total ?? (data.failed?.length || 0);
         let txt = `отправлено ${data.sent || 0} из ${data.total || 0}`;
-        if (data.skipped) txt += `, пропущено ${data.skipped}`;
-        if (data.failed?.length) txt += `, ошибок ${data.failed.length}`;
+        if (blocked) txt += `, нельзя писать ${blocked}`;
+        if (failed) txt += `, ошибок ${failed}`;
         // Показываем причину паузы: кампания легально стоит часами (ночь,
         // дневной лимит, перерыв), и без этого она выглядит зависшей.
         if (data.running && data.paused_until) {
@@ -15219,6 +15282,8 @@ function waAttachChatToClient(phoneDigits, row) {
         else if (!data.running && done) txt += ' · завершено';
         label.textContent = txt;
       }
+
+      igRenderCampaignReport(data);
 
       if (!data.running) { clearInterval(_igCampaignTimer); _igCampaignTimer = null; }
     };
@@ -15253,6 +15318,24 @@ function waAttachChatToClient(phoneDigits, row) {
   document.getElementById('igCampaignStop')?.addEventListener('click', async () => {
     const { ok } = await apiCall('POST', '/api/instagram/campaign/stop');
     if (ok) toast('Останавливаю — текущее сообщение дойдёт до конца');
+  });
+  document.getElementById('igCampaignPreview')?.addEventListener('click', async () => {
+    const box = document.getElementById('igCampaignSamples');
+    const msg = document.getElementById('igCampaignMessage')?.value || '';
+    if (!msg.trim()) { toast('Сначала напишите текст'); return; }
+    const { ok, data } = await apiCall('POST', '/api/instagram/campaign/preview', { message: msg });
+    if (!ok || !box) { toast(data?.error || 'Не удалось собрать варианты'); return; }
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const picked = _igPicked.size;
+    // Честно предупреждаем, когда вариантов меньше, чем людей: часть
+    // получателей всё равно увидит один и тот же текст.
+    const warn = data.variants < picked
+      ? `<div class="hint" style="color:var(--warn,#e0a44a)">Вариантов ${data.variants}, получателей ${picked} — текст будет повторяться. Добавьте варианты в фигурных скобках.</div>`
+      : `<div class="hint">Возможных вариантов текста: ${data.variants}</div>`;
+    box.hidden = false;
+    box.innerHTML = warn
+      + (data.samples || []).map((s) => `<div class="ig-sample">${esc(s)}</div>`).join('');
   });
 
   // Загрузка вложений Instagram с авторизацией.

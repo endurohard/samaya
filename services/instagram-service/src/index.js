@@ -11,7 +11,7 @@ import {
   saveMessages, upsertThread, saveDraft, clearDraft, getDraft, pendingDrafts,
   searchThreads, mediaOf, pool, saveOutgoingMedia, signMediaPath, signedMediaPath,
 } from './store.js';
-import { Campaign, PACES } from './campaign.js';
+import { Campaign, PACES, spin, spinVariants, humanize } from './campaign.js';
 
 const PORT = Number(process.env.PORT || 3010);
 // Публичный адрес CRM: по нему Meta забирает исходящие вложения. Без него
@@ -550,6 +550,16 @@ app.post('/api/instagram/campaign/start', async (req, res) => {
 });
 
 app.get('/api/instagram/campaign/status', (_req, res) => res.json(campaign.status()));
+
+// Предпросмотр: показывает администратору несколько готовых вариантов
+// текста и общее число комбинаций. Без этого шаблон с {a|b} пишется
+// вслепую — опечатку в скобках видно только по уже отправленным людям.
+app.post('/api/instagram/campaign/preview', (req, res) => {
+  const text = String(req.body?.message || '');
+  if (!text.trim()) return res.status(400).json({ error: 'пустой текст' });
+  const samples = Array.from({ length: 5 }, () => humanize(spin(text)).trim());
+  res.json({ variants: spinVariants(text), samples });
+});
 
 app.post('/api/instagram/campaign/stop', (_req, res) => {
   const r = campaign.stop();

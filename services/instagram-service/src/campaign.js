@@ -16,10 +16,79 @@
 // тем, кто сам обращался недавно; старым диалогам Meta может отказать. Это
 // нормально и не повод останавливать кампанию: такие получатели помечаются
 // отдельной причиной, а не считаются сбоем.
-import { upsertThread, saveMessages, alreadySent, markAuthor, authorName } from './store.js';
+import { upsertThread, saveMessages, alreadySent, sentSince, markAuthor, authorName } from './store.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rnd = (a, b) => Math.floor(a + Math.random() * (b - a));
+
+/**
+ * Делает каждое сообщение непохожим на предыдущее.
+ *
+ * Зачем: антиспам Meta ловит не объём как таковой, а ОДИНАКОВЫЙ текст,
+ * уходящий подряд разным людям — это самый дешёвый для платформы признак
+ * массовой рассылки. Сто идентичных символ-в-символ сообщений выглядят
+ * машинно даже при минутных паузах; сто сообщений с разными приветствием,
+ * порядком строк и хвостом — обычная переписка администратора.
+ *
+ * Синтаксис для администратора — фигурные скобки с вариантами через `|`:
+ *   «{Здравствуйте|Добрый день|Доброго дня}! У нас {акция|спецпредложение}»
+ * Для каждого получателя выбирается свой вариант. Вложенность поддержана:
+ * разбираем изнутри наружу.
+ *
+ * Невидимые символы НЕ вставляем: Instagram нормализует текст перед
+ * сравнением, а у получателя они ломают копирование и читаются экранными
+ * дикторами как мусор. Вариативность должна быть осмысленной, иначе это
+ * обман ради обмана.
+ */
+export function spin(text) {
+  let out = String(text);
+  // До 20 проходов: защита от циклов на кривом вводе вроде «{a|{b»
+  for (let pass = 0; pass < 20; pass++) {
+    const next = out.replace(/\{([^{}]*)\}/g, (_m, body) => {
+      const opts = String(body).split('|');
+      return opts[Math.floor(Math.random() * opts.length)];
+    });
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/**
+ * Сколько РАЗНЫХ текстов способен дать шаблон. Нужно администратору до
+ * запуска: если вариантов меньше, чем получателей, часть людей всё равно
+ * получит одинаковый текст, и он должен это видеть заранее.
+ */
+export function spinVariants(text) {
+  let total = 1;
+  const re = /\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(String(text))) !== null) {
+    const n = m[1].split('|').length;
+    if (n > 1) total *= n;
+    if (total > 1e6) return 1e6;
+  }
+  return total;
+}
+
+/**
+ * Лёгкая «человеческая» непохожесть сверх вариантов администратора.
+ * Переставляем местами соседние пункты-строки списка и иногда убираем
+ * финальную пустую строку. Трогаем только разметку, не смысл: цены,
+ * адреса и условия обязаны остаться слово в слово.
+ */
+export function humanize(text) {
+  const lines = String(text).split('\n');
+  // Строки-пункты (начинаются с эмодзи-маркера или дефиса) можно
+  // переставлять: порядок городов в списке цен смысла не меняет.
+  const idx = lines.map((l, i) => ({ l, i })).filter(({ l }) => /^\s*(?:[-•—]|\p{Extended_Pictographic})/u.test(l));
+  if (idx.length >= 2 && Math.random() < 0.5) {
+    const k = Math.floor(Math.random() * (idx.length - 1));
+    const a = idx[k].i, b = idx[k + 1].i;
+    [lines[a], lines[b]] = [lines[b], lines[a]];
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 // Темпы. Числа заметно осторожнее whatsapp-рассылки — см. причину выше.
 export const PACES = {
@@ -64,10 +133,31 @@ export class Campaign {
       failed: [], started_at: null, finished_at: null,
       paused_until: null, pause_reason: null, stopped_reason: null,
       pace: null, message: null,
+      // Кому сообщение реально доставлено — администратор должен видеть
+      // поимённо, а не только счётчик: по этому списку он потом звонит.
+      delivered: [],
+      // Закрытое окно 24 часов — не ошибка, а запрет платформы. Держим
+      // отдельно, иначе «ошибок 78» читается как поломка системы.
+      blocked: [],
     };
   }
 
-  status() { return { ...this.state, failed: this.state.failed.slice(-20) }; }
+  /**
+   * Полные счётчики, без усечения: раньше отдавались только последние 20
+   * ошибок, и интерфейс показывал «ошибок 20» при 78 реальных отказах.
+   * Списки режем, числа — никогда.
+   */
+  status() {
+    return {
+      ...this.state,
+      failed: this.state.failed.slice(-50),
+      failed_total: this.state.failed.length,
+      blocked: this.state.blocked.slice(-200),
+      blocked_total: this.state.blocked.length,
+      delivered: this.state.delivered.slice(-200),
+      delivered_total: this.state.delivered.length,
+    };
+  }
 
   stop() {
     if (!this.state.running) return { ok: false, error: 'кампания не запущена' };
@@ -150,11 +240,19 @@ export class Campaign {
       this.state.paused_until = null;
 
       const r = list[i];
-      const body = text.replace(/\{name\}/g, r.username ? `@${r.username}` : '').trim();
+      // Текст собирается заново для КАЖДОГО получателя: варианты из {a|b}
+      // плюс лёгкая перестановка пунктов. Два подряд одинаковых сообщения
+      // — главный признак рассылки для антиспама Meta.
+      const body = humanize(
+        spin(text).replace(/\{name\}/g, r.username ? `@${r.username}` : ''),
+      ).trim();
 
       try {
         // Повтор не отправляем: кампанию могли перезапустить после обрыва.
-        if (await alreadySent(r.thread_id, body)) {
+        // Сравнивать тексты больше нельзя — они у каждого свои, поэтому
+        // смотрим, писали ли мы этому человеку с начала кампании.
+        if (await sentSince(r.thread_id, this.state.started_at)
+            || await alreadySent(r.thread_id, body)) {
           this.state.skipped++;
           console.log(`[IG][кампания] ${r.username || r.thread_id}: уже отправляли, пропуск`);
           continue;
@@ -170,7 +268,14 @@ export class Campaign {
           // получателю просто нельзя написать первым. Помечаем и идём дальше.
           const noToken = /токен Instagram не сохранён|не записан id аккаунта/.test(api?.error || '');
           if (!noToken) {
-            this.state.failed.push({ thread_id: r.thread_id, username: r.username, error: api?.error || 'отказ API' });
+            // Закрытое окно 24 часов — запрет платформы, а не сбой у нас:
+            // такому человеку нельзя написать первым, и «ошибкой» это
+            // считать нельзя, иначе администратор ищет поломку там, где
+            // система отработала правильно.
+            const windowClosed = /24 часов/.test(api?.error || '');
+            const entry = { thread_id: r.thread_id, username: r.username, error: api?.error || 'отказ API' };
+            if (windowClosed) this.state.blocked.push(entry);
+            else this.state.failed.push(entry);
             this.state.skipped++;
             console.warn(`[IG][кампания] ${r.username || r.thread_id}: ${api?.error}`);
             await this._waitAbortable(rnd(5000, 15_000));
@@ -186,6 +291,16 @@ export class Campaign {
         this.state.sent++;
         sentToday++;
         failStreak = 0;
+        // Кому дошло — с ником, временем и фактическим текстом: тексты
+        // теперь различаются между получателями, и без этого непонятно,
+        // какой именно вариант человек прочитал.
+        this.state.delivered.push({
+          thread_id: r.thread_id,
+          username: r.username,
+          at: new Date().toISOString(),
+          body,
+          via,
+        });
 
         // Пишем в историю сразу: иначе администратор не увидит отправленное
         // до следующего обхода монитора, а это четверть часа.

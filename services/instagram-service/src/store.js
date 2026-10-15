@@ -495,6 +495,26 @@ export async function alreadySent(threadId, message) {
   return r.rowCount > 0;
 }
 
+/**
+ * Писали ли мы в этот диалог после момента `since`.
+ *
+ * Нужно вместо сравнения текстов: в кампании каждый получатель получает
+ * свой вариант сообщения, поэтому «такой же текст уже уходил» больше не
+ * работает как защита от повтора при перезапуске. Признак повтора теперь
+ * временной — «мы уже писали этому человеку в рамках текущей кампании».
+ */
+export async function sentSince(threadId, sinceIso) {
+  if (!COMPANY_ID || !sinceIso) return false;
+  const r = await pool.query(
+    `SELECT 1 FROM instagram.messages
+      WHERE company_id = $1 AND thread_id = $2 AND from_me = TRUE
+        AND sent_at >= $3::timestamptz
+      LIMIT 1`,
+    [COMPANY_ID, threadId, sinceIso],
+  );
+  return r.rowCount > 0;
+}
+
 export async function listThreadMessages(threadId, limit = 200) {
   const r = await pool.query(
     `SELECT ig_id, from_me, body, msg_type, media_name, media_mime,

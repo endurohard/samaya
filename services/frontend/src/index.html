@@ -2763,18 +2763,27 @@
                     Отправка только с 10:00 до 20:00 МСК, с перерывами после каждой пачки.
                     Три ошибки подряд останавливают отправку — это признак ограничения аккаунта.
                   </div>
+                  <div class="hint" style="margin-top:6px;">
+                    Чтобы сообщения не были одинаковыми, пишите варианты в фигурных скобках через «|»:
+                    <code>{Здравствуйте|Добрый день}! Для вас {действует|открыта} акция</code>.
+                    Каждому получателю достанется свой вариант — одинаковый текст подряд Instagram
+                    считает рассылкой. Нажмите «Проверить варианты», чтобы увидеть примеры.
+                  </div>
                   <div class="hint" id="igCampaignEta" style="margin-top:4px;"></div>
                 </div>
 
                 <div class="broadcast-meta-row" style="justify-content:flex-start;gap:10px;">
                   <button type="button" class="btn-primary btn-sm" id="igCampaignStart">Запустить отправку</button>
+                  <button type="button" class="btn-secondary btn-sm" id="igCampaignPreview">Проверить варианты</button>
                   <button type="button" class="btn-danger-outline btn-sm" id="igCampaignStop" hidden>Остановить</button>
                 </div>
+                <div id="igCampaignSamples" class="ig-samples" hidden></div>
                 <div id="igCampaignProgress" hidden style="margin-top:10px;">
                   <div class="broadcast-progress-bar" style="height:6px;background:var(--border,#2a2a35);border-radius:3px;overflow:hidden;">
                     <div id="igCampaignBar" style="height:100%;width:0;background:var(--accent,#7c5cff);transition:width .3s;"></div>
                   </div>
                   <div class="char-count" id="igCampaignLabel" style="margin-top:6px;"></div>
+                  <div id="igCampaignReport" class="ig-report" hidden></div>
                 </div>
               </div>
 
