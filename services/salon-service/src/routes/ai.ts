@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { pool } from '../db';
 import { notifyNeedsReply, sendTelegram, telegramTarget, tgDispatcher } from '../ai/telegram';
 import { rememberNotification } from '../ai/telegram-replies';
-import { authenticate, requireRole, HttpError } from '../middleware';
+import { authenticate, requireRole, requirePermission, HttpError } from '../middleware';
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 
 // Шаблоны ответов ИИ-ассистента: список, правка, проверка.
@@ -148,7 +148,16 @@ router.post('/notify-media', serviceOrUser, async (req: ExpressRequest, res, nex
 
 // Всё остальное — только для вошедшего пользователя.
 router.use(authenticate);
-const manage = requireRole(['owner', 'admin']);
+// Доступ по праву, а не по роли: шаблонами ответов занимается маркетолог
+// (роль master), и жёсткое requireRole(['owner','admin']) не давало выдать
+// ему доступ даже персональной галочкой. owner и admin получают 'ai.manage'
+// по умолчанию, поэтому для них ничего не меняется.
+const manage = requirePermission('ai.manage');
+// Просмотр шаблонов и статуса — более слабое право: можно дать тому, кто
+// только смотрит, не разрешая править тексты.
+const view = requirePermission('ai.view', 'ai.manage');
+// Журнал решений показывает переписку клиентов — отдельное право.
+const viewLog = requirePermission('ai.view_log', 'ai.manage');
 
 /**
  * Ключ темы из названия: транслитерация RU→latin.
@@ -217,7 +226,7 @@ const templateSchema = z.object({
 });
 
 /** GET /api/salons/ai/templates — все шаблоны компании. */
-router.get('/templates', manage, async (req: ExpressRequest, res, next) => {
+router.get('/templates', view, async (req: ExpressRequest, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, topic, title, matcher, body, autosend, enabled, sort_order, updated_at
@@ -336,7 +345,7 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
  * Токен наружу не отдаём, только факт его наличия: страницу открывает
  * владелец, но пересылать секрет в браузер незачем.
  */
-router.get('/telegram', manage, async (req: ExpressRequest, res, next) => {
+router.get('/telegram', view, async (req: ExpressRequest, res, next) => {
   try {
     const companyId = req.auth!.company_id;
     const { rows } = await pool.query(
@@ -499,7 +508,7 @@ router.post('/telegram/:channel/test', manage, async (req: ExpressRequest, res, 
  * Пока клиника присматривается к ответам, это единственный безопасный
  * способ проверить поведение на живых сообщениях.
  */
-router.get('/channel', manage, async (req: ExpressRequest, res, next) => {
+router.get('/channel', view, async (req: ExpressRequest, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT test_mode, test_users, updated_at
@@ -549,7 +558,7 @@ router.put('/channel', manage, async (req: ExpressRequest, res, next) => {
 });
 
 /** GET /api/salons/ai/log — журнал решений. */
-router.get('/log', manage, async (req: ExpressRequest, res, next) => {
+router.get('/log', viewLog, async (req: ExpressRequest, res, next) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const { rows } = await pool.query(
@@ -573,7 +582,7 @@ router.get('/log', manage, async (req: ExpressRequest, res, next) => {
  * классификатора, сколько шаблонов включено, сколько из них отправляются
  * сами.
  */
-router.get('/status', manage, async (req: ExpressRequest, res, next) => {
+router.get('/status', view, async (req: ExpressRequest, res, next) => {
   try {
     const templates = await loadTemplates(req.auth!.company_id);
     return res.json({

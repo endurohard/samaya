@@ -684,6 +684,9 @@ import {
     inventory: 'inventory.view',
     settings: 'settings.manage',
     promotion: 'promotions.view',
+    // Раздел скрыт у тех, кому не выдали доступ к ассистенту. Без этого
+    // пункт меню был виден всем, а запросы внутри падали с 403.
+    aiassistant: 'ai.view',
   };
   function hasPerm(perms, key) {
     // owner проверяется отдельно; fail-open если в токене нет прав (старый токен)
