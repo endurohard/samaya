@@ -489,12 +489,23 @@ import {
   });
 
   // ===== View switching =====
-  function setView(view) {
+  function setView(view, opts = {}) {
     // Профиль остаётся запасным вариантом только для неавторизованного экрана;
     // вошедший сотрудник по умолчанию попадает на «Сегодня» — рабочую сводку
     // дня, а не в настройки своей учётки.
     if (!VIEW_TITLES[view]) view = store.user ? 'today' : 'profile';
     currentView = view;
+    // Держим адресную строку в соответствии с разделом: иначе после F5
+    // пользователь возвращался не туда, где был. Хеш писали только
+    // ссылки меню, а setView о нём не знал — адрес и экран разъезжались.
+    // replaceState, а не location.hash: присваивание хеша дёргает
+    // hashchange и приводит к повторному setView по кругу.
+    if (!opts.fromHash) {
+      const target = `#${view}`;
+      if (location.hash !== target) {
+        history.replaceState(null, '', target);
+      }
+    }
     els.views.forEach((v) => {
       const match = v.dataset.view === view;
       v.classList.toggle('active', match);
@@ -15602,7 +15613,26 @@ function waAttachChatToClient(phoneDigits, row) {
 
   // ===== Init =====
   renderAuth();
-  setView('profile');
+  // Раздел берём из адресной строки: после F5 (и по прямой ссылке) должен
+  // открыться тот же экран, а не профиль. Права проверит applyNavPermissions
+  // после загрузки пользователя — если раздел запрещён, уведёт на «Сегодня».
+  (function restoreViewFromHash() {
+    // Гостю раздел из адреса не открываем: пока нет токена, показывать
+    // можно только экран входа, иначе по ссылке #finance мелькнёт пустая
+    // вёрстка раздела до редиректа.
+    const authed = !!(store.user && store.access);
+    const fromHash = (location.hash || '').replace(/^#/, '');
+    if (authed && fromHash && VIEW_TITLES[fromHash]) setView(fromHash, { fromHash: true });
+    else setView(authed ? 'today' : 'profile');
+  })();
+
+  // Навигация «назад/вперёд» и ручная правка адреса.
+  window.addEventListener('hashchange', () => {
+    if (!(store.user && store.access)) return;
+    const v = (location.hash || '').replace(/^#/, '');
+    if (v && VIEW_TITLES[v] && v !== currentView) setView(v, { fromHash: true });
+  });
+
   probeBackend();
   setInterval(probeBackend, 10000);
   startWaNotifications();
