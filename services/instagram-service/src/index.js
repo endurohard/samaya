@@ -1,7 +1,7 @@
 import express from 'express';
 import ig from './instagram.js';
 import { Monitor } from './monitor.js';
-import { authenticate } from './auth.js';
+import { authenticate, requireSend } from './auth.js';
 import { aiStatus, prepareReply } from './assistant.js';
 import { verifySignature, verifyChallenge, parseWebhook, webhookStatus, sendMessage, fetchProfile, sendMediaMessage } from './graph.js';
 import { handleMessages, autoreplyEnabled } from './webhook.js';
@@ -294,7 +294,7 @@ app.get('/api/instagram/incoming', async (req, res) => {
 });
 
 // ── Отправка ──
-app.post('/api/instagram/send', async (req, res) => {
+app.post('/api/instagram/send', requireSend, async (req, res) => {
   const { thread_id: threadId, message } = req.body || {};
   if (!threadId || !message) {
     return res.status(400).json({ error: 'нужны thread_id и message' });
@@ -378,7 +378,7 @@ app.post('/api/instagram/send', async (req, res) => {
 // Meta забирает медиа ТОЛЬКО по публичной ссылке — загрузить файл телом
 // запроса к Graph API нельзя. Поэтому кладём на диск, отдаём Meta подписанный
 // адрес, она скачивает сама.
-app.post('/api/instagram/send-media', express.raw({
+app.post('/api/instagram/send-media', requireSend, express.raw({
   type: ['image/*', 'video/*', 'audio/*', 'application/octet-stream'],
   limit: '25mb', // предел Instagram на вложение в Direct
 }), async (req, res) => {
@@ -542,7 +542,7 @@ app.get('/api/instagram/campaign/paces', (_req, res) => {
   })));
 });
 
-app.post('/api/instagram/campaign/start', async (req, res) => {
+app.post('/api/instagram/campaign/start', requireSend, async (req, res) => {
   const { recipients, message, pace } = req.body || {};
   const r = campaign.start(recipients, message, pace, req.user || null);
   if (!r.ok) return res.status(400).json(r);
@@ -601,7 +601,7 @@ app.delete('/api/instagram/threads/:id/draft', async (req, res) => {
 });
 
 // Отправить черновик (возможно отредактированный администратором).
-app.post('/api/instagram/threads/:id/draft/send', async (req, res) => {
+app.post('/api/instagram/threads/:id/draft/send', requireSend, async (req, res) => {
   try {
     const stored = await getDraft(req.params.id);
     const text = String(req.body?.message || stored?.ai_draft || '').trim();

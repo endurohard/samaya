@@ -7,7 +7,7 @@ import QRCode from 'qrcode';
 import wa from './whatsapp.js';
 import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone } from './store.js';
 import { Monitor } from './monitor.js';
-import { authenticate } from './auth.js';
+import { authenticate, requireSend } from './auth.js';
 
 const PORT = Number(process.env.PORT || 3008);
 // Тот же том, что у вложений переписки (store.js): вложения рассылки лежат
@@ -175,7 +175,7 @@ app.get('/api/whatsapp/qr', async (_req, res) => {
 });
 
 // ── Send text message ──
-app.post('/api/whatsapp/send', async (req, res) => {
+app.post('/api/whatsapp/send', requireSend, async (req, res) => {
   const { phone, message } = req.body || {};
   if (!phone || !message) {
     return res.status(400).json({ error: 'phone and message required' });
@@ -209,7 +209,7 @@ app.post('/api/whatsapp/send', async (req, res) => {
 
 // Загрузка вложения для рассылки. Файл кладём на том /data/media рядом с
 // вложениями переписки; наружу отдаём только идентификатор, а не путь.
-app.post('/api/whatsapp/upload', async (req, res) => {
+app.post('/api/whatsapp/upload', requireSend, async (req, res) => {
   try {
     // Тип проверяем ПЕРВЫМ. express.raw() наполняет body только для типов из
     // своего фильтра, поэтому у неподдерживаемого файла (например PDF) тело
@@ -421,7 +421,7 @@ async function runBroadcast(recipients, message, pacing, mediaId) {
   }
 }
 
-app.post('/api/whatsapp/broadcast', (req, res) => {
+app.post('/api/whatsapp/broadcast', requireSend, (req, res) => {
   if (_broadcast.running) {
     return res.status(409).json({ error: 'broadcast_running', message: 'Рассылка уже идёт' });
   }

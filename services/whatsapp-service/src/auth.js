@@ -30,7 +30,13 @@ const secret = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 const ADMIN_ROLES = ['owner', 'admin'];
 
 // Доступ: либо внутренний токен (service-to-service, booking-service),
-// либо Bearer JWT владельца/админа (фронтенд).
+// либо Bearer JWT пользователя с правом на переписку.
+//
+// Проверяем ПРАВО, а не только роль: раньше здесь стоял жёсткий список
+// ['owner','admin'], и сотруднику с ролью master переписку нельзя было
+// открыть никакой настройкой — раздел молча отдавал пустой список.
+// Роли owner/admin проходят всегда: у них право есть по умолчанию, а
+// старые токены, выданные до появления права, не должны отваливаться.
 export async function authenticate(req, res, next) {
   if (tokenMatches(req.headers['x-internal-token'])) return next();
 
@@ -38,16 +44,44 @@ export async function authenticate(req, res, next) {
   if (h?.startsWith('Bearer ') && secret) {
     try {
       const { payload } = await jwtVerify(h.slice(7), secret);
-      if (payload.type === 'access' && ADMIN_ROLES.includes(payload.role)) {
-        // Кто именно вошёл — нужно роуту отправки, чтобы подписать сообщение
-        // автором. При внутреннем токене (booking-service) автора нет: это
-        // автоматика, а не сотрудник.
-        req.user = { id: payload.sub, role: payload.role };
-        return next();
+      if (payload.type === 'access') {
+        const perms = payload.permissions || {};
+        const isAdmin = ADMIN_ROLES.includes(payload.role);
+        if (isAdmin || perms['messages.view'] === true) {
+          // Кто именно вошёл — нужно роуту отправки, чтобы подписать сообщение
+          // автором. При внутреннем токене (booking-service) автора нет: это
+          // автоматика, а не сотрудник.
+          req.user = {
+            id: payload.sub,
+            role: payload.role,
+            canSend: isAdmin || perms['messages.send'] === true,
+          };
+          return next();
+        }
+        return res.status(403).json({
+          error: 'forbidden',
+          message: 'Нет доступа к переписке — требуется право «Переписка: чтение»',
+        });
       }
     } catch {
       // невалидный токен → 401 ниже
     }
   }
   return res.status(401).json({ error: 'unauthorized' });
+}
+
+/**
+ * Запретить изменяющие действия без права на отправку.
+ *
+ * Ставится на маршруты, которые пишут клиенту: отправка, рассылка.
+ */
+export function requireSend(req, res, next) {
+  // Внутренний токен: req.user не заполняется, это сервис-к-сервису
+  // (booking-service шлёт напоминания о записи) — такие запросы пропускаем.
+  if (!req.user) return next();
+  if (req.user.canSend) return next();
+  return res.status(403).json({
+    error: 'forbidden',
+    message: 'Нет права отправлять сообщения клиентам',
+  });
 }
