@@ -11617,6 +11617,12 @@ function waAttachChatToClient(phoneDigits, row) {
     if (tab === 'company') renderCompanyForm();
     if (tab === 'templates') renderScheduleTemplates();
     if (tab === 'notifications') renderNotificationsForm();
+    // Карточка WhatsApp живёт во вкладке «Уведомления», и её статус надо
+    // запрашивать при каждом открытии: QR живёт минуты, а не вечно.
+    // Раньше это висело на отдельном слушателе с селектором [data-tab],
+    // которого в разметке нет (там data-set-tab) — обработчик не
+    // навешивался никогда, и QR не появлялся без ручного «Обновить».
+    if (tab === 'notifications' || tab === 'integrations') void loadWaStatus();
     if (tab === 'integrations') void loadIntegrations();
     if (tab === 'access') void loadAccessUsers();
     if (tab === 'services') void loadSvcGroups();
@@ -14298,56 +14304,82 @@ function waAttachChatToClient(phoneDigits, row) {
   let waPollingTimer = null;
 
   async function loadWaStatus() {
-    const badge = document.getElementById('waStatusBadge');
-    const qrWrap = document.getElementById('waQrWrap');
-    const qrImg = document.getElementById('waQrImg');
-    const readyMsg = document.getElementById('waReadyMsg');
-    const testMode = document.getElementById('waTestMode');
-    if (!badge) return;
+    // Карточка WhatsApp есть в двух вкладках: «Уведомления» и
+    // «Интеграции». Обновляем обе одним запросом — дублировать опрос
+    // статуса на каждую нельзя, puppeteer-сеанс один.
+    const slots = [
+      {
+        badge: document.getElementById('waStatusBadge'),
+        qrWrap: document.getElementById('waQrWrap'),
+        qrImg: document.getElementById('waQrImg'),
+        readyMsg: document.getElementById('waReadyMsg'),
+        testMode: document.getElementById('waTestMode'),
+      },
+      {
+        badge: document.getElementById('waIntStatusBadge'),
+        qrWrap: document.getElementById('waIntQrWrap'),
+        qrImg: document.getElementById('waIntQrImg'),
+        readyMsg: document.getElementById('waIntReadyMsg'),
+        testMode: document.getElementById('waIntTestMode'),
+      },
+    ].filter((s) => s.badge);
+    if (!slots.length) return;
+
+    const apply = (fn) => slots.forEach(fn);
 
     const r = await apiCall('GET', '/api/whatsapp/status');
     if (!r.ok) {
-      badge.className = 'pill pill-danger';
-      badge.textContent = 'Ошибка';
+      apply((s) => {
+        s.badge.className = 'pill pill-danger';
+        s.badge.textContent = 'Ошибка';
+      });
       return;
     }
-    const s = r.data;
+    const s0 = r.data;
 
-    if (s.test_mode) {
-      badge.className = 'pill pill-mute';
-      badge.textContent = 'Тест-режим';
-      if (qrWrap) qrWrap.hidden = true;
-      if (readyMsg) readyMsg.hidden = true;
-      if (testMode) testMode.hidden = false;
+    if (s0.test_mode) {
+      apply((s) => {
+        s.badge.className = 'pill pill-mute';
+        s.badge.textContent = 'Тест-режим';
+        if (s.qrWrap) s.qrWrap.hidden = true;
+        if (s.readyMsg) s.readyMsg.hidden = true;
+        if (s.testMode) s.testMode.hidden = false;
+      });
       return;
     }
 
-    if (s.ready) {
-      badge.className = 'pill pill-success';
-      badge.textContent = 'Подключён';
-      if (qrWrap) qrWrap.hidden = true;
-      if (readyMsg) readyMsg.hidden = false;
-      if (testMode) testMode.hidden = true;
+    if (s0.ready) {
+      apply((s) => {
+        s.badge.className = 'pill pill-success';
+        s.badge.textContent = 'Подключён';
+        if (s.qrWrap) s.qrWrap.hidden = true;
+        if (s.readyMsg) s.readyMsg.hidden = false;
+        if (s.testMode) s.testMode.hidden = true;
+      });
       clearInterval(waPollingTimer);
       waPollingTimer = null;
       return;
     }
 
-    badge.className = 'pill pill-warn';
-    badge.textContent = s.status === 'qr_pending' ? 'Ожидание QR' : s.status || 'Инициализация';
-    if (readyMsg) readyMsg.hidden = true;
-    if (testMode) testMode.hidden = true;
+    apply((s) => {
+      s.badge.className = 'pill pill-warn';
+      s.badge.textContent = s0.status === 'qr_pending' ? 'Ожидание QR' : s0.status || 'Инициализация';
+      if (s.readyMsg) s.readyMsg.hidden = true;
+      if (s.testMode) s.testMode.hidden = true;
+    });
 
     // fetch QR
     const qrRes = await apiCall('GET', '/api/whatsapp/qr');
     if (qrRes.ok) {
       const qd = qrRes.data;
-      if (qd.qr && qrWrap && qrImg) {
-        qrImg.src = qd.qr;
-        qrWrap.hidden = false;
-      } else if (qrWrap) {
-        qrWrap.hidden = true;
-      }
+      apply((s) => {
+        if (qd.qr && s.qrWrap && s.qrImg) {
+          s.qrImg.src = qd.qr;
+          s.qrWrap.hidden = false;
+        } else if (s.qrWrap) {
+          s.qrWrap.hidden = true;
+        }
+      });
     }
 
     // start polling if not already
@@ -14356,23 +14388,29 @@ function waAttachChatToClient(phoneDigits, row) {
     }
   }
 
-  document.getElementById('waRefreshBtn')?.addEventListener('click', () => { void loadWaStatus(); });
+  // Обе копии карточки (Уведомления и Интеграции) управляют одним сеансом.
+  ['waRefreshBtn', 'waIntRefreshBtn'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', () => { void loadWaStatus(); });
+  });
 
-  document.getElementById('waRestartBtn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('waRestartBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Перезапуск…'; }
-    try {
-      await apiCall('POST', '/api/whatsapp/restart');
-      clearInterval(waPollingTimer);
-      waPollingTimer = null;
-      await loadWaStatus();
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Перезапустить'; }
-    }
+  ['waRestartBtn', 'waIntRestartBtn'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', async () => {
+      const btn = document.getElementById(id);
+      if (btn) { btn.disabled = true; btn.textContent = 'Перезапуск…'; }
+      try {
+        await apiCall('POST', '/api/whatsapp/restart');
+        clearInterval(waPollingTimer);
+        waPollingTimer = null;
+        await loadWaStatus();
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Перезапустить'; }
+      }
+    });
   });
 
   // load WA status when navigating to notifications tab
-  document.querySelectorAll('[data-tab="notifications"]').forEach((btn) => {
+  // (selector fixed: разметка использует data-set-tab, не data-tab)
+  document.querySelectorAll('[data-set-tab="notifications"]').forEach((btn) => {
     btn.addEventListener('click', () => { void loadWaStatus(); });
   });
 

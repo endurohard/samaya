@@ -2403,6 +2403,35 @@
 
           <!-- Tab: Интеграции -->
           <div id="setTabIntegrations" hidden>
+            <!-- WhatsApp: подключение по QR. Карточка продублирована здесь
+                 намеренно — пользователи ищут подключение мессенджера в
+                 «Интеграциях», а не в «Уведомлениях», где она была раньше.
+                 id'шники отличаются от вкладки уведомлений, иначе
+                 getElementById вернёт первый попавшийся элемент. -->
+            <div class="card data-card" style="margin-bottom:16px;">
+              <div class="data-head">
+                <h2 class="card-title">WhatsApp</h2>
+                <span id="waIntStatusBadge" class="pill pill-mute">—</span>
+                <div class="data-head-spacer"></div>
+                <button type="button" class="btn-ghost btn-sm" id="waIntRefreshBtn">Обновить</button>
+                <button type="button" class="btn-ghost btn-sm" id="waIntRestartBtn">Перезапустить</button>
+              </div>
+              <div style="padding:0 16px 16px;">
+                <div id="waIntQrWrap" hidden style="margin:16px 0;text-align:center;">
+                  <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">
+                    Отсканируйте QR-код в WhatsApp → Связанные устройства
+                  </p>
+                  <img id="waIntQrImg" src="" alt="QR" style="width:220px;height:220px;border-radius:10px;" />
+                </div>
+                <div id="waIntReadyMsg" hidden style="padding:12px 0;font-size:14px;color:#16a34a;">
+                  ✅ WhatsApp подключён и готов к отправке сообщений
+                </div>
+                <div id="waIntTestMode" hidden style="padding:12px 0;font-size:13px;color:var(--text-dim);">
+                  🧪 Тестовый режим — сообщения не отправляются (WHATSAPP_TEST_MODE=true)
+                </div>
+              </div>
+            </div>
+
             <div class="card data-card">
               <div class="data-head">
                 <h2 class="card-title">Instagram Direct</h2>
