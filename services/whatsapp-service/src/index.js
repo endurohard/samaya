@@ -5,7 +5,7 @@ import fsp from 'fs/promises';
 import { randomUUID } from 'crypto';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
-import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone } from './store.js';
+import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone, clientPhoneIndex } from './store.js';
 import { Monitor } from './monitor.js';
 import { authenticate, requireSend } from './auth.js';
 
@@ -652,13 +652,42 @@ app.get('/api/whatsapp/unlinked', async (_req, res) => {
   }
 });
 
-// Разовый импорт истории при подключении боевого номера. Идёт часами, поэтому
-// запускается в фоне, а прогресс смотрится отдельным запросом.
+// Разовый импорт истории. По умолчанию берёт только чаты, чей номер есть в
+// базе клиентов: в списке WhatsApp хватает курьеров и спама, тащить их в CRM
+// незачем. all=true снимает фильтр. Идёт часами, поэтому запускается в фоне,
+// а прогресс смотрится отдельным запросом.
 app.post('/api/whatsapp/import-all', async (req, res) => {
   try {
     const pauseMs = Number(req.body?.pause_ms || 4000);
     const limit = Number(req.body?.limit || 0);
-    return res.json(await monitor.importAll({ pauseMs, limit }));
+    const onlyClients = req.body?.all !== true;
+    return res.json(await monitor.importAll({ pauseMs, limit, onlyClients }));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Предпросмотр: сколько чатов видно и сколько из них — клиенты. Нужен до
+// запуска, который идёт часами: сразу видно, что сопоставление работает, и
+// не придётся ждать финала, чтобы узнать про ноль совпадений.
+app.get('/api/whatsapp/import-all/preview', async (_req, res) => {
+  try {
+    if (!wa.isReady) return res.status(409).json({ error: 'WhatsApp не подключён' });
+    const [list, index] = await Promise.all([
+      wa.listChats({ scroll: true }),
+      clientPhoneIndex(),
+    ]);
+    const matched = list.filter((c) => index.has(digitsOf(c.digits).slice(-10)));
+    return res.json({
+      chats_seen: list.length,
+      clients_total: index.size,
+      matched: matched.length,
+      // Несколько примеров — убедиться глазами, что это действительно клиенты.
+      sample: matched.slice(0, 10).map((c) => ({
+        phone: c.digits,
+        name: index.get(digitsOf(c.digits).slice(-10))?.name || null,
+      })),
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

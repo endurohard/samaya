@@ -16,7 +16,7 @@
 //   случай, когда чат прочитали с телефона и счётчик непрочитанных сбросился
 //   раньше, чем дозор его увидел. Открытие чата — самое заметное для WhatsApp
 //   действие, поэтому оно остаётся редким.
-import { saveScraped, digitsOf } from './store.js';
+import { saveScraped, digitsOf, clientPhoneIndex } from './store.js';
 
 const WATCH_MS = Number(process.env.WHATSAPP_MONITOR_WATCH_MS || 8_000);
 const FULL_MS = Number(process.env.WHATSAPP_MONITOR_FULL_MS || 900_000);
@@ -144,23 +144,50 @@ export class Monitor {
   }
 
   /**
-   * Разовый импорт всей истории: проход по всем чатам подряд.
+   * Разовый импорт истории переписки.
    *
-   * Нужен один раз при подключении боевого номера, где уже накоплены сотни
-   * чатов: обычный цикл разгребал бы их сутки. Запускать в нерабочее время —
-   * пока идёт импорт, сеанс занят и отправка сообщений ждёт очереди.
+   * Два режима:
+   *   onlyClients=false — все доступные чаты подряд (как было);
+   *   onlyClients=true  — только те чаты, чей номер есть в базе клиентов.
+   *
+   * Второй режим — основной рабочий: в списке WhatsApp хватает курьеров,
+   * коллег и спама, тащить их переписку в CRM незачем. Сопоставление идёт
+   * по последним 10 цифрам, поэтому «+7 (999)…» в карточке и «7999…» в
+   * заголовке чата сходятся.
+   *
+   * Список чатов читается с прокруткой: WhatsApp держит в DOM только
+   * видимые строки, и без неё импорт видел бы лишь первый экран.
    *
    * Идёт в фоне и переживает разрыв: состояние держим в this.importState,
-   * чтобы прогресс был виден в админке.
+   * чтобы прогресс был виден в админке. Запускать лучше в нерабочее время —
+   * пока идёт импорт, сеанс занят и отправка ждёт очереди.
    */
-  async importAll({ pauseMs = 4000, limit = 0 } = {}) {
+  async importAll({ pauseMs = 4000, limit = 0, onlyClients = true } = {}) {
     if (this.importState?.running) return { error: 'импорт уже идёт' };
     if (!this.wa.isReady) return { error: 'WhatsApp не подключён' };
 
-    const list = await this.wa.listChats();
-    const targets = limit ? list.slice(0, limit) : list;
+    // Прокрутка обязательна: иначе в списке будет десяток строк с экрана.
+    const list = await this.wa.listChats({ scroll: true });
+
+    let targets = list;
+    let matched = 0;
+    let clientsTotal = 0;
+    if (onlyClients) {
+      const index = await clientPhoneIndex();
+      clientsTotal = index.size;
+      targets = list.filter((c) => index.has(digitsOf(c.digits).slice(-10)));
+      matched = targets.length;
+      console.log(`[WA][import] чатов в списке ${list.length}, `
+        + `номеров клиентов ${clientsTotal}, совпало ${matched}`);
+    }
+    if (limit) targets = targets.slice(0, limit);
+
     this.importState = {
       running: true,
+      mode: onlyClients ? 'clients' : 'all',
+      chats_seen: list.length,
+      clients_total: clientsTotal,
+      matched,
       total: targets.length,
       done: 0,
       saved: 0,
@@ -208,7 +235,13 @@ export class Monitor {
       console.log(`[WA][import] готово: ${this.importState.saved} сообщений из ${this.importState.done} чатов`);
     })();
 
-    return { started: true, total: targets.length };
+    return {
+      started: true,
+      total: targets.length,
+      chats_seen: list.length,
+      clients_total: clientsTotal,
+      matched,
+    };
   }
 
   importStatus() {

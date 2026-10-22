@@ -210,6 +210,34 @@ export async function authorName(userId) {
   return r.rows[0]?.name || null;
 }
 
+// Номера клиентов компании в виде цифр, пригодных для сравнения с WhatsApp.
+// Нормализация та же, что в digitsOf: иначе «+7 (999)…» из карточки и
+// «7999…» из заголовка чата никогда не совпадут. Возвращает Map из
+// последних 10 цифр в {id, name, digits} — так сходятся записи с кодом
+// страны и без него.
+export async function clientPhoneIndex() {
+  const out = new Map();
+  if (!COMPANY_ID) return out;
+  const r = await pool.query(
+    `SELECT id, full_name,
+            regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') AS digits
+       FROM clients.clients
+      WHERE company_id = $1
+        AND is_deleted = FALSE
+        AND coalesce(phone, '') <> ''`,
+    [COMPANY_ID],
+  );
+  for (const row of r.rows) {
+    // Российские номера в базе встречаются и с ведущей 8, и с 7.
+    let d = row.digits;
+    if (d.startsWith('8')) d = '7' + d.slice(1);
+    if (d.length < 10) continue;
+    // Ключ — последние 10 цифр: так сходятся записи с кодом страны и без.
+    out.set(d.slice(-10), { id: row.id, name: row.full_name, digits: d });
+  }
+  return out;
+}
+
 // Диалог с клиентом. Файлы отдаются отдельным роутом по id сообщения, поэтому
 // здесь только метаданные вложения.
 export async function listByClient(clientId, limit = 200) {

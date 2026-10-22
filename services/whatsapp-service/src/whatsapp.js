@@ -876,11 +876,25 @@ class WhatsAppManager {
   // диалоги обходить: отдельного API у страницы нет, читаем то же, что видит
   // человек. Возвращаются только личные чаты — группы и рассылки в CRM не
   // нужны и отсеиваются по отсутствию номера в заголовке.
-  async listChats() {
+  /**
+   * Список чатов из боковой панели.
+   *
+   * @param {object} opts
+   * @param {boolean} opts.scroll  прокрутить панель до конца и собрать ВСЕ чаты.
+   *
+   * Без прокрутки WhatsApp держит в DOM только видимые строки (виртуальный
+   * список) — это десяток-полтора чатов. Для дозора этого хватает: новое
+   * всегда наверху. Но для импорта по базе клиентов нужен полный список,
+   * иначе 7000 клиентов сопоставляются с десятком строк на экране.
+   */
+  async listChats({ scroll = false } = {}) {
     if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
     return this._enqueue(async () => {
       await this.dismissDialogs();
-      const rows = await this.page.evaluate(() => {
+
+      // Сбор строк из текущего DOM. Вынесен в функцию: при прокрутке
+      // вызывается многократно, и накопитель живёт снаружи.
+      const grab = () => this.page.evaluate(() => {
         const out = [];
         // Строки списка чатов помечены role="row" (не listitem — это проверено
         // на живой странице). Заголовок с именем или номером лежит в span[title].
@@ -909,10 +923,45 @@ class WhatsAppManager {
         }
         return out;
       });
+
+      const byTitle = new Map();
+      const absorb = (rows) => {
+        for (const r of rows) if (!byTitle.has(r.title)) byTitle.set(r.title, r);
+      };
+
+      absorb(await grab());
+
+      if (scroll) {
+        // Крутим панель вниз, пока появляются новые строки. Ограничители —
+        // и число шагов, и «сколько раз подряд ничего нового»: у аккаунта с
+        // тысячами чатов бесконечный цикл был бы хуже неполного списка.
+        let idle = 0;
+        for (let step = 0; step < 400 && idle < 4; step++) {
+          const moved = await this.page.evaluate(() => {
+            const pane = document.querySelector('#pane-side');
+            if (!pane) return false;
+            const before = pane.scrollTop;
+            pane.scrollTop = before + pane.clientHeight * 0.8;
+            return pane.scrollTop > before;
+          });
+          // Виртуальному списку нужно время дорисовать новую порцию.
+          await new Promise(r => setTimeout(r, 450));
+          const before = byTitle.size;
+          absorb(await grab());
+          if (byTitle.size === before) idle++; else idle = 0;
+          if (!moved) break;
+        }
+        // Возвращаем панель наверх: дозор ждёт свежие чаты на первом экране.
+        await this.page.evaluate(() => {
+          const pane = document.querySelector('#pane-side');
+          if (pane) pane.scrollTop = 0;
+        });
+      }
+
       // Номер вытаскиваем из заголовка: если контакт не сохранён, WhatsApp
       // показывает сам номер, если сохранён — имя, и тогда чат пропускаем
       // (сопоставить его с клиентом по имени ненадёжно).
-      return rows
+      return [...byTitle.values()]
         .map(r => ({ ...r, digits: String(r.title).replace(/[^0-9]/g, '') }))
         .filter(r => r.digits.length >= 10);
     });
