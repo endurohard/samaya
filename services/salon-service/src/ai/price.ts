@@ -141,8 +141,20 @@ const ZONE_WORDS: { key: ZoneKey; words: string[]; generic?: string[] }[] = [
   { key: 'buttocks', words: ['ягодиц', 'попа', 'попу', 'зад'] },
 ];
 
-/** Зоны, которые клиент называет, но в прайсе их нет. */
-const UNPRICED_WORDS = ['спин', 'лопатк', 'шея отдельно', 'щёк', 'щек', 'колен'];
+/**
+ * Зоны, которые клиент называет, но в прайсе их нет.
+ *
+ * «Колени» заданы с границей слова и без предлога «до»: во «внутренней
+ * поверхности ног ДО КОЛЕН» речь о зоне из прайса (300 000 ₽), а не о
+ * липосакции самих колен, которой в прайсе нет. Без этой оговорки
+ * законный вопрос уходил администратору.
+ */
+const UNPRICED_WORDS = ['спин', 'лопатк', 'шея отдельно', 'щёк', 'щек'];
+const UNPRICED_RE = [
+  // «колени», но не «до колен» / «от колен»
+  /(?<!(?:до|от)\s)колен/,
+  /липосакци[а-я]*\s+колен/,
+];
 
 /**
  * Распознать город.
@@ -222,7 +234,8 @@ export function parseZones(text: string): ZoneKey[] {
 /** Названа ли зона, которой нет в прайсе. */
 export function hasUnpricedZone(text: string): boolean {
   const t = String(text || '').toLowerCase();
-  return UNPRICED_WORDS.some(w => t.includes(w));
+  if (UNPRICED_WORDS.some(w => t.includes(w))) return true;
+  return UNPRICED_RE.some(re => re.test(t));
 }
 
 /** Просит ли клиент цену сразу всего тела — такой строки в прайсе нет. */

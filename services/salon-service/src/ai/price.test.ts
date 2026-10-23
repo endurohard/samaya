@@ -41,6 +41,12 @@ check('бока → талия', parseZones('бока'), ['waist']);
 check('галифе', parseZones('галифэ'), ['galife']);
 check('две зоны', parseZones('живот и руки'), ['arms', 'belly']);
 check('спина — нет в прайсе', hasUnpricedZone('спина'), true);
+check('«до колен» — это зона из прайса, не колени',
+  hasUnpricedZone('внутренняя поверхность ног до колен'), false);
+check('«от колен и выше» — зона из прайса',
+  hasUnpricedZone('круговая липосакция ног от колен и выше'), false);
+check('липосакция колен — нет в прайсе',
+  hasUnpricedZone('сколько стоит липосакция колен'), true);
 check('всё тело', asksWholeBody('хочу всё тело'), true);
 
 console.log('— границы веса (живот, Каспийск) —');

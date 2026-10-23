@@ -44,18 +44,28 @@ export interface DialogState {
   armpits: boolean;
   pubisBelly: boolean;
   quotedAt: Date | null;
+  /**
+   * Когда ассистент задал вопросы о городе, весе и зоне.
+   *
+   * Отдельный признак нужен потому, что после первого сообщения
+   * («Сколько стоит?») мы ещё ничего не знаем: город, вес и зоны пустые.
+   * Без отметки «вопросы заданы» следующее сообщение «Москва» выглядело
+   * бы как начало нового разговора и уходило в manual_review — ровно то,
+   * на что жаловался владелец.
+   */
+  askedAt: Date | null;
 }
 
 const EMPTY: DialogState = {
   city: null, weight: null, zones: [], armpits: false,
-  pubisBelly: false, quotedAt: null,
+  pubisBelly: false, quotedAt: null, askedAt: null,
 };
 
 export async function loadState(
   companyId: string, channel: string, threadId: string,
 ): Promise<DialogState> {
   const { rows } = await pool.query(
-    `SELECT city, weight, zones, armpits, pubis_belly, quoted_at
+    `SELECT city, weight, zones, armpits, pubis_belly, quoted_at, asked_at
        FROM ai.price_dialog
       WHERE company_id = $1 AND channel = $2 AND thread_id = $3
         AND updated_at > now() - ($4 || ' hours')::interval`,
@@ -70,6 +80,7 @@ export async function loadState(
     armpits: r.armpits === true,
     pubisBelly: r.pubis_belly === true,
     quotedAt: r.quoted_at ?? null,
+    askedAt: r.asked_at ?? null,
   };
 }
 
@@ -80,7 +91,7 @@ async function saveState(
     `INSERT INTO ai.price_dialog
        (company_id, channel, thread_id, city, weight, zones, armpits,
         pubis_belly, quoted_at, asked_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
      ON CONFLICT (company_id, channel, thread_id) DO UPDATE SET
        city = EXCLUDED.city,
        weight = EXCLUDED.weight,
@@ -88,10 +99,11 @@ async function saveState(
        armpits = EXCLUDED.armpits,
        pubis_belly = EXCLUDED.pubis_belly,
        quoted_at = EXCLUDED.quoted_at,
+       asked_at = EXCLUDED.asked_at,
        updated_at = now()`,
     [
       companyId, channel, threadId, s.city, s.weight, s.zones,
-      s.armpits, s.pubisBelly, s.quotedAt,
+      s.armpits, s.pubisBelly, s.quotedAt, s.askedAt,
     ],
   );
 }
@@ -179,12 +191,16 @@ export async function handleMessage(opts: {
     armpits: prev.armpits || wantsArmpits(text),
     pubisBelly: prev.pubisBelly || wantsPubisWithBelly(text, zones),
     quotedAt: prev.quotedAt,
+    askedAt: prev.askedAt,
   };
 
   const needWeight = zones.length ? weightNeeded(zones) : true;
   const ready = !!next.city && zones.length > 0 && (!needWeight || next.weight != null);
 
   if (!ready) {
+    // Отмечаем, что вопросы заданы: следующее сообщение клиента («Москва»)
+    // должно попасть в этот модуль, а не выглядеть новым разговором.
+    next.askedAt = new Date();
     await saveState(companyId, channel, threadId, next);
     // Ничего нового не узнали и вопросы уже задавали — не повторяем их по
     // кругу: клиент мог написать «ну так сколько?», и третий одинаковый
@@ -248,5 +264,9 @@ export async function isCollecting(
 ): Promise<boolean> {
   const s = await loadState(companyId, channel, threadId);
   if (s.quotedAt) return false;
+  // askedAt важнее остальных полей: после первого вопроса о цене мы ещё
+  // ничего не знаем, но разговор уже идёт, и ответ «Москва» принадлежит
+  // ему, а не классификатору.
+  if (s.askedAt) return true;
   return !!s.city || s.weight != null || s.zones.length > 0;
 }
