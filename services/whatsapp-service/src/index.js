@@ -661,7 +661,11 @@ app.post('/api/whatsapp/import-all', async (req, res) => {
     const pauseMs = Number(req.body?.pause_ms || 4000);
     const limit = Number(req.body?.limit || 0);
     const onlyClients = req.body?.all !== true;
-    return res.json(await monitor.importAll({ pauseMs, limit, onlyClients }));
+    // by_base=true — идти от базы клиентов и искать каждый номер через
+    // строку поиска WhatsApp. Находит чаты, которых нет в видимом списке,
+    // и чаты сохранённых контактов, где вместо номера показано имя.
+    const byClientBase = req.body?.by_base === true;
+    return res.json(await monitor.importAll({ pauseMs, limit, onlyClients, byClientBase }));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

@@ -162,41 +162,56 @@ export class Monitor {
    * чтобы прогресс был виден в админке. Запускать лучше в нерабочее время —
    * пока идёт импорт, сеанс занят и отправка ждёт очереди.
    */
-  async importAll({ pauseMs = 4000, limit = 0, onlyClients = true } = {}) {
+  async importAll({ pauseMs = 4000, limit = 0, onlyClients = true, byClientBase = false } = {}) {
     if (this.importState?.running) return { error: 'импорт уже идёт' };
     if (!this.wa.isReady) return { error: 'WhatsApp не подключён' };
 
-    // Прокрутка обязательна: иначе в списке будет десяток строк с экрана.
-    const list = await this.wa.listChats({ scroll: true });
-
-    let targets = list;
-    let matched = 0;
+    let targets = [];
+    let listLen = 0;
     let clientsTotal = 0;
-    if (onlyClients) {
+
+    if (byClientBase) {
+      // Идём ОТ БАЗЫ КЛИЕНТОВ, а не от видимого списка чатов. Каждый номер
+      // ищется через строку поиска WhatsApp, поэтому находится и чат, лежащий
+      // пятисотым, и чат сохранённого контакта, где вместо номера показано имя.
+      // Список чатов при этом не нужен вовсе.
       const index = await clientPhoneIndex();
       clientsTotal = index.size;
-      targets = list.filter((c) => index.has(digitsOf(c.digits).slice(-10)));
-      matched = targets.length;
-      console.log(`[WA][import] чатов в списке ${list.length}, `
-        + `номеров клиентов ${clientsTotal}, совпало ${matched}`);
+      targets = [...index.values()].map((c) => ({ digits: c.digits, name: c.name }));
+      console.log(`[WA][import] режим «по базе»: номеров клиентов ${clientsTotal}`);
+    } else {
+      // Прокрутка обязательна: иначе в списке будет десяток строк с экрана.
+      const list = await this.wa.listChats({ scroll: true });
+      listLen = list.length;
+      targets = list;
+      if (onlyClients) {
+        const index = await clientPhoneIndex();
+        clientsTotal = index.size;
+        targets = list.filter((c) => index.has(digitsOf(c.digits).slice(-10)));
+        console.log(`[WA][import] чатов в списке ${list.length}, `
+          + `номеров клиентов ${clientsTotal}, совпало ${targets.length}`);
+      }
     }
+    const matched = targets.length;
     if (limit) targets = targets.slice(0, limit);
 
     this.importState = {
       running: true,
-      mode: onlyClients ? 'clients' : 'all',
-      chats_seen: list.length,
+      mode: byClientBase ? 'by_client_base' : (onlyClients ? 'clients' : 'all'),
+      chats_seen: listLen,
       clients_total: clientsTotal,
       matched,
       total: targets.length,
       done: 0,
       saved: 0,
       linked: 0,
+      found: 0,
+      not_found: 0,
       errors: 0,
       started_at: new Date().toISOString(),
       finished_at: null,
     };
-    console.log(`[WA][import] старт: ${targets.length} чатов`);
+    console.log(`[WA][import] старт: ${targets.length} номеров`);
 
     // Не ждём завершения: обход часами держал бы HTTP-запрос открытым.
     void (async () => {
@@ -210,10 +225,18 @@ export class Monitor {
           try {
             const res = await this.wa.readChat(digits, MSGS_PER_CHAT);
             const items = res?.items || [];
+            if (res?.ok) this.importState.found++;
+            else this.importState.not_found++;
             if (items.length) {
               const r = await saveScraped(digits, items);
               this.importState.saved += r.saved;
               this.importState.linked += r.linked || 0;
+              // Под каким именем клиент записан в телефоне — ценная сверка
+              // для администратора: в CRM он может быть записан иначе.
+              if (res.title) {
+                console.log(`[WA][import] ${digits} → «${res.title}»`
+                  + (chat.name ? ` (в CRM: ${chat.name})` : ''));
+              }
             }
           } finally {
             this.running = false;
@@ -224,7 +247,8 @@ export class Monitor {
         }
         this.importState.done++;
         if (this.importState.done % 25 === 0) {
-          console.log(`[WA][import] ${this.importState.done}/${this.importState.total}, сохранено ${this.importState.saved}`);
+          console.log(`[WA][import] ${this.importState.done}/${this.importState.total}, `
+            + `найдено ${this.importState.found}, сохранено ${this.importState.saved}`);
         }
         // Пауза между чатами больше обычной: импорт идёт долго, и частые
         // переключения подряд — самый заметный для WhatsApp признак бота.
@@ -232,13 +256,14 @@ export class Monitor {
       }
       this.importState.running = false;
       this.importState.finished_at = new Date().toISOString();
-      console.log(`[WA][import] готово: ${this.importState.saved} сообщений из ${this.importState.done} чатов`);
+      console.log(`[WA][import] готово: найдено ${this.importState.found} чатов, `
+        + `${this.importState.saved} сообщений, не найдено ${this.importState.not_found}`);
     })();
 
     return {
       started: true,
       total: targets.length,
-      chats_seen: list.length,
+      chats_seen: listLen,
       clients_total: clientsTotal,
       matched,
     };
