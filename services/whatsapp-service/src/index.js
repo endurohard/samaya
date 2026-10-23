@@ -574,6 +574,14 @@ app.get('/api/whatsapp/read', async (req, res) => {
 });
 
 // ── Разбор структуры чата (диагностика парсера) ──
+app.get('/api/whatsapp/search-probe', async (_req, res) => {
+  try {
+    return res.json(await wa.searchProbe());
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/whatsapp/inspect', async (req, res) => {
   try {
     if (!req.query.phone) return res.status(400).json({ error: 'phone required' });

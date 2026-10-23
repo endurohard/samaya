@@ -705,6 +705,50 @@ class WhatsAppManager {
   }
 
   /**
+   * Что сейчас на странице похоже на строку поиска. Диагностика: вёрстка
+   * WhatsApp меняется, и вместо угадывания селекторов вслепую смотрим, какие
+   * поля ввода реально есть, где они и как подписаны.
+   */
+  async searchProbe() {
+    if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
+    return this._enqueue(async () => {
+      const dismissed = await this.dismissDialogs();
+      if (dismissed.length) await new Promise(r => setTimeout(r, 1000));
+      return this.page.evaluate(() => {
+        const fields = [];
+        const sel = '[contenteditable="true"], input[type="text"], input[type="search"], [role="textbox"], [role="searchbox"]';
+        for (const el of document.querySelectorAll(sel)) {
+          const r = el.getBoundingClientRect();
+          fields.push({
+            tag: el.tagName,
+            tab: el.getAttribute('data-tab'),
+            aria: (el.getAttribute('aria-label') || '').slice(0, 50),
+            placeholder: (el.getAttribute('data-placeholder') || el.getAttribute('placeholder') || '').slice(0, 40),
+            testid: el.getAttribute('data-testid'),
+            role: el.getAttribute('role'),
+            visible: r.width > 0 && r.height > 0,
+            x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width),
+          });
+        }
+        // Кнопки/иконки поиска — иногда поле появляется только после клика.
+        const buttons = [];
+        for (const el of document.querySelectorAll('[data-icon], button[aria-label]')) {
+          const aria = (el.getAttribute('aria-label') || '');
+          const icon = (el.getAttribute('data-icon') || '');
+          if (!/поиск|search|искать/i.test(aria + ' ' + icon)) continue;
+          const r = el.getBoundingClientRect();
+          buttons.push({
+            icon, aria: aria.slice(0, 40),
+            x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2),
+            visible: r.width > 0,
+          });
+        }
+        return { fields, buttons, paneRows: document.querySelectorAll('#pane-side [role="row"]').length };
+      });
+    });
+  }
+
+  /**
    * Открыть чат через строку поиска WhatsApp.
    *
    * Зачем, если есть openChatByRow: тот ищет строку в отрисованной части
