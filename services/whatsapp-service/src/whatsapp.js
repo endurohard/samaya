@@ -767,21 +767,25 @@ class WhatsAppManager {
     const digits = String(phoneDigits).replace(/[^0-9]/g, '');
     const tail = digits.slice(-10);
 
-    // Строка поиска. Селекторы перечислены от нового к старому: вёрстка
-    // WhatsApp меняется, а обфусцированные классы использовать нельзя.
+    // Строка поиска. Селекторы выведены из живой страницы (searchProbe), а не
+    // из документации: в текущей вёрстке это обычный <input data-tab="3"> с
+    // aria-label «Поиск или новый чат». Прежний contenteditable-вариант не
+    // находился вовсе, и поиск падал с «строка поиска не найдена».
     const box = await this.page.evaluate(() => {
       const cands = [
+        'input[data-tab="3"]',
+        'input[aria-label*="Поиск"]',
+        'input[aria-label*="Search"]',
+        '#side input[type="text"]',
+        // Старая вёрстка — на случай отката версии WhatsApp.
         '[contenteditable="true"][data-tab="3"]',
-        '[aria-label*="Поиск"][contenteditable="true"]',
-        '[aria-label*="Search"][contenteditable="true"]',
-        '[data-testid="chat-list-search"]',
-        '#side [contenteditable="true"]',
       ];
       for (const sel of cands) {
         const el = document.querySelector(sel);
-        if (el) {
-          const r = el.getBoundingClientRect();
-          if (r.width > 0) return { ok: true, sel, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          return { ok: true, sel, x: r.left + r.width / 2, y: r.top + r.height / 2 };
         }
       }
       return { ok: false };
@@ -789,13 +793,12 @@ class WhatsAppManager {
     if (!box.ok) return { ok: false, reason: 'строка поиска не найдена' };
 
     await this.page.mouse.click(box.x, box.y);
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 400));
     // Чистим прежний запрос: иначе номера склеиваются и поиск даёт пусто.
-    await this.page.keyboard.down('Control');
-    await this.page.keyboard.press('KeyA');
-    await this.page.keyboard.up('Control');
+    // Тройной клик выделяет содержимое и в input, и в contenteditable.
+    await this.page.mouse.click(box.x, box.y, { clickCount: 3 });
     await this.page.keyboard.press('Backspace');
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 250));
 
     // Вводим без кода страны: WhatsApp находит и «79…», и «+7 9…».
     await this.page.keyboard.type(tail, { delay: 60 });
