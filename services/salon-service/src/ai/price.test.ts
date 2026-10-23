@@ -1,0 +1,102 @@
+// Проверка расчёта цены по прайсу: разбор города/веса/зоны и суммы.
+// Запуск: npx tsx src/ai/price.test.ts
+import {
+  parseCity, parseWeight, parseZones, zonePrice, buildQuote,
+  hasUnpricedZone, asksWholeBody, weightNeeded,
+} from './price';
+
+let ok = 0, fail = 0;
+function check(name: string, got: unknown, want: unknown) {
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) { ok++; console.log(`  ✓ ${name}`); }
+  else { fail++; console.log(`  ✗ ${name}\n      получено: ${g}\n      ожидалось: ${w}`); }
+}
+
+console.log('— город —');
+check('Москва', parseCity('Москва'), 'moscow');
+check('мск', parseCity('интересует мск'), 'moscow');
+check('Каспийск', parseCity('каспийск'), 'kaspiysk');
+check('Махачкала → Каспийск', parseCity('я из Махачкалы'), 'kaspiysk');
+check('оба города → null', parseCity('Москва или Каспийск?'), null);
+check('нет города', parseCity('живот интересует'), null);
+
+console.log('— вес —');
+check('80 кг', parseWeight('80 кг'), 80);
+check('просто 80', parseWeight('80'), 80);
+check('вес 72,5', parseWeight('вес 72,5 кг'), 72.5);
+check('рост не вес', parseWeight('рост 170'), null);
+check('возраст не вес', parseWeight('мне 35 лет'), null);
+check('рост и вес вместе', parseWeight('рост 170 вес 80 кг'), 80);
+check('два разных числа → null', parseWeight('то 80 то 90'), null);
+check('размер одежды не вес', parseWeight('размер 48'), null);
+
+console.log('— зоны —');
+check('живот', parseZones('живот'), ['belly']);
+check('руки', parseZones('руки интересуют'), ['arms']);
+check('подбородок', parseZones('второй подбородок'), ['chin']);
+check('внутренняя поверхность ≠ круговая ног',
+  parseZones('внутренняя поверхность ног'), ['inner_legs']);
+check('ляшки → круговая ног', parseZones('ляшки'), ['legs_circular']);
+check('бока → талия', parseZones('бока'), ['waist']);
+check('галифе', parseZones('галифэ'), ['galife']);
+check('две зоны', parseZones('живот и руки'), ['arms', 'belly']);
+check('спина — нет в прайсе', hasUnpricedZone('спина'), true);
+check('всё тело', asksWholeBody('хочу всё тело'), true);
+
+console.log('— границы веса (живот, Каспийск) —');
+check('75 кг → 250 000', zonePrice('belly', 'kaspiysk', 75), 250_000);
+check('76 кг → 300 000', zonePrice('belly', 'kaspiysk', 76), 300_000);
+check('99 кг → 300 000', zonePrice('belly', 'kaspiysk', 99), 300_000);
+check('100 кг → 350 000 (верхняя ступень)', zonePrice('belly', 'kaspiysk', 100), 350_000);
+check('109 кг → 350 000', zonePrice('belly', 'kaspiysk', 109), 350_000);
+check('110 кг → 400 000', zonePrice('belly', 'kaspiysk', 110), 400_000);
+check('118 кг → 400 000', zonePrice('belly', 'kaspiysk', 118), 400_000);
+check('119 кг → 500 000', zonePrice('belly', 'kaspiysk', 119), 500_000);
+
+console.log('— границы веса (талия, Москва) —');
+check('75 → 400 000', zonePrice('waist', 'moscow', 75), 400_000);
+check('100 → 600 000', zonePrice('waist', 'moscow', 100), 600_000);
+check('118 → 700 000', zonePrice('waist', 'moscow', 118), 700_000);
+check('119 → 800 000', zonePrice('waist', 'moscow', 119), 800_000);
+
+console.log('— фиксированные цены —');
+check('подбородок Каспийск', zonePrice('chin', 'kaspiysk', null), 150_000);
+check('подбородок Москва', zonePrice('chin', 'moscow', null), 200_000);
+check('круговая ног Москва', zonePrice('legs_circular', 'moscow', null), 800_000);
+check('лобок одинаков', zonePrice('pubis', 'moscow', null), 200_000);
+check('голень Москва', zonePrice('shin', 'moscow', null), 600_000);
+check('руки до 85 Каспийск', zonePrice('arms', 'kaspiysk', 85), 250_000);
+check('руки от 86 Каспийск', zonePrice('arms', 'kaspiysk', 86), 300_000);
+
+console.log('— нужен ли вес —');
+check('живот требует вес', weightNeeded(['belly']), true);
+check('подбородок не требует', weightNeeded(['chin']), false);
+check('подбородок+живот требует', weightNeeded(['chin', 'belly']), true);
+
+console.log('— текст ответа —');
+const q1 = buildQuote({ city: 'moscow', weight: 80, zones: ['belly'] });
+check('живот 80 кг Москва = 400 000',
+  q1?.text.includes('400 000 ₽'), true);
+check('город в тексте', q1?.text.includes('Москва'), true);
+
+const q2 = buildQuote({ city: 'kaspiysk', weight: 90, zones: ['arms'], armpits: true });
+check('руки с подмышками = 300 000 + 50 000',
+  q2?.text.includes('350 000 ₽'), true);
+
+const q3 = buildQuote({ city: 'moscow', weight: 80, zones: ['belly'], pubisWithBelly: true });
+check('живот с лобком = 400 000 + 50 000',
+  q3?.text.includes('450 000 ₽'), true);
+
+const q4 = buildQuote({ city: 'moscow', weight: 80, zones: ['belly', 'chin'] });
+check('две зоны: есть итого', q4?.text.includes('Итого'), true);
+check('две зоны: сумма 400 000 + 200 000',
+  q4?.text.includes('600 000 ₽'), true);
+
+const q5 = buildQuote({ city: 'moscow', weight: null, zones: ['belly'] });
+check('живот без веса — нельзя посчитать', q5, null);
+
+const q6 = buildQuote({ city: 'moscow', weight: null, zones: ['chin'] });
+check('подбородок без веса — можно', q6?.text.includes('200 000 ₽'), true);
+
+console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
+process.exit(fail ? 1 : 0);

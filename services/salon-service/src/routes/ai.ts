@@ -6,6 +6,47 @@ import { notifyNeedsReply, sendTelegram, telegramTarget, tgDispatcher } from '..
 import { rememberNotification } from '../ai/telegram-replies';
 import { authenticate, requireRole, requirePermission, HttpError } from '../middleware';
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
+import type { Decision } from '../ai/classifier';
+import {
+  handleMessage as handlePriceMessage, isCollecting, PriceOutcome,
+} from '../ai/price-dialog';
+
+/**
+ * Ключ темы, по которой запускается сбор города, веса и зоны.
+ *
+ * Берётся из окружения: тему владелец заводит сам в админке, и ключ
+ * генерируется из названия. Значение по умолчанию — ключ существующей
+ * боевой темы «Цена лазерной липосакции».
+ */
+const PRICE_TOPIC = process.env.AI_PRICE_TOPIC || 'liposakciya_ruk';
+
+/**
+ * Превратить итог разговора о цене в обычное решение ассистента, чтобы
+ * журнал и ответ каналу были такими же, как у шаблонных тем.
+ *
+ * Цена и вопросы уходят клиенту сами (владелец выбрал автоотправку):
+ * текст собран по таблице прайса, выдумать в нём нечего. Передача
+ * человеку — всегда черновик без текста, чтобы администратор написал сам.
+ */
+function priceOutcomeToDecision(out: PriceOutcome, base?: Decision): Decision {
+  const common = {
+    ok: true as const,
+    topic: PRICE_TOPIC,
+    template: base?.template ?? null,
+    confidence: base?.confidence ?? 1,
+    probabilities: base?.probabilities,
+  };
+  if (out.kind === 'handover') {
+    return {
+      ...common, action: 'draft', reply: null,
+      reason: out.reason ?? 'нужен администратор',
+    };
+  }
+  return {
+    ...common, action: 'sent', reply: out.reply,
+    reason: out.reason,
+  };
+}
 
 // Шаблоны ответов ИИ-ассистента: список, правка, проверка.
 //
@@ -52,7 +93,64 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     }).parse(req.body);
 
     const companyId = req.auth!.company_id;
+    const ch = channel ?? 'instagram';
+
+    // Разговор о цене ведётся отдельно от классификатора: он помнит, что
+    // клиент уже назвал город, вес или зону. Проверка стоит ПЕРЕД
+    // классификатором, потому что короткие ответы («Москва», «80»,
+    // «живот») сами по себе не похожи на вопрос о цене и ушли бы в
+    // manual_review, а клиент получил бы третий раз те же три вопроса.
+    if (thread_id) {
+      const collecting = await isCollecting(companyId, ch, thread_id);
+      if (collecting) {
+        const out = await handlePriceMessage({
+          companyId, channel: ch, threadId: thread_id, text, fresh: false,
+        });
+        if (out.kind !== 'none') {
+          const decision = priceOutcomeToDecision(out);
+          await logDecision(companyId, decision, {
+            channel: ch, threadId: thread_id, incoming: text,
+          });
+          if (out.kind === 'handover') {
+            void notifyNeedsReply({
+              channel: ch,
+              who: client_name || '#' + thread_id,
+              question: text,
+              reason: out.reason ?? null,
+              draft: null,
+            }).catch(() => {});
+          }
+          return res.json(decision);
+        }
+      }
+    }
+
     const d = await classify(companyId, text, client_name);
+
+    // Тема цены распознана — запускаем сбор ответов вместо шаблонного
+    // текста. Шаблон остаётся на случай, когда идентификатора диалога нет
+    // (ручная проверка из админки): состояние хранить негде.
+    if (d.ok && d.topic === PRICE_TOPIC && d.action !== 'skipped' && thread_id) {
+      const out = await handlePriceMessage({
+        companyId, channel: ch, threadId: thread_id, text, fresh: true,
+      });
+      if (out.kind !== 'none') {
+        const decision = priceOutcomeToDecision(out, d);
+        await logDecision(companyId, decision, {
+          channel: ch, threadId: thread_id, incoming: text,
+        });
+        if (out.kind === 'handover') {
+          void notifyNeedsReply({
+            channel: ch,
+            who: client_name || '#' + thread_id,
+            question: text,
+            reason: out.reason ?? null,
+            draft: null,
+          }).catch(() => {});
+        }
+        return res.json(decision);
+      }
+    }
     await logDecision(companyId, d, {
       channel: channel ?? 'instagram',
       threadId: thread_id ?? null,
