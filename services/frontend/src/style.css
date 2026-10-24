@@ -5860,3 +5860,33 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
   .ig-chat-list { max-height: 60vh; }
   .ig-msg { max-width: 85%; }
 }
+
+/* ===== Прайс ассистента =====
+   Строка-аккордеон: сводка цен видна сразу, поля раскрываются по кнопке
+   «Изменить». Модальных окон нет сознательно — админку открывают во
+   встроенном браузере VS Code, где браузерные диалоги заблокированы. */
+.ai-price-sum { font-size: 13px; color: #475569; margin-top: 4px; }
+.ai-price-row.is-off .ai-price-sum { color: #94a3b8; }
+
+.ai-price-form { margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+.ai-price-fields { display: flex; flex-direction: column; gap: 10px; }
+.ai-price-fields > label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #334155; }
+.ai-price-fields input[type="text"],
+.ai-price-fields input[type="number"] {
+  padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit;
+}
+.ai-price-check { flex-direction: row !important; align-items: center; gap: 8px !important; }
+
+.ai-price-flat { display: flex; gap: 12px; flex-wrap: wrap; }
+.ai-price-flat label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #334155; }
+
+/* Ступень — одна строка: вес, две цены и крестик. На узком экране
+   переносится, поэтому wrap, а не фиксированные колонки. */
+.ai-price-step {
+  display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
+  padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 6px;
+}
+.ai-price-step label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #64748b; }
+.ai-price-step input { width: 110px; }
+
+.ai-price-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

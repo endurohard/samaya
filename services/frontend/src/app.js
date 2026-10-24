@@ -7795,7 +7795,7 @@ import {
       b.classList.toggle('active', b.dataset.aiTab === tab);
     });
     const map = {
-      templates: 'aiTabTemplates', try: 'aiTabTry',
+      templates: 'aiTabTemplates', price: 'aiTabPrice', try: 'aiTabTry',
       log: 'aiTabLog', telegram: 'aiTabTelegram',
     };
     for (const [key, id] of Object.entries(map)) {
@@ -7804,12 +7804,232 @@ import {
     }
     if (tab === 'log') void loadAiLog();
     if (tab === 'telegram') void loadAiTelegram();
+    if (tab === 'price') void loadAiPrice();
   }
 
   document.getElementById('aiSubnav')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-ai-tab]');
     if (!btn || btn.classList.contains('disabled')) return;
     switchAiTab(btn.dataset.aiTab);
+  });
+
+  // ===== Прайс ассистента =====
+  //
+  // Редактор устроен строкой-аккордеоном: список зон, у каждой кнопка
+  // «Изменить», которая раскрывает поля прямо под строкой. Модальных окон
+  // и confirm() здесь нет сознательно — админку открывают во встроенном
+  // браузере VS Code, где браузерные диалоги заблокированы.
+  let aiPriceItems = [];
+
+  function priceMoney(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString('ru-RU').replace(/\u00a0/g, ' ') : '—';
+  }
+
+  /** Короткая сводка цен зоны для свёрнутой строки. */
+  function priceSummary(z) {
+    if (!z.by_weight) {
+      return `Каспийск ${priceMoney(z.price_kaspiysk)} ₽ · Москва ${priceMoney(z.price_moscow)} ₽`;
+    }
+    const n = (z.steps || []).length;
+    if (!n) return 'ступени не заданы — зона не считается';
+    const first = z.steps[0];
+    const last = z.steps[n - 1];
+    return `по весу, ${n} ступ.: от ${priceMoney(first.price_kaspiysk)} до ${priceMoney(last.price_moscow)} ₽`;
+  }
+
+  async function loadAiPrice() {
+    const box = document.getElementById('aiPriceList');
+    if (!box) return;
+    box.innerHTML = '<div class="hint">Загружаю…</div>';
+    const r = await apiCall('GET', '/api/salons/ai/price');
+    if (!r.ok) {
+      box.innerHTML = `<div class="hint">Не удалось загрузить прайс: ${escapeHtml(r.error || '')}</div>`;
+      return;
+    }
+    aiPriceItems = r.data?.items || [];
+    const counter = document.getElementById('aiPriceCounter');
+    if (counter) counter.textContent = String(aiPriceItems.length);
+    renderAiPrice();
+  }
+
+  function renderAiPrice() {
+    const box = document.getElementById('aiPriceList');
+    if (!box) return;
+    if (!aiPriceItems.length) {
+      box.innerHTML = '<div class="hint">Прайс пуст — ассистент считает по встроенным ценам.</div>';
+      return;
+    }
+    box.innerHTML = aiPriceItems.map((z) => `
+      <div class="ai-tpl-card ai-price-row${z.enabled ? '' : ' is-off'}" data-zone="${escapeHtml(z.zone_key)}">
+        <div class="ai-tpl-card-head">
+          <span class="ai-tpl-card-title">${escapeHtml(z.title)}</span>
+          ${z.enabled ? '' : '<span class="ai-mode-tag is-off">не в прайсе</span>'}
+          <span class="ai-tpl-card-actions">
+            <button type="button" class="btn-ghost btn-xs" data-price-edit="${escapeHtml(z.zone_key)}">Изменить</button>
+          </span>
+        </div>
+        <div class="ai-price-sum">${escapeHtml(priceSummary(z))}</div>
+        ${z.note ? `<div class="hint">${escapeHtml(z.note)}</div>` : ''}
+        <div class="ai-price-form" data-price-form="${escapeHtml(z.zone_key)}" hidden></div>
+      </div>
+    `).join('');
+  }
+
+  /** Поля правки одной зоны. Рисуем по запросу — форм столько, сколько открыто. */
+  function renderPriceForm(z) {
+    const steps = (z.steps || []).map((s, i) => `
+      <div class="ai-price-step" data-step="${i}">
+        <label>до веса
+          <input type="number" min="0" max="500" step="0.1" data-step-weight
+                 value="${s.max_weight == null ? '' : escapeHtml(String(s.max_weight))}"
+                 placeholder="и выше">
+        </label>
+        <label>Каспийск
+          <input type="number" min="0" step="1000" data-step-kaspiysk
+                 value="${escapeHtml(String(Number(s.price_kaspiysk)))}">
+        </label>
+        <label>Москва
+          <input type="number" min="0" step="1000" data-step-moscow
+                 value="${escapeHtml(String(Number(s.price_moscow)))}">
+        </label>
+        <button type="button" class="btn-ghost btn-xs" data-step-del>×</button>
+      </div>
+    `).join('');
+
+    return `
+      <div class="ai-price-fields">
+        <label>Название, как видит клиент
+          <input type="text" maxlength="300" data-zone-title value="${escapeHtml(z.title)}">
+        </label>
+        <label>Примечание рядом с ценой (можно пусто)
+          <input type="text" maxlength="500" data-zone-note value="${escapeHtml(z.note || '')}">
+        </label>
+        <label class="ai-price-check">
+          <input type="checkbox" data-zone-enabled ${z.enabled ? 'checked' : ''}>
+          зона в прайсе (сняв галочку, ассистент перестанет её считать)
+        </label>
+        <label class="ai-price-check">
+          <input type="checkbox" data-zone-byweight ${z.by_weight ? 'checked' : ''}>
+          цена зависит от веса
+        </label>
+
+        <div class="ai-price-flat" ${z.by_weight ? 'hidden' : ''}>
+          <label>Каспийск, ₽
+            <input type="number" min="0" step="1000" data-zone-kaspiysk
+                   value="${z.price_kaspiysk == null ? '' : escapeHtml(String(Number(z.price_kaspiysk)))}">
+          </label>
+          <label>Москва, ₽
+            <input type="number" min="0" step="1000" data-zone-moscow
+                   value="${z.price_moscow == null ? '' : escapeHtml(String(Number(z.price_moscow)))}">
+          </label>
+        </div>
+
+        <div class="ai-price-steps" ${z.by_weight ? '' : 'hidden'}>
+          <div class="hint">
+            Ступени по порядку. «до веса» — верхняя граница включительно;
+            у последней ступени поле оставьте пустым — это «и выше».
+          </div>
+          <div data-steps-box>${steps}</div>
+          <button type="button" class="btn-ghost btn-xs" data-step-add>+ ступень</button>
+        </div>
+
+        <div class="ai-price-actions">
+          <button type="button" class="btn-primary btn-xs" data-price-save>Сохранить</button>
+          <button type="button" class="btn-ghost btn-xs" data-price-cancel>Отмена</button>
+          <span class="hint" data-price-msg></span>
+        </div>
+      </div>
+    `;
+  }
+
+  document.getElementById('aiPriceList')?.addEventListener('click', async (e) => {
+    const row = e.target.closest('.ai-price-row');
+    if (!row) return;
+    const key = row.dataset.zone;
+    const form = row.querySelector('[data-price-form]');
+    const zone = aiPriceItems.find(z => z.zone_key === key);
+    if (!zone || !form) return;
+
+    if (e.target.closest('[data-price-edit]')) {
+      if (!form.hidden) { form.hidden = true; form.innerHTML = ''; return; }
+      form.innerHTML = renderPriceForm(zone);
+      form.hidden = false;
+      return;
+    }
+    if (e.target.closest('[data-price-cancel]')) {
+      form.hidden = true; form.innerHTML = '';
+      return;
+    }
+    if (e.target.closest('[data-step-del]')) {
+      e.target.closest('.ai-price-step')?.remove();
+      return;
+    }
+    if (e.target.closest('[data-step-add]')) {
+      const box = form.querySelector('[data-steps-box]');
+      if (!box) return;
+      const div = document.createElement('div');
+      div.className = 'ai-price-step';
+      div.innerHTML = `
+        <label>до веса <input type="number" min="0" max="500" step="0.1" data-step-weight placeholder="и выше"></label>
+        <label>Каспийск <input type="number" min="0" step="1000" data-step-kaspiysk value="0"></label>
+        <label>Москва <input type="number" min="0" step="1000" data-step-moscow value="0"></label>
+        <button type="button" class="btn-ghost btn-xs" data-step-del>×</button>`;
+      box.appendChild(div);
+      return;
+    }
+    if (e.target.closest('[data-price-save]')) {
+      const msg = form.querySelector('[data-price-msg]');
+      const byWeight = !!form.querySelector('[data-zone-byweight]')?.checked;
+      const num = (el) => {
+        const v = String(el?.value ?? '').trim();
+        return v === '' ? null : Number(v);
+      };
+      const payload = {
+        title: form.querySelector('[data-zone-title]')?.value.trim() || '',
+        note: form.querySelector('[data-zone-note]')?.value.trim() || null,
+        enabled: !!form.querySelector('[data-zone-enabled]')?.checked,
+        by_weight: byWeight,
+        price_kaspiysk: byWeight ? null : num(form.querySelector('[data-zone-kaspiysk]')),
+        price_moscow: byWeight ? null : num(form.querySelector('[data-zone-moscow]')),
+        steps: byWeight ? [...form.querySelectorAll('.ai-price-step')].map(s => ({
+          max_weight: num(s.querySelector('[data-step-weight]')),
+          price_kaspiysk: Number(s.querySelector('[data-step-kaspiysk]')?.value || 0),
+          price_moscow: Number(s.querySelector('[data-step-moscow]')?.value || 0),
+        })) : undefined,
+      };
+      if (!payload.title) { if (msg) msg.textContent = 'Укажите название зоны'; return; }
+      // Проверяем на стороне формы то же, что сервер: иначе администратор
+      // получит короткое «validation» и не поймёт, какое поле виновато.
+      if (byWeight && !payload.steps.length) {
+        if (msg) msg.textContent = 'Добавьте хотя бы одну ступень или снимите «цена зависит от веса»';
+        return;
+      }
+      if (!byWeight && (payload.price_kaspiysk == null || payload.price_moscow == null)) {
+        if (msg) msg.textContent = 'Заполните цену для обоих городов';
+        return;
+      }
+      if (msg) msg.textContent = 'Сохраняю…';
+      const r = await apiCall('PUT', `/api/salons/ai/price/${encodeURIComponent(key)}`, payload);
+      if (!r.ok) {
+        if (msg) msg.textContent = r.error || 'не сохранилось';
+        return;
+      }
+      toast('Прайс обновлён');
+      await loadAiPrice();
+    }
+  });
+
+  // Переключатель «цена зависит от веса» показывает нужный блок: без этого
+  // администратор заполняет ступени у фиксированной зоны и не понимает,
+  // почему они не сохранились.
+  document.getElementById('aiPriceList')?.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-zone-byweight]')) return;
+    const form = e.target.closest('.ai-price-form');
+    if (!form) return;
+    const on = e.target.checked;
+    form.querySelector('.ai-price-flat')?.toggleAttribute('hidden', on);
+    form.querySelector('.ai-price-steps')?.toggleAttribute('hidden', !on);
   });
 
   async function loadAiStatus() {

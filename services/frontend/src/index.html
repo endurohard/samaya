@@ -3056,6 +3056,7 @@
         <section class="view view-aiassistant" data-view="aiassistant" hidden>
           <nav class="subnav" id="aiSubnav">
             <button type="button" class="subnav-item active" data-ai-tab="templates">Шаблоны ответов</button>
+            <button type="button" class="subnav-item" data-ai-tab="price">Прайс</button>
             <button type="button" class="subnav-item" data-ai-tab="try">Проверка</button>
             <button type="button" class="subnav-item" data-ai-tab="log">Журнал</button>
             <button type="button" class="subnav-item" data-ai-tab="telegram">Уведомления</button>
@@ -3204,6 +3205,23 @@
               </div>
 
               <div id="aiTplList" class="data-list"></div>
+            </div>
+          </div>
+
+          <!-- Вкладка: прайс -->
+          <div id="aiTabPrice" hidden>
+            <div class="card data-card">
+              <div class="data-head">
+                <h2 class="card-title">Прайс лазерной липосакции</h2>
+                <span class="counter" id="aiPriceCounter">0</span>
+              </div>
+              <p class="hint" style="margin:0 0 12px;">
+                Отсюда ассистент берёт суммы, когда называет цену. Он не придумывает
+                числа — только подставляет их из этой таблицы, поэтому ошибка здесь
+                сразу уйдёт клиенту. У зон с ценой по весу ступени идут сверху вниз:
+                «до 75», «до 99» и так далее, последняя — «и выше».
+              </p>
+              <div id="aiPriceList" class="data-list"></div>
             </div>
           </div>
 
