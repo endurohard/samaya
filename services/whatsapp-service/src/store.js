@@ -24,16 +24,32 @@ export function digitsOf(raw) {
   return d;
 }
 
-// Клиент по номеру. Сравниваем по цифрам с обеих сторон — иначе «+7 (999)…» в
-// карточке и «7999…» из WhatsApp никогда не совпадут.
+// Клиент по номеру: сравнение по последним 10 цифрам — см. findClientId.
+/**
+ * Найти карточку клиента по номеру из WhatsApp.
+ *
+ * Сравнение по ПОСЛЕДНИМ 10 ЦИФРАМ, а не точным совпадением строки.
+ * Причина: в карточках номер записан как придётся — «8 951…», «+7 951…»,
+ * «951…», а WhatsApp всегда отдаёт «7951…». Точное сравнение не находило
+ * такие карточки, и переписка с давним клиентом висела как неизвестный
+ * номер, хотя карточка есть. Разовый импорт (clientPhoneIndex) всё это
+ * время сравнивал правильно — две разные логики для одной задачи.
+ *
+ * Из нескольких совпадений берём самую раннюю карточку: на ней история и
+ * деньги, а дубли (тот же человек заведён дважды) сливаются отдельно.
+ */
 async function findClientId(phoneDigits) {
   if (!COMPANY_ID) return null;
+  const tail = String(phoneDigits || '').slice(-10);
+  if (tail.length < 10) return null;
   const r = await pool.query(
     `SELECT id FROM clients.clients
       WHERE company_id = $1
-        AND regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') = $2
+        AND is_deleted = FALSE
+        AND right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 10) = $2
+      ORDER BY created_at
       LIMIT 1`,
-    [COMPANY_ID, phoneDigits],
+    [COMPANY_ID, tail],
   );
   return r.rows[0]?.id || null;
 }
@@ -315,7 +331,10 @@ export async function listChats(limit = 100) {
         GROUP BY phone_digits
      )
      SELECT m.phone_digits,
-            max(m.client_id::text)::uuid AS client_id,
+            -- Берём найденную по номеру карточку, а не только сохранённый
+            -- client_id: у старых строк он пуст, и без этого клик по чату
+            -- не открывал бы карточку существующего клиента.
+            coalesce(max(c.id::text)::uuid, max(m.client_id::text)::uuid) AS client_id,
             c.full_name AS client_name,
             max(m.sent_at) AS last_at,
             (array_agg(m.body ORDER BY m.sent_at DESC, m.created_at DESC))[1] AS last_body,
@@ -324,7 +343,20 @@ export async function listChats(limit = 100) {
             count(*) FILTER (WHERE m.from_me = false AND (lo.at IS NULL OR m.sent_at > lo.at))::int AS waiting
        FROM whatsapp.messages m
        LEFT JOIN last_out lo ON lo.phone_digits = m.phone_digits
-       LEFT JOIN clients.clients c ON c.id = m.client_id
+       -- Связь ищем ещё и по номеру, а не только по сохранённому client_id:
+       -- строки, записанные до того, как у человека появилась карточка,
+       -- иначе навсегда остались бы «неизвестным номером», хотя карточка
+       -- уже есть. Так список сам подтягивает имя задним числом.
+       LEFT JOIN LATERAL (
+         SELECT cl.id, cl.full_name
+           FROM clients.clients cl
+          WHERE cl.company_id = $1
+            AND cl.is_deleted = FALSE
+            AND right(regexp_replace(coalesce(cl.phone, ''), '[^0-9]', '', 'g'), 10)
+                = right(m.phone_digits, 10)
+          ORDER BY cl.created_at
+          LIMIT 1
+       ) c ON TRUE
       WHERE m.company_id = $1
       GROUP BY m.phone_digits, c.full_name
       ORDER BY max(m.sent_at) DESC
@@ -372,6 +404,43 @@ export async function linkClientByPhone(clientId, phoneDigits) {
         SET client_id = $1
       WHERE company_id = $2 AND phone_digits = $3 AND client_id IS NULL`,
     [clientId, COMPANY_ID, phoneDigits],
+  );
+  return r.rowCount;
+}
+
+/**
+ * Привязать к карточкам всю переписку, где связь не проставлена.
+ *
+ * Зачем отдельно от findClientId: строки сохраняются в момент сообщения, и
+ * если карточки тогда не было (или номер в ней записан через 8, а не 7),
+ * client_id остался пустым навсегда. Человек заводит карточку позже, но
+ * старая переписка так и висит «неизвестным номером».
+ *
+ * Сопоставление по последним 10 цифрам — то же правило, что везде.
+ * Берём самую раннюю карточку: на ней история и деньги.
+ *
+ * Идемпотентна: трогает только строки с пустым client_id, поэтому её
+ * безопасно звать при каждом старте сервиса.
+ */
+export async function linkKnownContacts() {
+  if (!COMPANY_ID) return 0;
+  const r = await pool.query(
+    `UPDATE whatsapp.messages m
+        SET client_id = c.id
+       FROM LATERAL (
+         SELECT cl.id
+           FROM clients.clients cl
+          WHERE cl.company_id = $1
+            AND cl.is_deleted = FALSE
+            AND right(regexp_replace(coalesce(cl.phone, ''), '[^0-9]', '', 'g'), 10)
+                = right(m.phone_digits, 10)
+          ORDER BY cl.created_at
+          LIMIT 1
+       ) c
+      WHERE m.company_id = $1
+        AND m.client_id IS NULL
+        AND length(m.phone_digits) >= 10`,
+    [COMPANY_ID],
   );
   return r.rowCount;
 }

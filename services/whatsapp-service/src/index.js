@@ -5,7 +5,7 @@ import fsp from 'fs/promises';
 import { randomUUID } from 'crypto';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
-import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone, clientPhoneIndex } from './store.js';
+import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone, clientPhoneIndex, linkKnownContacts } from './store.js';
 import { Monitor } from './monitor.js';
 import { authenticate, requireSend } from './auth.js';
 
@@ -740,6 +740,14 @@ process.on('uncaughtException', (err) => {
 
 app.listen(PORT, () => {
   console.log(`[whatsapp-service] listening on :${PORT}`);
+
+  // Подвязываем к карточкам переписку, у которой связь не проставлена:
+  // карточку часто заводят уже после первого сообщения, и без этого
+  // прохода такой чат навсегда остаётся «неизвестным номером».
+  // Не блокируем запуск — операция фоновая и повторяемая.
+  void linkKnownContacts()
+    .then((n) => { if (n) console.log(`[WA] привязано к карточкам сообщений: ${n}`); })
+    .catch((e) => console.error('[WA] привязка к карточкам не удалась:', e.message));
 
   // Громкое предупреждение, когда оба предохранителя сняты: боевой режим с
   // пустым allowlist означает, что любой вызов /send или /broadcast уйдёт
