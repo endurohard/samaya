@@ -431,6 +431,10 @@ services:
       WHATSAPP_MONITOR_FULL_MS: ${WHATSAPP_MONITOR_FULL_MS:-900000}
       WHATSAPP_MONITOR_CHATS: ${WHATSAPP_MONITOR_CHATS:-10}
       WHATSAPP_MONITOR_DEPTH: ${WHATSAPP_MONITOR_DEPTH:-50}
+      # Копировать в CRM только чаты, чей номер есть в базе клиентов.
+      # Умолчание true: без фильтра монитор тащит и личную переписку с
+      # рабочего номера. Снимать осознанно.
+      WHATSAPP_MONITOR_CLIENTS_ONLY: ${WHATSAPP_MONITOR_CLIENTS_ONLY:-true}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
       LOG_LEVEL: ${LOG_LEVEL:-info}

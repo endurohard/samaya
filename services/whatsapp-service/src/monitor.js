@@ -28,6 +28,17 @@ const MSGS_PER_CHAT = Number(process.env.WHATSAPP_MONITOR_DEPTH || 50);
 // спроса вычитает всю переписку — включая личные чаты владельца — и сложит её
 // в базу. Такое решение принимает человек, а не значение по умолчанию.
 const ENABLED = process.env.WHATSAPP_MONITOR === 'true';
+// Копировать только чаты, чей номер есть в базе клиентов.
+//
+// Умолчание true, и это важнее, чем кажется: без фильтра постоянный обход
+// складывает в CRM всю переписку рабочего номера — личные чаты владельца,
+// курьеров, поставщиков. Разовый импорт такой фильтр имел с самого начала
+// (importAll({onlyClients})), а постоянный монитор — нет, и включение
+// монитора «чтобы была история» незаметно означало совсем другое.
+//
+// Чат незнакомого номера при этом не теряется: новый клиент пишет, в CRM
+// заводится карточка, и со следующего прохода его переписка копируется.
+const CLIENTS_ONLY = process.env.WHATSAPP_MONITOR_CLIENTS_ONLY !== 'false';
 
 export class Monitor {
   constructor(wa) {
@@ -48,7 +59,8 @@ export class Monitor {
     // телефоном, и список чатов может быть неполным.
     this.watchTimer = setTimeout(() => this._watchLoop(), 30_000);
     this.fullTimer = setTimeout(() => this._fullLoop(), 60_000);
-    console.log(`[WA][monitor] enabled, watch=${WATCH_MS}ms full=${FULL_MS}ms`);
+    console.log(`[WA][monitor] enabled, watch=${WATCH_MS}ms full=${FULL_MS}ms`
+      + `, только клиенты=${CLIENTS_ONLY ? 'да' : 'НЕТ (все чаты подряд)'}`);
   }
 
   stop() {
@@ -61,6 +73,7 @@ export class Monitor {
   status() {
     return {
       enabled: ENABLED,
+      clients_only: CLIENTS_ONLY,
       running: this.running,
       watch_ms: WATCH_MS,
       full_ms: FULL_MS,
@@ -95,6 +108,34 @@ export class Monitor {
   }
 
   /**
+   * Отсеять чаты, которых нет в базе клиентов.
+   *
+   * Сопоставление по последним 10 цифрам — так же, как в разовом импорте:
+   * «+7 (999)…» в карточке и «7999…» в заголовке чата должны сойтись.
+   *
+   * Сбой чтения базы НЕ должен приводить к копированию всех чатов подряд:
+   * при ошибке возвращаем пустой список и пишем причину. Лучше пропустить
+   * проход, чем один раз залить в CRM личную переписку — удалять её потом
+   * придётся руками.
+   */
+  async _onlyClients(list) {
+    if (!CLIENTS_ONLY) return list;
+    try {
+      const index = await clientPhoneIndex();
+      const keep = list.filter(c => index.has(digitsOf(c.digits).slice(-10)));
+      const skipped = list.length - keep.length;
+      if (skipped) {
+        console.log(`[WA][monitor] пропущено ${skipped} чат(ов) вне базы клиентов`);
+      }
+      return keep;
+    } catch (e) {
+      this.lastError = `база клиентов недоступна: ${e.message}`;
+      console.error('[WA][monitor]', this.lastError);
+      return [];
+    }
+  }
+
+  /**
    * Дозор: смотрим только список чатов и читаем те, где есть непрочитанные.
    * Если нового нет — не трогаем страницу вообще.
    */
@@ -106,10 +147,11 @@ export class Monitor {
       this.stats.watches++;
       this.lastWatch = new Date().toISOString();
 
-      const unread = list.filter(c => c.unread > 0).slice(0, CHATS_PER_PASS);
-      if (!unread.length) return { chats: 0, saved: 0 };
+      const unread = await this._onlyClients(list.filter(c => c.unread > 0));
+      const take = unread.slice(0, CHATS_PER_PASS);
+      if (!take.length) return { chats: 0, saved: 0 };
 
-      const r = await this._readChats(unread);
+      const r = await this._readChats(take);
       if (r.saved) console.log(`[WA][monitor] watch: ${r.saved} new message(s)`);
       return r;
     } finally {
@@ -124,7 +166,8 @@ export class Monitor {
     this.running = true;
     try {
       const list = await this.wa.listChats();
-      const targets = (full ? list : list.filter(c => c.unread > 0)).slice(0, CHATS_PER_PASS);
+      const picked = await this._onlyClients(full ? list : list.filter(c => c.unread > 0));
+      const targets = picked.slice(0, CHATS_PER_PASS);
       if (full) this.stats.fulls++;
       if (!targets.length) {
         this.lastRun = new Date().toISOString();
