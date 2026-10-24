@@ -424,22 +424,35 @@ export async function linkClientByPhone(clientId, phoneDigits) {
  */
 export async function linkKnownContacts() {
   if (!COMPANY_ID) return 0;
+  // Коррелированный подзапрос, а не LATERAL в FROM: в UPDATE ... FROM
+  // элементы FROM не видят обновляемую таблицу, и `LATERAL (… m.phone_digits)`
+  // падает с «invalid reference to FROM-clause entry for table "m"».
+  // В SET подзапрос коррелировать можно.
   const r = await pool.query(
     `UPDATE whatsapp.messages m
-        SET client_id = c.id
-       FROM LATERAL (
-         SELECT cl.id
-           FROM clients.clients cl
-          WHERE cl.company_id = $1
-            AND cl.is_deleted = FALSE
-            AND right(regexp_replace(coalesce(cl.phone, ''), '[^0-9]', '', 'g'), 10)
-                = right(m.phone_digits, 10)
-          ORDER BY cl.created_at
-          LIMIT 1
-       ) c
+        SET client_id = (
+          SELECT cl.id
+            FROM clients.clients cl
+           WHERE cl.company_id = $1
+             AND cl.is_deleted = FALSE
+             AND right(regexp_replace(coalesce(cl.phone, ''), '[^0-9]', '', 'g'), 10)
+                 = right(m.phone_digits, 10)
+           ORDER BY cl.created_at
+           LIMIT 1
+        )
       WHERE m.company_id = $1
         AND m.client_id IS NULL
-        AND length(m.phone_digits) >= 10`,
+        AND length(m.phone_digits) >= 10
+        -- Только строки, для которых карточка действительно нашлась:
+        -- иначе UPDATE проставил бы NULL поверх NULL всем подряд и каждый
+        -- старт сервиса переписывал бы всю таблицу впустую.
+        AND EXISTS (
+          SELECT 1 FROM clients.clients cl
+           WHERE cl.company_id = $1
+             AND cl.is_deleted = FALSE
+             AND right(regexp_replace(coalesce(cl.phone, ''), '[^0-9]', '', 'g'), 10)
+                 = right(m.phone_digits, 10)
+        )`,
     [COMPANY_ID],
   );
   return r.rowCount;
