@@ -4,7 +4,7 @@ import {
   parseCity, parseWeight, parseZones, zonePrice, buildQuote,
   hasUnpricedZone, asksWholeBody, weightNeeded,
 } from './price';
-import { parseAskTemplate } from './price';
+import { parseAskTemplate, parseQuoteTexts, DEFAULT_QUOTE_TEXTS } from './price';
 
 let ok = 0, fail = 0;
 function check(name: string, got: unknown, want: unknown) {
@@ -135,6 +135,38 @@ check('шаблон без нумерации — приветствия нет'
 // Пустой шаблон (темы ещё нет в БД) — берём запасной текст из кода.
 const empty = parseAskTemplate('');
 check('пустой шаблон → запасной текст', empty.greeting.startsWith('Здравствуйте'), true);
+
+console.log('— служебные тексты ответа —');
+const QT = parseQuoteTexts([
+  'заголовок: Цены — {city}',
+  'итого: Всего: {total}',
+  'переспрос-один: Ещё один вопрос:',
+  'переспрос-много: Уточните:',
+  'хвост:',
+  'Первая строка хвоста',
+  'Вторая строка хвоста',
+].join('\n'));
+check('заголовок из шаблона', QT.header, 'Цены — {city}');
+check('итого из шаблона', QT.total, 'Всего: {total}');
+check('переспрос на один вопрос', QT.askOne, 'Ещё один вопрос:');
+check('хвост — две строки', QT.footer, ['Первая строка хвоста', 'Вторая строка хвоста']);
+
+// Частично заполненный шаблон не должен обрезать ответ: недостающие ключи
+// берутся из умолчаний, иначе клиент получит цену без объяснения и призыва.
+const QTpart = parseQuoteTexts('заголовок: Только заголовок — {city}');
+check('частичный шаблон: свой заголовок', QTpart.header, 'Только заголовок — {city}');
+check('частичный шаблон: хвост по умолчанию',
+  QTpart.footer, DEFAULT_QUOTE_TEXTS.footer);
+check('пустой шаблон текстов → умолчания', parseQuoteTexts(''), DEFAULT_QUOTE_TEXTS);
+
+// Подстановки доезжают до готового текста ответа.
+const qt = buildQuote({
+  city: 'moscow', weight: 80, zones: ['belly'],
+  texts: parseQuoteTexts('заголовок: ПРАЙС {city}\nхвост:\nхвостовая строка'),
+});
+check('заголовок подставил город', qt?.text.startsWith('ПРАЙС Москва'), true);
+check('хвост из шаблона в ответе', qt?.text.includes('хвостовая строка'), true);
+check('старый хвост не остался', qt?.text.includes('без общего наркоза'), false);
 
 console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
 process.exit(fail ? 1 : 0);

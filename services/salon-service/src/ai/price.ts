@@ -344,6 +344,79 @@ export interface QuoteLine {
 }
 
 /**
+ * Служебные тексты ценового ответа, которые правит владелец.
+ *
+ * Вынесены из кода, потому что это ОБЫЧНЫЕ фразы, а не числа: «процедура
+ * проходит без наркоза» и приглашение записаться клиника меняет так же
+ * часто, как приветствие, и ради запятой в них не должно быть выката.
+ * Числа прайса остаются в коде — их по-прежнему нельзя сочинить.
+ */
+export interface QuoteTexts {
+  /** Заголовок ответа; {city} подставляется. */
+  header: string;
+  /** Строка итога при нескольких зонах; {total} подставляется. */
+  total: string;
+  /** Хвост после перечня цен — одна строка на абзац. */
+  footer: string[];
+  /** Вступление переспроса, когда не хватает одного ответа. */
+  askOne: string;
+  /** Вступление переспроса, когда не хватает нескольких. */
+  askMany: string;
+}
+
+export const DEFAULT_QUOTE_TEXTS: QuoteTexts = {
+  header: 'Стоимость лазерной липосакции — {city}:',
+  total: 'Итого: {total}',
+  footer: [
+    'Процедура проходит под местной анестезией, без общего наркоза 🤍',
+    'Подскажите, вам удобнее записаться на консультацию или остались вопросы?',
+  ],
+  askOne: 'Спасибо! Остался один вопрос:',
+  askMany: 'Спасибо! Уточните, пожалуйста:',
+};
+
+/**
+ * Разобрать шаблон служебных текстов.
+ *
+ * Формат — размеченные строки `ключ:` в начале строки, остальное до
+ * следующего ключа считается значением. Разметка выбрана такой, чтобы
+ * владелец видел в админке обычный текст с подписями, а не JSON: JSON он
+ * сломает первой же правкой, и ответ клиенту пропадёт целиком.
+ *
+ * Отсутствующий или пустой ключ берётся из умолчаний — частично
+ * заполненный шаблон не должен обрезать ответ.
+ */
+export function parseQuoteTexts(body: string): QuoteTexts {
+  const text = (body || '').trim();
+  if (!text) return DEFAULT_QUOTE_TEXTS;
+
+  const KEYS = ['заголовок', 'итого', 'хвост', 'переспрос-один', 'переспрос-много'];
+  const found: Record<string, string> = {};
+  let current = '';
+  for (const raw of text.split('\n')) {
+    const m = /^\s*([а-яё-]+)\s*:\s*(.*)$/i.exec(raw);
+    if (m && KEYS.includes(m[1].toLowerCase())) {
+      current = m[1].toLowerCase();
+      found[current] = m[2].trim();
+      continue;
+    }
+    if (current) found[current] = (found[current] ? found[current] + '\n' : '') + raw;
+  }
+  const take = (k: string, def: string) => (found[k] ?? '').trim() || def;
+  const footerRaw = (found['хвост'] ?? '').trim();
+
+  return {
+    header: take('заголовок', DEFAULT_QUOTE_TEXTS.header),
+    total: take('итого', DEFAULT_QUOTE_TEXTS.total),
+    footer: footerRaw
+      ? footerRaw.split('\n').map(s => s.trim()).filter(Boolean)
+      : DEFAULT_QUOTE_TEXTS.footer,
+    askOne: take('переспрос-один', DEFAULT_QUOTE_TEXTS.askOne),
+    askMany: take('переспрос-много', DEFAULT_QUOTE_TEXTS.askMany),
+  };
+}
+
+/**
  * Собрать текст ответа с ценой.
  *
  * Возвращает null, если ни одну зону посчитать не удалось — тогда отвечать
@@ -355,6 +428,8 @@ export function buildQuote(opts: {
   zones: ZoneKey[];
   armpits?: boolean;
   pubisWithBelly?: boolean;
+  /** Служебные тексты из шаблона; без них берутся умолчания. */
+  texts?: QuoteTexts;
 }): { text: string; lines: QuoteLine[] } | null {
   const lines: QuoteLine[] = [];
   for (const zone of opts.zones) {
@@ -366,8 +441,9 @@ export function buildQuote(opts: {
   if (!lines.length) return null;
 
   const city = CITY_TITLE[opts.city];
+  const t = opts.texts ?? DEFAULT_QUOTE_TEXTS;
   const parts: string[] = [];
-  parts.push(`Стоимость лазерной липосакции — ${city}:`);
+  parts.push(t.header.replace('{city}', city));
   parts.push('');
 
   let total = 0;
@@ -394,12 +470,11 @@ export function buildQuote(opts: {
 
   if (lines.length > 1) {
     parts.push('');
-    parts.push(`Итого: ${formatMoney(total)}`);
+    parts.push(t.total.replace('{total}', formatMoney(total)));
   }
 
   parts.push('');
-  parts.push('Процедура проходит под местной анестезией, без общего наркоза 🤍');
-  parts.push('Подскажите, вам удобнее записаться на консультацию или остались вопросы?');
+  for (const line of t.footer) parts.push(line);
 
   return { text: parts.join('\n'), lines };
 }

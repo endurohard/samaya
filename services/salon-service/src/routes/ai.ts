@@ -8,7 +8,8 @@ import { authenticate, requireRole, requirePermission, HttpError } from '../midd
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 import type { Decision } from '../ai/classifier';
 import {
-  handleMessage as handlePriceMessage, isCollecting, PriceOutcome,
+  handleMessage as handlePriceMessage, isCollecting, isPriceDialogEnabled,
+  PriceOutcome,
 } from '../ai/price-dialog';
 
 /**
@@ -100,7 +101,12 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // классификатором, потому что короткие ответы («Москва», «80»,
     // «живот») сами по себе не похожи на вопрос о цене и ушли бы в
     // manual_review, а клиент получил бы третий раз те же три вопроса.
-    if (thread_id) {
+    //
+    // Но выключенная владельцем тема обязана гасить и опросник: иначе
+    // выключатель в админке ничего не делает, а ассистент продолжает
+    // называть цены.
+    const priceOn = await isPriceDialogEnabled(companyId);
+    if (thread_id && priceOn) {
       const collecting = await isCollecting(companyId, ch, thread_id);
       if (collecting) {
         const out = await handlePriceMessage({
@@ -130,7 +136,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // Тема цены распознана — запускаем сбор ответов вместо шаблонного
     // текста. Шаблон остаётся на случай, когда идентификатора диалога нет
     // (ручная проверка из админки): состояние хранить негде.
-    if (d.ok && d.topic === PRICE_TOPIC && d.action !== 'skipped' && thread_id) {
+    if (d.ok && d.topic === PRICE_TOPIC && d.action !== 'skipped' && thread_id && priceOn) {
       const out = await handlePriceMessage({
         companyId, channel: ch, threadId: thread_id, text, fresh: true,
       });

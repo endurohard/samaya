@@ -15,10 +15,19 @@ import {
   buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate,
+  QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
 } from './price';
 
 /** Ключ темы, из шаблона которой берутся приветствие и тексты вопросов. */
 const PRICE_TOPIC = process.env.AI_PRICE_TOPIC || 'liposakciya_ruk';
+
+/**
+ * Ключ темы со служебными текстами ответа (заголовок, итого, хвост,
+ * переспросы). Отдельная тема, а не часть первой: там лежит текст, который
+ * уходит клиенту целиком, а здесь — размеченные куски, и смешивать их в
+ * одном поле админки означает сломать первый при правке второго.
+ */
+const QUOTE_TOPIC = process.env.AI_PRICE_TEXTS_TOPIC || 'price_quote_texts';
 
 /**
  * Прочитать шаблон темы цены из БД.
@@ -40,6 +49,45 @@ export async function loadAskParts(companyId: string): Promise<AskParts> {
     // выглядит как «правка шаблона не применилась».
     console.error('[AI][цена] шаблон вопросов не прочитан:', (e as Error).message);
     return parseAskTemplate('');
+  }
+}
+
+/** Прочитать служебные тексты ответа (заголовок, итого, хвост, переспросы). */
+export async function loadQuoteTexts(companyId: string): Promise<QuoteTexts> {
+  try {
+    const { rows } = await pool.query(
+      `SELECT body FROM ai.reply_templates WHERE company_id = $1 AND topic = $2`,
+      [companyId, QUOTE_TOPIC],
+    );
+    return parseQuoteTexts(rows[0]?.body ?? '');
+  } catch (e) {
+    console.error('[AI][цена] шаблон текстов ответа не прочитан:', (e as Error).message);
+    return DEFAULT_QUOTE_TEXTS;
+  }
+}
+
+/**
+ * Включён ли ценовой опросник.
+ *
+ * Выключатель темы «Цена лазерной липосакции» в админке обязан гасить и
+ * опросник: без этой проверки владелец выключает тему, а ассистент
+ * продолжает вести разговор о цене — выключатель выглядит сломанным.
+ * Проверка идёт по той же колонке `enabled`, что и у обычных шаблонов.
+ *
+ * Отсутствие строки означает, что тему ещё не завели, — тогда опросник
+ * работает: так было до появления выключателя, и терять ответы из-за
+ * незаполненного справочника нельзя.
+ */
+export async function isPriceDialogEnabled(companyId: string): Promise<boolean> {
+  try {
+    const { rows } = await pool.query(
+      `SELECT enabled FROM ai.reply_templates WHERE company_id = $1 AND topic = $2`,
+      [companyId, PRICE_TOPIC],
+    );
+    return rows.length ? !!rows[0].enabled : true;
+  } catch (e) {
+    console.error('[AI][цена] состояние темы не прочитано:', (e as Error).message);
+    return true;
   }
 }
 
@@ -153,6 +201,7 @@ export interface PriceOutcome {
  */
 function askMissing(
   s: DialogState, needWeight: boolean, parts: AskParts, first: boolean,
+  texts: QuoteTexts,
 ): string {
   const q: string[] = [];
   if (!s.city) q.push(parts.city);
@@ -164,7 +213,7 @@ function askMissing(
   // выглядело бы так, будто его не услышали.
   const head = first
     ? (parts.greeting || 'Здравствуйте 🌹')
-    : (q.length === 1 ? 'Спасибо! Остался один вопрос:' : 'Спасибо! Уточните, пожалуйста:');
+    : (q.length === 1 ? texts.askOne : texts.askMany);
   // Склейка именно такая: [head, '', ...q].join('\n\n') даёт ЧЕТЫРЕ перевода
   // строки между вступлением и первым пунктом (пустой элемент сам обрастает
   // разделителями с обеих сторон) — в переписке это выглядит как провал.
@@ -209,6 +258,9 @@ export async function handleMessage(opts: {
   const newZones = parseZones(text);
   const zones = [...new Set([...prev.zones, ...newZones])] as ZoneKey[];
 
+  // Служебные тексты ответа — из шаблона, владелец правит их в админке.
+  const texts = await loadQuoteTexts(companyId);
+
   const next: DialogState = {
     city,
     weight,
@@ -246,7 +298,7 @@ export async function handleMessage(opts: {
     }
     const reply = opts.fresh && !next.city && !next.weight && !zones.length
       ? parts.full
-      : askMissing(next, needWeight, parts, !prev.askedAt);
+      : askMissing(next, needWeight, parts, !prev.askedAt, texts);
     return { kind: 'ask', reply, reason: null, state: next };
   }
 
@@ -256,6 +308,7 @@ export async function handleMessage(opts: {
     zones,
     armpits: next.armpits,
     pubisWithBelly: next.pubisBelly,
+    texts,
   });
   if (!quote) {
     return {

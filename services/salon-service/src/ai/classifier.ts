@@ -88,13 +88,25 @@ export interface Decision {
  *
  * Поэтому тему оставляем, а молчим уже на этапе решения.
  */
+/**
+ * Служебные темы: это НЕ варианты ответа, а хранилище кусков текста для
+ * ценового опросника. Классификатору их показывать нельзя — модель выберет
+ * «тему» вида «заголовок: …» на обычном вопросе о цене, и клиент получит
+ * размеченную рыбу вместо ответа. В админке они видны и правятся как
+ * обычные шаблоны, и это правильно: владельцу нужно их редактировать.
+ */
+const SERVICE_TOPICS = [
+  process.env.AI_PRICE_TEXTS_TOPIC || 'price_quote_texts',
+];
+
 export async function loadTemplates(companyId: string): Promise<Template[]> {
   const { rows } = await pool.query(
     `SELECT id, topic, title, matcher, body, autosend, enabled
        FROM ai.reply_templates
       WHERE company_id = $1
+        AND topic <> ALL ($2::text[])
       ORDER BY sort_order, title`,
-    [companyId],
+    [companyId, SERVICE_TOPICS],
   );
   return rows;
 }
