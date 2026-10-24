@@ -169,6 +169,25 @@ const ZONES: Zone[] = [
 const ZONE_BY_KEY = new Map<ZoneKey, Zone>(ZONES.map(z => [z.key, z]));
 
 /**
+ * Каталог зон с ценами: имя -> описание зоны.
+ *
+ * Прайс живёт в БД (`ai.price_zones` / `ai.price_steps`) и правится в
+ * админке, а встроенный ZONES остаётся запасным: если таблица пуста или
+ * недоступна, ассистент продолжает считать по последним известным ценам,
+ * а не молчит на боевом вопросе.
+ *
+ * Гарантия «цену нельзя сочинить» от переезда не страдает: сумма
+ * по-прежнему БЕРЁТСЯ ИЗ ТАБЛИЦЫ, просто таблица теперь редактируемая.
+ */
+export type ZoneCatalog = Map<ZoneKey, Zone>;
+
+/** Встроенный прайс — запасной вариант и источник переноса в БД. */
+export const BUILTIN_ZONES: ZoneCatalog = ZONE_BY_KEY;
+
+/** Описание зоны для сборки каталога из строк БД. */
+export type { Zone };
+
+/**
  * Слова, по которым узнаём зону.
  *
  * Порядок важен: длинные и более конкретные выражения стоят раньше, иначе
@@ -304,8 +323,8 @@ export function asksWholeBody(text: string): boolean {
 }
 
 /** Нужен ли вес, чтобы назвать цену по этим зонам. */
-export function weightNeeded(zones: ZoneKey[]): boolean {
-  return zones.some(z => ZONE_BY_KEY.get(z)?.byWeight === true);
+export function weightNeeded(zones: ZoneKey[], catalog: ZoneCatalog = BUILTIN_ZONES): boolean {
+  return zones.some(z => catalog.get(z)?.byWeight === true);
 }
 
 /** Упоминал ли клиент подмышечные зоны (доплата к рукам). */
@@ -326,8 +345,9 @@ function formatMoney(n: number): string {
 /** Цена одной зоны. null — зону нельзя посчитать без веса. */
 export function zonePrice(
   zone: ZoneKey, city: City, weight: number | null,
+  catalog: ZoneCatalog = BUILTIN_ZONES,
 ): number | null {
-  const z = ZONE_BY_KEY.get(zone);
+  const z = catalog.get(zone);
   if (!z) return null;
   const idx = city === 'kaspiysk' ? 0 : 1;
   if (!z.byWeight) return z.flat ? z.flat[idx] : null;
@@ -430,12 +450,15 @@ export function buildQuote(opts: {
   pubisWithBelly?: boolean;
   /** Служебные тексты из шаблона; без них берутся умолчания. */
   texts?: QuoteTexts;
+  /** Каталог цен; без него — встроенный прайс. */
+  catalog?: ZoneCatalog;
 }): { text: string; lines: QuoteLine[] } | null {
+  const catalog = opts.catalog ?? BUILTIN_ZONES;
   const lines: QuoteLine[] = [];
   for (const zone of opts.zones) {
-    const price = zonePrice(zone, opts.city, opts.weight);
+    const price = zonePrice(zone, opts.city, opts.weight, catalog);
     if (price == null) continue;
-    const z = ZONE_BY_KEY.get(zone)!;
+    const z = catalog.get(zone)!;
     lines.push({ zone, title: z.title, price, note: z.note });
   }
   if (!lines.length) return null;
@@ -480,6 +503,6 @@ export function buildQuote(opts: {
 }
 
 /** Человеческое название зоны — для уведомлений администратору. */
-export function zoneTitle(zone: ZoneKey): string {
-  return ZONE_BY_KEY.get(zone)?.title ?? zone;
+export function zoneTitle(zone: ZoneKey, catalog: ZoneCatalog = BUILTIN_ZONES): string {
+  return catalog.get(zone)?.title ?? zone;
 }

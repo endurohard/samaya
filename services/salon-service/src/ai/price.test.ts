@@ -2,8 +2,10 @@
 // Запуск: npx tsx src/ai/price.test.ts
 import {
   parseCity, parseWeight, parseZones, zonePrice, buildQuote,
-  hasUnpricedZone, asksWholeBody, weightNeeded,
+  hasUnpricedZone, asksWholeBody, weightNeeded, zoneTitle,
+  BUILTIN_ZONES,
 } from './price';
+import type { ZoneCatalog } from './price';
 import { parseAskTemplate, parseQuoteTexts, DEFAULT_QUOTE_TEXTS } from './price';
 
 let ok = 0, fail = 0;
@@ -167,6 +169,44 @@ const qt = buildQuote({
 check('заголовок подставил город', qt?.text.startsWith('ПРАЙС Москва'), true);
 check('хвост из шаблона в ответе', qt?.text.includes('хвостовая строка'), true);
 check('старый хвост не остался', qt?.text.includes('без общего наркоза'), false);
+
+console.log('— прайс из каталога (правка цен в админке) —');
+// Каталог той же формы, что строит loadZoneCatalog из БД: проверяем, что
+// подменённая цена доезжает до текста ответа, а встроенная не побеждает.
+const custom: ZoneCatalog = new Map(BUILTIN_ZONES);
+custom.set('chin', {
+  key: 'chin', title: 'подбородок (новый прайс)', byWeight: false,
+  flat: [111_000, 222_000],
+});
+custom.set('belly', {
+  key: 'belly', title: 'живот', byWeight: true,
+  steps: [
+    { maxWeight: 75, price: [10_000, 20_000] },
+    { maxWeight: Infinity, price: [30_000, 40_000] },
+  ],
+});
+
+check('фикс. цена из каталога (Каспийск)',
+  zonePrice('chin', 'kaspiysk', null, custom), 111_000);
+check('фикс. цена из каталога (Москва)',
+  zonePrice('chin', 'moscow', null, custom), 222_000);
+check('ступень из каталога: 70 кг', zonePrice('belly', 'moscow', 70, custom), 20_000);
+check('ступень из каталога: 120 кг', zonePrice('belly', 'moscow', 120, custom), 40_000);
+check('встроенный прайс не подменён', zonePrice('chin', 'kaspiysk', null), 150_000);
+
+const qc = buildQuote({ city: 'moscow', weight: 70, zones: ['belly'], catalog: custom });
+check('ответ собран по каталогу', qc?.text.includes('20 000 ₽'), true);
+check('название зоны из каталога',
+  zoneTitle('chin', custom), 'подбородок (новый прайс)');
+
+// Зона, выключенная в админке, из каталога исчезает: считать её нечем, и
+// вопрос обязан уйти администратору, а не получить цену из кода.
+const without: ZoneCatalog = new Map(BUILTIN_ZONES);
+without.delete('chin');
+check('выключенная зона не считается',
+  zonePrice('chin', 'moscow', null, without), null);
+check('нужен ли вес — по каталогу',
+  weightNeeded(['chin'], custom), false);
 
 console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
 process.exit(fail ? 1 : 0);

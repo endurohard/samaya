@@ -329,6 +329,127 @@ const templateSchema = z.object({
   sort_order: z.number().int().min(0).max(10_000).optional(),
 });
 
+/**
+ * Прайс: чтение и правка из админки.
+ *
+ * Правка цен — это деньги, поэтому гейт `manage`, тот же, что у шаблонов.
+ * Чтение под `view`: администратору полезно видеть прайс рядом с перепиской.
+ */
+const zoneSchema = z.object({
+  title: z.string().min(1).max(300),
+  by_weight: z.boolean(),
+  // Для весовой зоны цены живут в ступенях, здесь их быть не должно —
+  // это же проверяет CHECK в таблице.
+  price_kaspiysk: z.number().min(0).max(100_000_000).nullable().optional(),
+  price_moscow: z.number().min(0).max(100_000_000).nullable().optional(),
+  note: z.string().max(500).nullable().optional(),
+  enabled: z.boolean().optional(),
+  sort_order: z.number().int().min(0).max(10_000).optional(),
+  steps: z.array(z.object({
+    // null — последняя ступень «и выше».
+    max_weight: z.number().min(0).max(500).nullable(),
+    price_kaspiysk: z.number().min(0).max(100_000_000),
+    price_moscow: z.number().min(0).max(100_000_000),
+  })).max(20).optional(),
+});
+
+/** GET /api/salons/ai/price — прайс со ступенями. */
+router.get('/price', view, async (req: ExpressRequest, res, next) => {
+  try {
+    const companyId = req.auth!.company_id;
+    const { rows: zones } = await pool.query(
+      `SELECT zone_key, title, by_weight, price_kaspiysk, price_moscow,
+              note, enabled, sort_order, updated_at
+         FROM ai.price_zones WHERE company_id = $1
+        ORDER BY sort_order, title`,
+      [companyId],
+    );
+    const { rows: steps } = await pool.query(
+      `SELECT zone_key, max_weight, price_kaspiysk, price_moscow, sort_order
+         FROM ai.price_steps WHERE company_id = $1
+        ORDER BY zone_key, sort_order`,
+      [companyId],
+    );
+    const byZone = new Map<string, any[]>();
+    for (const s of steps) {
+      const list = byZone.get(s.zone_key) ?? [];
+      list.push(s);
+      byZone.set(s.zone_key, list);
+    }
+    return res.json({
+      items: zones.map((z: any) => ({ ...z, steps: byZone.get(z.zone_key) ?? [] })),
+    });
+  } catch (e) { return next(e); }
+});
+
+/**
+ * PUT /api/salons/ai/price/:zone — изменить зону прайса.
+ *
+ * Зона и её ступени переписываются одной транзакцией: без неё падение
+ * между удалением старых ступеней и вставкой новых оставит весовую зону
+ * без ступеней, то есть без цены, — и ассистент начнёт отдавать вопрос
+ * администратору, хотя в админке всё выглядит заполненным.
+ */
+router.put('/price/:zone', manage, async (req: ExpressRequest, res, next) => {
+  const client = await pool.connect();
+  try {
+    const body = zoneSchema.parse(req.body);
+    const companyId = req.auth!.company_id;
+    const zoneKey = String(req.params.zone);
+
+    if (body.by_weight && !(body.steps && body.steps.length)) {
+      throw new HttpError(400,
+        'у зоны с ценой по весу должна быть хотя бы одна ступень', 'steps_required');
+    }
+    if (!body.by_weight && (body.price_kaspiysk == null || body.price_moscow == null)) {
+      throw new HttpError(400,
+        'укажите цену для обоих городов', 'price_required');
+    }
+
+    await client.query('BEGIN');
+    const { rowCount } = await client.query(
+      `UPDATE ai.price_zones
+          SET title = $3, by_weight = $4,
+              price_kaspiysk = $5, price_moscow = $6,
+              note = $7,
+              enabled = COALESCE($8, enabled),
+              sort_order = COALESCE($9, sort_order)
+        WHERE company_id = $1 AND zone_key = $2`,
+      [companyId, zoneKey, body.title, body.by_weight,
+       body.by_weight ? null : body.price_kaspiysk,
+       body.by_weight ? null : body.price_moscow,
+       body.note ?? null, body.enabled ?? null, body.sort_order ?? null],
+    );
+    if (!rowCount) throw new HttpError(404, 'зона прайса не найдена', 'zone_not_found');
+
+    await client.query(
+      `DELETE FROM ai.price_steps WHERE company_id = $1 AND zone_key = $2`,
+      [companyId, zoneKey],
+    );
+    if (body.by_weight) {
+      // Порядок ступеней задаёт их смысл («до 75», потом «до 99»), поэтому
+      // сохраняем ровно тот, что прислала форма, а не сортируем по весу:
+      // последняя ступень с max_weight = null обязана остаться последней.
+      let i = 0;
+      for (const s of body.steps!) {
+        await client.query(
+          `INSERT INTO ai.price_steps
+             (company_id, zone_key, max_weight, price_kaspiysk, price_moscow, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [companyId, zoneKey, s.max_weight, s.price_kaspiysk, s.price_moscow, i++],
+        );
+      }
+    }
+    await client.query('COMMIT');
+    return res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    return next(e);
+  } finally {
+    client.release();
+  }
+});
+
 /** GET /api/salons/ai/templates — все шаблоны компании. */
 router.get('/templates', view, async (req: ExpressRequest, res, next) => {
   try {

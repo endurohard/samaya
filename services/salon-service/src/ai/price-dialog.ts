@@ -16,6 +16,7 @@ import {
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
+  ZoneCatalog, BUILTIN_ZONES, Zone,
 } from './price';
 
 /** Ключ темы, из шаблона которой берутся приветствие и тексты вопросов. */
@@ -88,6 +89,75 @@ export async function isPriceDialogEnabled(companyId: string): Promise<boolean> 
   } catch (e) {
     console.error('[AI][цена] состояние темы не прочитано:', (e as Error).message);
     return true;
+  }
+}
+
+/**
+ * Загрузить прайс из БД.
+ *
+ * Пустая или недоступная таблица — не повод молчать на вопросе о цене:
+ * возвращаем встроенный прайс. Но причину пишем в лог, иначе «правлю цены
+ * в админке, а ассистент называет старые» превратится в долгий поиск.
+ *
+ * Зона с `by_weight`, у которой нет ни одной ступени, пропускается: иначе
+ * `steps!.find` в zonePrice упадёт на боевом вопросе. Такая строка —
+ * результат незавершённой правки в админке, и правильная реакция на неё —
+ * считать зону отсутствующей (вопрос уйдёт администратору), а не ронять
+ * весь ответ.
+ */
+export async function loadZoneCatalog(companyId: string): Promise<ZoneCatalog> {
+  try {
+    const { rows: zrows } = await pool.query(
+      `SELECT zone_key, title, by_weight, price_kaspiysk, price_moscow, note
+         FROM ai.price_zones
+        WHERE company_id = $1 AND enabled = true
+        ORDER BY sort_order, title`,
+      [companyId],
+    );
+    if (!zrows.length) return BUILTIN_ZONES;
+
+    const { rows: srows } = await pool.query(
+      `SELECT zone_key, max_weight, price_kaspiysk, price_moscow
+         FROM ai.price_steps
+        WHERE company_id = $1
+        ORDER BY zone_key, sort_order`,
+      [companyId],
+    );
+    const steps = new Map<string, { maxWeight: number; price: [number, number] }[]>();
+    for (const s of srows) {
+      const list = steps.get(s.zone_key) ?? [];
+      // NULL в max_weight означает последнюю ступень «и выше»: в админке
+      // так не нужно выдумывать 999, а здесь сравнение остаётся обычным.
+      list.push({
+        maxWeight: s.max_weight == null ? Infinity : Number(s.max_weight),
+        price: [Number(s.price_kaspiysk), Number(s.price_moscow)],
+      });
+      steps.set(s.zone_key, list);
+    }
+
+    const catalog: ZoneCatalog = new Map();
+    for (const z of zrows) {
+      const byWeight = !!z.by_weight;
+      const zoneSteps = steps.get(z.zone_key) ?? [];
+      if (byWeight && !zoneSteps.length) {
+        console.error(`[AI][цена] у зоны «${z.zone_key}» нет ступеней по весу — пропущена`);
+        continue;
+      }
+      catalog.set(z.zone_key as ZoneKey, {
+        key: z.zone_key as ZoneKey,
+        title: z.title,
+        byWeight,
+        flat: byWeight
+          ? undefined
+          : [Number(z.price_kaspiysk), Number(z.price_moscow)] as [number, number],
+        steps: byWeight ? zoneSteps : undefined,
+        note: z.note ?? undefined,
+      } as Zone);
+    }
+    return catalog.size ? catalog : BUILTIN_ZONES;
+  } catch (e) {
+    console.error('[AI][цена] прайс не прочитан, беру встроенный:', (e as Error).message);
+    return BUILTIN_ZONES;
   }
 }
 
@@ -260,6 +330,8 @@ export async function handleMessage(opts: {
 
   // Служебные тексты ответа — из шаблона, владелец правит их в админке.
   const texts = await loadQuoteTexts(companyId);
+  // Прайс — из БД; при пустой таблице вернётся встроенный.
+  const catalog = await loadZoneCatalog(companyId);
 
   const next: DialogState = {
     city,
@@ -271,7 +343,7 @@ export async function handleMessage(opts: {
     askedAt: prev.askedAt,
   };
 
-  const needWeight = zones.length ? weightNeeded(zones) : true;
+  const needWeight = zones.length ? weightNeeded(zones, catalog) : true;
   const ready = !!next.city && zones.length > 0 && (!needWeight || next.weight != null);
 
   if (!ready) {
@@ -309,6 +381,7 @@ export async function handleMessage(opts: {
     armpits: next.armpits,
     pubisWithBelly: next.pubisBelly,
     texts,
+    catalog,
   });
   if (!quote) {
     return {
@@ -320,7 +393,7 @@ export async function handleMessage(opts: {
 
   next.quotedAt = new Date();
   await saveState(companyId, channel, threadId, next);
-  const zonesText = zones.map(zoneTitle).join(', ');
+  const zonesText = zones.map(z => zoneTitle(z, catalog)).join(', ');
   return {
     kind: 'quote', reply: quote.text,
     reason: `цена по прайсу: ${CITY_TITLE[next.city!]}, ` +
