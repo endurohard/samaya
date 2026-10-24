@@ -4,6 +4,7 @@ import {
   parseCity, parseWeight, parseZones, zonePrice, buildQuote,
   hasUnpricedZone, asksWholeBody, weightNeeded,
 } from './price';
+import { parseAskTemplate } from './price';
 
 let ok = 0, fail = 0;
 function check(name: string, got: unknown, want: unknown) {
@@ -103,6 +104,37 @@ check('живот без веса — нельзя посчитать', q5, null
 
 const q6 = buildQuote({ city: 'moscow', weight: null, zones: ['chin'] });
 check('подбородок без веса — можно', q6?.text.includes('200 000 ₽'), true);
+
+console.log('— разбор шаблона вопросов —');
+const TPL = `Здравствуйте 🌹
+
+Для того чтобы мы написали вам стоимость лазерной липосакции
+Укажите пожалуйста:
+
+1️⃣Какой город вас интересует Каспийск или Москва
+
+2️⃣Ваш вес ?
+
+3️⃣Какая зона вас интересует? 🤍`;
+
+const p = parseAskTemplate(TPL);
+check('приветствие отделено от пунктов',
+  p.greeting.startsWith('Здравствуйте') && !p.greeting.includes('1️⃣'), true);
+check('пункт города без соседних', p.city.includes('город') && !p.city.includes('вес'), true);
+check('пункт веса', p.weight, '2️⃣Ваш вес ?');
+check('пункт зоны', p.zone, '3️⃣Какая зона вас интересует? 🤍');
+check('полный текст сохранён', p.full, TPL);
+
+// Шаблон, который владелец переписал своими словами без нумерации: пункты
+// не найдены, но ответ всё равно должен быть осмысленным, а не пустым.
+const plain = parseAskTemplate('Здравствуйте! Напишите город, вес и зону.');
+check('шаблон без нумерации — вопросы запасные',
+  plain.city.includes('город') && plain.weight.includes('вес'), true);
+check('шаблон без нумерации — приветствия нет', plain.greeting, '');
+
+// Пустой шаблон (темы ещё нет в БД) — берём запасной текст из кода.
+const empty = parseAskTemplate('');
+check('пустой шаблон → запасной текст', empty.greeting.startsWith('Здравствуйте'), true);
 
 console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
 process.exit(fail ? 1 : 0);

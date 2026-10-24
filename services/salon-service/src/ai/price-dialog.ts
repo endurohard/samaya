@@ -14,19 +14,34 @@ import {
   City, ZoneKey, parseCity, parseWeight, parseZones, weightNeeded,
   buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
+  AskParts, parseAskTemplate,
 } from './price';
 
-/** Текст с тремя вопросами — он же шаблон темы «Цена лазерной липосакции». */
-export const ASK_ALL = `Здравствуйте 🌹
+/** Ключ темы, из шаблона которой берутся приветствие и тексты вопросов. */
+const PRICE_TOPIC = process.env.AI_PRICE_TOPIC || 'liposakciya_ruk';
 
-Для того чтобы мы написали вам стоимость лазерной липосакции
-Укажите пожалуйста:
-
-1️⃣Какой город вас интересует Каспийск или Москва (прием ведем только в двух городах)
-
-2️⃣Ваш вес ?
-
-3️⃣Какая зона вас интересует? 🤍`;
+/**
+ * Прочитать шаблон темы цены из БД.
+ *
+ * Тексты вопросов и приветствие — это то, что клиника говорит клиенту от
+ * своего имени, и править их владелец должен в админке, а не коммитом.
+ * В коде остаётся только расчёт по прайсу: выдумать сумму по-прежнему нечем.
+ */
+export async function loadAskParts(companyId: string): Promise<AskParts> {
+  try {
+    const { rows } = await pool.query(
+      `SELECT body FROM ai.reply_templates WHERE company_id = $1 AND topic = $2`,
+      [companyId, PRICE_TOPIC],
+    );
+    return parseAskTemplate(rows[0]?.body ?? '');
+  } catch (e) {
+    // Недоступная БД не должна оставить клиента без ответа — отвечаем
+    // запасным текстом, но причину пишем: молчаливый откат на константу
+    // выглядит как «правка шаблона не применилась».
+    console.error('[AI][цена] шаблон вопросов не прочитан:', (e as Error).message);
+    return parseAskTemplate('');
+  }
+}
 
 /**
  * Сколько живёт незавершённый разговор.
@@ -128,21 +143,28 @@ export interface PriceOutcome {
   state?: DialogState;
 }
 
-/** Текст с вопросами, которых ещё не хватает. */
-function askMissing(s: DialogState, needWeight: boolean): string {
+/**
+ * Текст с вопросами, которых ещё не хватает.
+ *
+ * `first` — это первое сообщение ассистента в разговоре. Тогда начинаем с
+ * приветствия из шаблона, а не со «Спасибо!»: благодарить ещё не за что, и
+ * клиент, который сразу написал «сколько стоит липосакция живота», получал
+ * ответ без «здравствуйте» — чем точнее был вопрос, тем хуже выглядел ответ.
+ */
+function askMissing(
+  s: DialogState, needWeight: boolean, parts: AskParts, first: boolean,
+): string {
   const q: string[] = [];
-  if (!s.city) {
-    q.push('1️⃣Какой город вас интересует Каспийск или Москва (прием ведем только в двух городах)');
-  }
-  if (needWeight && s.weight == null) q.push('2️⃣Ваш вес ?');
-  if (!s.zones.length) q.push('3️⃣Какая зона вас интересует? 🤍');
+  if (!s.city) q.push(parts.city);
+  if (needWeight && s.weight == null) q.push(parts.weight);
+  if (!s.zones.length) q.push(parts.zone);
 
   // Для консультации нужны все три ответа, поэтому формулировка мягкая:
   // клиент уже что-то ответил, и повторять «укажите пожалуйста» целиком
   // выглядело бы так, будто его не услышали.
-  const head = q.length === 1
-    ? 'Спасибо! Остался один вопрос:'
-    : 'Спасибо! Уточните, пожалуйста:';
+  const head = first
+    ? (parts.greeting || 'Здравствуйте 🌹')
+    : (q.length === 1 ? 'Спасибо! Остался один вопрос:' : 'Спасибо! Уточните, пожалуйста:');
   return [head, '', ...q].join('\n\n');
 }
 
@@ -198,6 +220,9 @@ export async function handleMessage(opts: {
   const ready = !!next.city && zones.length > 0 && (!needWeight || next.weight != null);
 
   if (!ready) {
+    // Тексты вопросов берём из шаблона темы: владелец правит формулировки в
+    // админке. Читаем только здесь — когда ответ действительно нужен.
+    const parts = await loadAskParts(companyId);
     // Отмечаем, что вопросы заданы: следующее сообщение клиента («Москва»)
     // должно попасть в этот модуль, а не выглядеть новым разговором.
     next.askedAt = new Date();
@@ -217,8 +242,8 @@ export async function handleMessage(opts: {
       };
     }
     const reply = opts.fresh && !next.city && !next.weight && !zones.length
-      ? ASK_ALL
-      : askMissing(next, needWeight);
+      ? parts.full
+      : askMissing(next, needWeight, parts, !prev.askedAt);
     return { kind: 'ask', reply, reason: null, state: next };
   }
 
