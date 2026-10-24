@@ -7871,6 +7871,7 @@ import {
         </div>
         <div class="ai-price-sum">${escapeHtml(priceSummary(z))}</div>
         ${z.note ? `<div class="hint">${escapeHtml(z.note)}</div>` : ''}
+        ${z.by_weight ? '' : `<div class="hint">В тексте шаблона: <code>{цена:${escapeHtml(z.zone_key)}:каспийск}</code></div>`}
         <div class="ai-price-form" data-price-form="${escapeHtml(z.zone_key)}" hidden></div>
       </div>
     `).join('');

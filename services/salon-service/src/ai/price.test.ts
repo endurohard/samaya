@@ -3,7 +3,7 @@
 import {
   parseCity, parseWeight, parseZones, zonePrice, buildQuote,
   hasUnpricedZone, asksWholeBody, weightNeeded, zoneTitle,
-  BUILTIN_ZONES,
+  BUILTIN_ZONES, renderPrices,
 } from './price';
 import type { ZoneCatalog } from './price';
 import { parseAskTemplate, parseQuoteTexts, DEFAULT_QUOTE_TEXTS } from './price';
@@ -207,6 +207,27 @@ check('выключенная зона не считается',
   zonePrice('chin', 'moscow', null, without), null);
 check('нужен ли вес — по каталогу',
   weightNeeded(['chin'], custom), false);
+
+console.log('— подстановка цен в текст шаблона —');
+check('цена по городу',
+  renderPrices('Каспийск — {цена:chin:каспийск}', custom), 'Каспийск — 111 000 ₽');
+check('цена по второму городу',
+  renderPrices('Москва — {цена:chin:москва}', custom), 'Москва — 222 000 ₽');
+check('обе цены без указания города',
+  renderPrices('{цена:chin}', custom), '111 000 ₽ / 222 000 ₽');
+check('две метки в одной строке',
+  renderPrices('{цена:chin:каспийск} и {цена:galife:москва}', custom),
+  '111 000 ₽ и 300 000 ₽');
+
+// Весовую зону подставить нельзя — у неё нет одной суммы. Метка остаётся
+// видимой: пустое место читается как потерянный текст, а метка сразу
+// показывает, что зону надо вести опросником.
+check('весовая зона не подставляется',
+  renderPrices('{цена:belly:москва}', custom), '{цена:belly:москва}');
+check('опечатка в ключе видна',
+  renderPrices('{цена:неттакой:москва}', custom), '{цена:неттакой:москва}');
+check('текст без меток не меняется',
+  renderPrices('Просто текст про 150 000 ₽', custom), 'Просто текст про 150 000 ₽');
 
 console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
 process.exit(fail ? 1 : 0);

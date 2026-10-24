@@ -14,6 +14,10 @@
 // получает шаблон не по теме.
 import { pool } from '../db';
 import { Agent, ProxyAgent } from 'undici';
+// Цены для подстановки в тексты шаблонов. price-dialog классификатор не
+// импортирует, поэтому цикла здесь нет.
+import { renderPrices } from './price';
+import { loadZoneCatalog } from './price-dialog';
 
 const JEV_URL = (process.env.JEV_BASE_URL || 'https://api.typesafe.ai').replace(/\/$/, '');
 const JEV_KEY = process.env.TYPESAFE_API_KEY || '';
@@ -220,7 +224,9 @@ export async function classify(
     };
   }
 
-  const reply = render(template.body, clientName);
+  // Цены в тексте шаблона берём из прайса: написанная руками сумма —
+  // это второй источник правды, который разъезжается с прайсом молча.
+  const reply = render(renderPrices(template.body, await loadZoneCatalog(companyId)), clientName);
 
   // Низкая уверенность — черновик, даже если тема разрешена к автоответу.
   // Порядок проверок важен: сначала уверенность, потом права темы, иначе

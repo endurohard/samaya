@@ -3121,7 +3121,8 @@
                         <label for="aiTplBody">…ассистент отвечает</label>
                         <textarea id="aiTplBody" rows="4" maxlength="2000"
                                   placeholder="Текст уйдёт клиенту дословно."></textarea>
-                        <div class="hint">Уходит дословно. <button type="button" class="ai-chip-btn" id="aiTplInsertName">+ {name}</button> — подставится имя клиента, если оно известно.</div>
+                        <div class="hint">Уходит дословно. <button type="button" class="ai-chip-btn" id="aiTplInsertName">+ {name}</button> — подставится имя клиента, если оно известно.
+                        <br>Цену не пишите числом — она разъедется с прайсом. Ставьте метку <code>{цена:chin:каспийск}</code>: ключ зоны берётся со вкладки «Прайс», город — <code>каспийск</code> или <code>москва</code>. Без города подставятся обе суммы.</div>
                       </div>
                     </div>
                   </div>
