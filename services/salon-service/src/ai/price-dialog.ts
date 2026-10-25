@@ -16,7 +16,7 @@ import {
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
-  ZoneCatalog, BUILTIN_ZONES, Zone, looksLikeServiceInterest,
+  ZoneCatalog, BUILTIN_ZONES, Zone, looksLikeServiceInterest, isPoliteOnly,
 } from './price';
 
 /** Ключ темы, из шаблона которой берутся приветствие и тексты вопросов. */
@@ -368,7 +368,14 @@ export async function handleMessage(opts: {
     // названа), но отдавать такой разговор администратору рано — человек
     // просто уточнил, о чём речь. Поймано на живом диалоге: «Услуга» →
     // вопросы, «Липосакция» → «клиент не отвечает» и тишина.
-    if (!learned && !opts.fresh && !looksLikeServiceInterest(text)) {
+    //
+    // Второе исключение — вежливость посреди опроса: «Здравствуйте»,
+    // «спасибо», «ок». Клиент здоровается заново, вернувшись в диалог, и
+    // терять из-за этого уже собранные город и вес нельзя: админу уходил
+    // разговор, где оставалось спросить одну зону. Вместо передачи
+    // человеку просто повторяем недостающий вопрос.
+    const politeOnly = isPoliteOnly(text);
+    if (!learned && !opts.fresh && !looksLikeServiceInterest(text) && !politeOnly) {
       return {
         kind: 'handover', reply: null,
         reason: 'клиент не отвечает на вопросы о городе, весе и зоне',

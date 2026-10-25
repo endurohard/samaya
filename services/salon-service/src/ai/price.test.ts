@@ -3,7 +3,7 @@
 import {
   parseCity, parseWeight, parseZones, zonePrice, buildQuote,
   hasUnpricedZone, asksWholeBody, weightNeeded, zoneTitle,
-  BUILTIN_ZONES, renderPrices, looksLikeServiceInterest,
+  BUILTIN_ZONES, renderPrices, looksLikeServiceInterest, isPoliteOnly,
 } from './price';
 import type { ZoneCatalog } from './price';
 import { parseAskTemplate, parseQuoteTexts, DEFAULT_QUOTE_TEXTS } from './price';
@@ -279,6 +279,18 @@ check('Дербент → Каспийск', parseCity('дербент'), 'kaspi
 check('«и тот и тот» → не ответ', parseCity('и тот и тот'), null);
 check('«в двух городах» → не ответ', parseCity('подскажите в двух городах'), null);
 check('«оба» → не ответ', parseCity('можно оба города цена?'), null);
+
+console.log('— вежливость посреди опроса не сбрасывает разговор —');
+// Клиент вернулся через час и поздоровался заново: город и вес уже
+// собраны, терять их нельзя. Проверяем сам распознаватель вежливости.
+for (const t of [
+  'Здравствуйте', 'здравствуйте!', 'Добрый день', 'Доброе утро',
+  'спасибо', 'Спасибо большое', 'хорошо', 'ок', 'Да', '+', '🙏', '❤️',
+]) check(`вежливость: ${t}`, isPoliteOnly(t), true);
+
+for (const t of ['Каспийск', '70', 'живот', 'сколько стоит?', 'а ноги?']) {
+  check(`не вежливость: ${t}`, isPoliteOnly(t), false);
+}
 
 console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
 process.exit(fail ? 1 : 0);
