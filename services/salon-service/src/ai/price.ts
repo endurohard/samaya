@@ -71,18 +71,9 @@ export function parseAskTemplate(body: string): AskParts {
     from < 0 ? '' : text.slice(from, to < 0 ? undefined : to).trim();
 
   const first = [i1, i2, i3].filter(i => i >= 0).sort((a, b) => a - b)[0] ?? -1;
-  // Строку-«шапку списка» («Укажите пожалуйста:») из приветствия убираем:
-  // вопросы теперь задаются по одному, и двоеточие перед единственным
-  // пунктом читается как обрезанный текст. Остальное приветствие («Для
-  // того чтобы мы написали вам стоимость…») остаётся как есть.
-  const greeting = (first > 0 ? text.slice(0, first).trim() : '')
-    .split('\n')
-    .filter(l => !/^\s*(укажите|уточните)[^\n]*:\s*$/i.test(l))
-    .join('\n')
-    .trim();
 
   return {
-    greeting,
+    greeting: first > 0 ? text.slice(0, first).trim() : '',
     city: cut(i1, i2)
       || '1️⃣Какой город вас интересует Каспийск или Москва (прием ведем только в двух городах)',
     weight: cut(i2, i3) || '2️⃣Ваш вес ?',
