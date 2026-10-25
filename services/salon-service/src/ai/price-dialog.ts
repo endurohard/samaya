@@ -286,9 +286,17 @@ function askMissing(
   else if (needWeight && s.weight == null) question = parts.weight;
   else question = parts.zone;
 
+  // Сколько пунктов ещё не закрыто — от этого зависит вступление.
+  const left =
+    (s.city ? 0 : 1) +
+    (needWeight && s.weight == null ? 1 : 0) +
+    (s.zones.length ? 0 : 1);
+
   const head = first
     ? (parts.greeting || 'Здравствуйте 🌹')
-    : texts.askOne;
+    // «Остался один вопрос» на втором шаге из трёх — неправда: впереди ещё
+    // два. Текст зависит от того, последний ли это незакрытый пункт.
+    : (left <= 1 ? texts.askOne : texts.askMany);
   // Пустой элемент в join обрастает разделителями с обеих сторон и даёт
   // четыре перевода строки — в переписке это выглядит как провал в тексте.
   return [head, question].join('\n\n');
