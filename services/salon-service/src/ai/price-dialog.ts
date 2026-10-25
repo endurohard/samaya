@@ -330,6 +330,12 @@ export async function handleMessage(opts: {
   const newZones = parseZones(text);
   const zones = [...new Set([...prev.zones, ...newZones])] as ZoneKey[];
 
+  // Клиент назвал другой город после уже полученной цены («а в Каспийске?»)
+  // — считаем это новым запросом по тем же позициям: снимаем отметку о
+  // выданной цене, чтобы расчёт ушёл повторно, уже по прайсу нового города.
+  // Без этого состояние осталось бы «цена названа» и ответ не отправился.
+  const cityChanged = !!prev.quotedAt && !!city && city !== prev.city;
+
   // Служебные тексты ответа — из шаблона, владелец правит их в админке.
   const texts = await loadQuoteTexts(companyId);
   // Прайс — из БД; при пустой таблице вернётся встроенный.
@@ -341,7 +347,7 @@ export async function handleMessage(opts: {
     zones,
     armpits: prev.armpits || wantsArmpits(text),
     pubisBelly: prev.pubisBelly || wantsPubisWithBelly(text, zones),
-    quotedAt: prev.quotedAt,
+    quotedAt: cityChanged ? null : prev.quotedAt,
     askedAt: prev.askedAt,
   };
 
@@ -422,6 +428,29 @@ export async function handleMessage(opts: {
 }
 
 /**
+ * Переспрос цены по другому городу после уже названной цены.
+ *
+ * Живой случай: клиент спросил стоимость по Москве, получил расчёт, а
+ * следом пишет «а в Каспийске?». Ответы про зоны и вес он уже дал — заново
+ * спрашивать их нельзя, нужно пересчитать ТЕ ЖЕ позиции по прайсу другого
+ * города.
+ *
+ * Почему отдельной функцией, а не через isCollecting: после отправки цены
+ * сбор ответов осознанно закрыт (дальше клиент спрашивает про процедуру,
+ * врача, запись — это темы шаблонов). Здесь нужен узкий случай: цена
+ * названа, позиции известны, и в сообщении назван ДРУГОЙ город.
+ */
+export async function isCitySwitch(
+  companyId: string, channel: string, threadId: string, text: string,
+): Promise<boolean> {
+  const s = await loadState(companyId, channel, threadId);
+  if (!s.quotedAt) return false;          // цену ещё не называли — обычный путь
+  if (!s.zones.length) return false;      // пересчитывать нечего
+  const city = parseCity(text);
+  return !!city && city !== s.city;
+}
+
+/**
  * Идёт ли по этому диалогу сбор ответов о цене.
  *
  * Нужна, чтобы короткие ответы вроде «Москва» или «80» попали в этот
@@ -430,7 +459,8 @@ export async function handleMessage(opts: {
  *
  * Разговор считается активным, пока цена не названа. После отправки цены
  * ведём клиента обычным путём — дальше он спрашивает про процедуру,
- * запись, врача, и это уже темы шаблонов.
+ * запись, врача, и это уже темы шаблонов. Исключение — смена города,
+ * см. isCitySwitch.
  */
 export async function isCollecting(
   companyId: string, channel: string, threadId: string,

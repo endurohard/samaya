@@ -8,7 +8,7 @@ import { authenticate, requireRole, requirePermission, HttpError } from '../midd
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 import type { Decision } from '../ai/classifier';
 import {
-  handleMessage as handlePriceMessage, isCollecting, isPriceDialogEnabled,
+  handleMessage as handlePriceMessage, isCollecting, isCitySwitch, isPriceDialogEnabled,
   PriceOutcome,
 } from '../ai/price-dialog';
 import { looksLikeServiceInterest } from '../ai/price';
@@ -108,7 +108,11 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // называть цены.
     const priceOn = await isPriceDialogEnabled(companyId);
     if (thread_id && priceOn) {
-      const collecting = await isCollecting(companyId, ch, thread_id);
+      // Смена города после уже названной цены («а в Каспийске?») — тот же
+      // модуль, но условие отдельное: сбор ответов закрыт, а пересчитать по
+      // прайсу другого города надо, не переспрашивая зоны и вес заново.
+      const collecting = await isCollecting(companyId, ch, thread_id)
+        || await isCitySwitch(companyId, ch, thread_id, text);
       if (collecting) {
         const out = await handlePriceMessage({
           companyId, channel: ch, threadId: thread_id, text, fresh: false,
