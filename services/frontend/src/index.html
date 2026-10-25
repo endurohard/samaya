@@ -2824,8 +2824,17 @@
               </div>
 
               <div class="ig-layout">
-                <div class="ig-threads" id="igThreads">
-                  <div class="ig-empty">Загрузка…</div>
+                <!-- Поиск по списку диалогов. Фильтрует уже загруженный
+                     список на месте, без запроса к серверу: диалогов немного,
+                     а мгновенный отклик при наборе важнее. Ищет по имени из
+                     карточки клиента, по @нику и по тексту последнего
+                     сообщения — то же, что даёт поиск в WhatsApp-разделе. -->
+                <div class="ig-threads-side">
+                  <div class="ig-threads-search">
+                    <input type="search" id="igThreadSearch" placeholder="Поиск по имени, @нику или тексту"
+                           aria-label="Поиск по диалогам" autocomplete="off">
+                  </div>
+                  <div class="ig-threads" id="igThreads"><div class="ig-empty">Загрузка…</div></div>
                 </div>
                 <div class="ig-chat">
                   <div class="ig-chat-head" id="igChatHead">Выберите диалог</div>

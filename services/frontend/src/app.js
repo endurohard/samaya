@@ -15030,6 +15030,9 @@ function waAttachChatToClient(phoneDigits, row) {
   // Instagram — чтение страницы занимает секунды и держит единственный
   // сеанс, который в это время не может ни отвечать, ни обходить диалоги.
   let _igThread = null;
+  // Загруженный список диалогов целиком: строка поиска фильтрует его на
+  // месте, поэтому исходный набор нужно держать отдельно от показанного.
+  let _igAllThreads = [];
   let _igTimer = null;
 
   async function loadIgSession() {
@@ -15124,12 +15127,36 @@ function waAttachChatToClient(phoneDigits, row) {
     if (!box) return;
     try {
       const r = await apiCall('GET', '/api/instagram/threads');
-      const items = r.data || [];
-      if (!items.length) {
-        box.innerHTML = '<div class="ig-empty">Диалогов пока нет</div>';
-        return;
-      }
-      box.innerHTML = items.map((t) => {
+      _igAllThreads = r.data || [];
+      renderIgThreads();
+    } catch (e) {
+      box.innerHTML = '<div class="ig-empty">Не удалось загрузить: ' + escapeHtml(String(e.message || e)) + '</div>';
+    }
+  }
+
+  /**
+   * Отрисовать список диалогов с учётом строки поиска.
+   *
+   * Фильтрация идёт по уже загруженному списку, без обращения к серверу:
+   * диалогов немного, а отклик на каждое нажатие клавиши должен быть
+   * мгновенным. Ищем по имени из карточки клиента, по @нику и по тексту
+   * последнего сообщения — администратор помнит диалог по-разному.
+   */
+  function renderIgThreads() {
+    const box = document.getElementById('igThreads');
+    if (!box) return;
+    const q = (document.getElementById('igThreadSearch')?.value || '').trim().toLowerCase();
+    const items = !q ? _igAllThreads : _igAllThreads.filter((t) => {
+      const hay = [t.client_name, t.full_name, t.username, t.last_body]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+    if (!items.length) {
+      box.innerHTML = '<div class="ig-empty">'
+        + (q ? 'По запросу ничего не найдено' : 'Диалогов пока нет') + '</div>';
+      return;
+    }
+    box.innerHTML = items.map((t) => {
         const name = t.client_name || t.full_name || t.username || 'без имени';
         const nick = t.username ? '@' + t.username : '';
         const when = t.last_at ? igAgo(t.last_at) : '';
@@ -15151,14 +15178,15 @@ function waAttachChatToClient(phoneDigits, row) {
           + '</div>'
           + (unread ? '<span class="ig-thread-dot" aria-label="непрочитано"></span>' : '<span></span>')
           + '</div>';
-      }).join('');
-      box.querySelectorAll('.ig-thread').forEach((el) => {
-        el.addEventListener('click', () => void openIgThread(el.dataset.id));
-      });
-    } catch (e) {
-      box.innerHTML = '<div class="ig-empty">Не удалось загрузить: ' + escapeHtml(String(e.message || e)) + '</div>';
-    }
+    }).join('');
+    box.querySelectorAll('.ig-thread').forEach((el) => {
+      el.addEventListener('click', () => void openIgThread(el.dataset.id));
+    });
   }
+
+  // Фильтруем на каждое нажатие клавиши: список уже в памяти, запрос к
+  // серверу не нужен.
+  document.getElementById('igThreadSearch')?.addEventListener('input', () => renderIgThreads());
 
   async function openIgThread(threadId) {
     _igThread = threadId;
