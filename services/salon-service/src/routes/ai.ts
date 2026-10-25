@@ -11,6 +11,7 @@ import {
   handleMessage as handlePriceMessage, isCollecting, isPriceDialogEnabled,
   PriceOutcome,
 } from '../ai/price-dialog';
+import { looksLikeServiceInterest } from '../ai/price';
 
 /**
  * Ключ темы, по которой запускается сбор города, веса и зоны.
@@ -132,6 +133,38 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     }
 
     const d = await classify(companyId, text, client_name);
+
+    // Классификатор не понял тему, но сообщение похоже на интерес к услуге
+    // («Услуга», «Липосакция», «живот») — ведём в опросник цены, а не в
+    // черновик администратору. Без этого разговор обрывался сразу после
+    // приветствия: бот сам спрашивает «услуга, стоимость или запись?», а
+    // ответ на свой же вопрос разобрать не мог, потому что классификатор
+    // видит одно сообщение без контекста.
+    if (
+      thread_id && priceOn &&
+      (!d.ok || d.topic === 'manual_review') &&
+      looksLikeServiceInterest(text)
+    ) {
+      const out = await handlePriceMessage({
+        companyId, channel: ch, threadId: thread_id, text, fresh: true,
+      });
+      if (out.kind !== 'none') {
+        const decision = priceOutcomeToDecision(out, d.ok ? d : undefined);
+        await logDecision(companyId, decision, {
+          channel: ch, threadId: thread_id, incoming: text,
+        });
+        if (out.kind === 'handover') {
+          void notifyNeedsReply({
+            channel: ch,
+            who: client_name || '#' + thread_id,
+            question: text,
+            reason: out.reason ?? null,
+            draft: null,
+          }).catch(() => {});
+        }
+        return res.json(decision);
+      }
+    }
 
     // Тема цены распознана — запускаем сбор ответов вместо шаблонного
     // текста. Шаблон остаётся на случай, когда идентификатора диалога нет

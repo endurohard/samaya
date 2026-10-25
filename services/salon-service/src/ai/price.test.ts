@@ -3,7 +3,7 @@
 import {
   parseCity, parseWeight, parseZones, zonePrice, buildQuote,
   hasUnpricedZone, asksWholeBody, weightNeeded, zoneTitle,
-  BUILTIN_ZONES, renderPrices,
+  BUILTIN_ZONES, renderPrices, looksLikeServiceInterest,
 } from './price';
 import type { ZoneCatalog } from './price';
 import { parseAskTemplate, parseQuoteTexts, DEFAULT_QUOTE_TEXTS } from './price';
@@ -228,6 +228,23 @@ check('опечатка в ключе видна',
   renderPrices('{цена:неттакой:москва}', custom), '{цена:неттакой:москва}');
 check('текст без меток не меняется',
   renderPrices('Просто текст про 150 000 ₽', custom), 'Просто текст про 150 000 ₽');
+
+console.log('— короткий ответ клиента как интерес к услуге —');
+// Ровно те реплики, на которых бот замолчал в живом диалоге.
+check('«Услуга»', looksLikeServiceInterest('Услуга'), true);
+check('«Липосакция»', looksLikeServiceInterest('Липосакция'), true);
+check('«липо»', looksLikeServiceInterest('липо'), true);
+check('«Стоимость»', looksLikeServiceInterest('Стоимость'), true);
+check('название зоны одним словом', looksLikeServiceInterest('живот'), true);
+check('две зоны', looksLikeServiceInterest('руки и живот'), true);
+
+// Не должно перехватывать: это вопросы к человеку, а не интерес к цене.
+check('вопрос про здоровье', looksLikeServiceInterest('болит живот после родов?'), false);
+check('вопрос «как»', looksLikeServiceInterest('как проходит?'), false);
+check('длинная фраза — классификатору',
+  looksLikeServiceInterest('Здравствуйте, подскажите пожалуйста, делаете ли вы липосакцию живота'), false);
+check('пустое', looksLikeServiceInterest(''), false);
+check('благодарность', looksLikeServiceInterest('спасибо'), false);
 
 console.log(`\nИтого: ${ok} прошло, ${fail} упало`);
 process.exit(fail ? 1 : 0);
