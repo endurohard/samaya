@@ -16,7 +16,7 @@ import {
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
-  ZoneCatalog, BUILTIN_ZONES, Zone,
+  ZoneCatalog, BUILTIN_ZONES, Zone, looksLikeServiceInterest,
 } from './price';
 
 /** Ключ темы, из шаблона которой берутся приветствие и тексты вопросов. */
@@ -262,32 +262,36 @@ export interface PriceOutcome {
 }
 
 /**
- * Текст с вопросами, которых ещё не хватает.
+ * Текст следующего вопроса.
  *
- * `first` — это первое сообщение ассистента в разговоре. Тогда начинаем с
- * приветствия из шаблона, а не со «Спасибо!»: благодарить ещё не за что, и
- * клиент, который сразу написал «сколько стоит липосакция живота», получал
- * ответ без «здравствуйте» — чем точнее был вопрос, тем хуже выглядел ответ.
+ * Спрашиваем СТРОГО ПО ОДНОМУ и в заданном владельцем порядке:
+ * 1) город, 2) вес, 3) зона. Три пункта разом клиент дочитывает редко —
+ * отвечает на первый или на последний, остальное теряется, и дальше идёт
+ * переспрос по кругу. Один вопрос даёт один понятный ответ.
+ *
+ * Порядок не «какого поля не хватает», а именно этот: вес у фиксированных
+ * зон не нужен вовсе, но узнаём мы это только после названной зоны,
+ * поэтому пропуск веса решается отдельно (needWeight) уже по ходу.
+ *
+ * `first` — первое сообщение ассистента в разговоре: начинаем с
+ * приветствия из шаблона, а не со «Спасибо!» — благодарить ещё не за что.
  */
 function askMissing(
   s: DialogState, needWeight: boolean, parts: AskParts, first: boolean,
   texts: QuoteTexts,
 ): string {
-  const q: string[] = [];
-  if (!s.city) q.push(parts.city);
-  if (needWeight && s.weight == null) q.push(parts.weight);
-  if (!s.zones.length) q.push(parts.zone);
+  // Ровно один вопрос — первый незакрытый по порядку.
+  let question: string;
+  if (!s.city) question = parts.city;
+  else if (needWeight && s.weight == null) question = parts.weight;
+  else question = parts.zone;
 
-  // Для консультации нужны все три ответа, поэтому формулировка мягкая:
-  // клиент уже что-то ответил, и повторять «укажите пожалуйста» целиком
-  // выглядело бы так, будто его не услышали.
   const head = first
     ? (parts.greeting || 'Здравствуйте 🌹')
-    : (q.length === 1 ? texts.askOne : texts.askMany);
-  // Склейка именно такая: [head, '', ...q].join('\n\n') даёт ЧЕТЫРЕ перевода
-  // строки между вступлением и первым пунктом (пустой элемент сам обрастает
-  // разделителями с обеих сторон) — в переписке это выглядит как провал.
-  return [head, ...q].join('\n\n');
+    : texts.askOne;
+  // Пустой элемент в join обрастает разделителями с обеих сторон и даёт
+  // четыре перевода строки — в переписке это выглядит как провал в тексте.
+  return [head, question].join('\n\n');
 }
 
 /**
@@ -361,16 +365,23 @@ export async function handleMessage(opts: {
       next.city !== prev.city ||
       next.weight !== prev.weight ||
       zones.length !== prev.zones.length;
-    if (!learned && !opts.fresh) {
+    // Исключение — реплика вида «Липосакция»: клиент называет услугу, а не
+    // уклоняется от вопросов. Нового в ней действительно нет (зона не
+    // названа), но отдавать такой разговор администратору рано — человек
+    // просто уточнил, о чём речь. Поймано на живом диалоге: «Услуга» →
+    // вопросы, «Липосакция» → «клиент не отвечает» и тишина.
+    if (!learned && !opts.fresh && !looksLikeServiceInterest(text)) {
       return {
         kind: 'handover', reply: null,
         reason: 'клиент не отвечает на вопросы о городе, весе и зоне',
         state: next,
       };
     }
-    const reply = opts.fresh && !next.city && !next.weight && !zones.length
-      ? parts.full
-      : askMissing(next, needWeight, parts, !prev.askedAt, texts);
+    // Всегда один вопрос по порядку — включая самое первое сообщение.
+    // Полный текст шаблона (все три пункта сразу) больше не отправляем:
+    // клиент отвечает на один пункт, остальные теряются, и дальше идёт
+    // переспрос по кругу. Шаблон остаётся источником формулировок.
+    const reply = askMissing(next, needWeight, parts, !prev.askedAt, texts);
     return { kind: 'ask', reply, reason: null, state: next };
   }
 
