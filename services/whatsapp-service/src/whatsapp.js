@@ -833,9 +833,60 @@ class WhatsAppManager {
       await this.page.keyboard.press('Escape');
       return hit;
     }
-    await this.page.mouse.click(hit.x, hit.y);
-    await new Promise(r => setTimeout(r, 1800));
-    return { ok: true, title: hit.title || null, by_name: !!hit.by_name };
+
+    // Клик и ПРОВЕРКА, что чат действительно сменился.
+    //
+    // Раньше здесь стоял один клик и безусловный `ok: true`. Если клик не
+    // срабатывал (React в WhatsApp привязан к pointer-событиям, а строка
+    // результатов успевает перерисоваться после подгрузки аватарки), чтение
+    // шло по ТОМУ ЖЕ чату, что был открыт до поиска. Внешне всё выглядело
+    // успешно: сообщения возвращались, просто чужие. Так переписка одного
+    // клиента могла попасть в карточку другого.
+    const headerDigits = async () => this.page.evaluate(() => {
+      const head = document.querySelector('#main header');
+      const t = head?.innerText || '';
+      return { digits: t.replace(/[^0-9]/g, ''), title: t.split('\n')[0] || '' };
+    });
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.mouse.click(hit.x, hit.y);
+      await new Promise(r => setTimeout(r, 1800));
+      const head = await headerDigits();
+      // Заголовок показывает номер — сверяем напрямую.
+      if (head.digits.includes(tail)) {
+        return { ok: true, title: hit.title || head.title || null, by_name: !!hit.by_name };
+      }
+      // Контакт сохранён под именем: номера в заголовке нет. Тогда опора —
+      // совпадение заголовка с названием строки, по которой кликали.
+      if (hit.title && head.title && head.title.trim() === hit.title.trim()) {
+        return { ok: true, title: hit.title, by_name: true };
+      }
+      // Не открылось — пробуем ещё раз: строка могла сдвинуться, пока
+      // подгружались аватарки. Перечитываем её координаты.
+      if (attempt < 3) {
+        const again = await this.page.evaluate((t) => {
+          const pane = document.querySelector('#pane-side');
+          if (!pane) return null;
+          const onlyDigits = (s) => (s || '').replace(/[^0-9]/g, '');
+          const rows = [...pane.querySelectorAll('[role="row"], [role="listitem"]')];
+          const row = rows.find(r => onlyDigits(r.innerText).includes(t)) || rows[0];
+          if (!row) return null;
+          const r = row.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, tail);
+        if (again) { hit.x = again.x; hit.y = again.y; }
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    // Три попытки не открыли нужный чат. Возвращаем неудачу, а НЕ успех:
+    // прочитать чужую переписку хуже, чем пропустить проход.
+    const head = await headerDigits();
+    await this.page.keyboard.press('Escape');
+    return {
+      ok: false,
+      reason: `чат не открылся: в заголовке «${head.title || '—'}», ожидали ${tail}`,
+    };
   }
 
   // Открыть чат кликом по строке в списке. Ссылка /send?phone= у аккаунта с
@@ -861,7 +912,20 @@ class WhatsAppManager {
 
     if (!box.ok) return box;
     await this.page.mouse.click(box.x, box.y);
-    return { ok: true };
+    // Проверяем, что открылся именно нужный чат. Без этого readChat читал
+    // переписку, открытую ДО вызова: клик по строке не всегда срабатывает с
+    // первого раза, а возвращаемый ok:true это скрывал — в карточку клиента
+    // попадали чужие сообщения.
+    await new Promise(r => setTimeout(r, 1200));
+    const tail = String(phoneDigits).replace(/[^0-9]/g, '').slice(-10);
+    const head = await this.page.evaluate(() => {
+      const t = document.querySelector('#main header')?.innerText || '';
+      return { digits: t.replace(/[^0-9]/g, ''), title: t.split('\n')[0] || '' };
+    });
+    if (head.digits.includes(tail)) return { ok: true, title: head.title || null };
+    // Номер в заголовке не совпал — пусть вызывающий уходит в поиск по
+    // номеру: там есть свои повторы и сверка.
+    return { ok: false, reason: 'чат по строке списка не открылся', title: head.title || null };
   }
 
   // Прочитать сообщения открытого чата. Разбор устроен «от данных»: у каждого
@@ -888,6 +952,24 @@ class WhatsAppManager {
         opened = { ok: true };
       }
       await new Promise(r => setTimeout(r, 2500));
+
+      // Последняя сверка перед чтением: заголовок открытого чата должен
+      // относиться к запрошенному номеру. Защита от того, что сообщения
+      // чужого чата попадут в карточку клиента — читать не то хуже, чем не
+      // прочитать ничего.
+      const head = await this.page.evaluate(() => {
+        const t = document.querySelector('#main header')?.innerText || '';
+        return { digits: t.replace(/[^0-9]/g, ''), title: t.split('\n')[0] || '' };
+      });
+      const tail = digits.slice(-10);
+      const titleMatches = title && head.title && head.title.trim() === title.trim();
+      if (!head.digits.includes(tail) && !titleMatches) {
+        return {
+          ok: false,
+          phone: digits,
+          reason: `открыт другой чат: «${head.title || '—'}»`,
+        };
+      }
 
       const items = await this.page.evaluate(async (max) => {
         const main = document.querySelector('#main');
