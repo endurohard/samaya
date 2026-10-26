@@ -122,7 +122,42 @@ export class Monitor {
     if (!CLIENTS_ONLY) return list;
     try {
       const index = await clientPhoneIndex();
-      const keep = list.filter(c => index.has(digitsOf(c.digits).slice(-10)));
+      // Имена клиентов — второй ключ сопоставления.
+      //
+      // Зачем: в строке списка WhatsApp показывает НОМЕР, только если
+      // контакт не сохранён в телефоне. У сохранённого там стоит имя
+      // («Юсуф Айти»), цифр нет вовсе — и фильтр по номеру отсеивал такой
+      // чат как «вне базы клиентов». Из-за этого присланное фото не
+      // доходило до CRM: в логе шло «пропущено N чат(ов)», а чат при этом
+      // принадлежал настоящему клиенту.
+      const byName = new Map();
+      for (const c of index.values()) {
+        const n = String(c.name || '').toLowerCase().trim();
+        if (n.length > 3) byName.set(n, c);
+      }
+
+      const keep = list.filter((c) => {
+        const d = digitsOf(c.digits).slice(-10);
+        if (d.length === 10 && index.has(d)) return true;
+        const t = String(c.title || '').toLowerCase().trim();
+        if (!t) return false;
+        // Имя в списке и имя в карточке совпадают: в CRM «Юсуф», в WhatsApp
+        // «Юсуф Айти» — сверяем вхождением в обе стороны.
+        //
+        // Если подошло НЕСКОЛЬКО карточек (в базе 7522 клиента, тёзки
+        // неизбежны), чат пропускаем: лучше не прочитать, чем записать
+        // переписку не тому человеку.
+        const hits = [];
+        for (const [name, client] of byName) {
+          if (t === name || t.includes(name) || name.includes(t)) hits.push(client);
+          if (hits.length > 1) break;
+        }
+        if (hits.length !== 1) return false;
+        // Номер берём из карточки: в строке списка его нет, а _readChats
+        // открывает чат именно по номеру.
+        c.digits = hits[0].digits;
+        return true;
+      });
       const skipped = list.length - keep.length;
       if (skipped) {
         console.log(`[WA][monitor] пропущено ${skipped} чат(ов) вне базы клиентов`);

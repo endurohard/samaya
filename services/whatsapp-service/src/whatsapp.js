@@ -1429,6 +1429,12 @@ class WhatsAppManager {
           const lines = text.split('\n');
           out.push({
             title,
+            // Цифры из названия строки: когда контакт НЕ сохранён, WhatsApp
+            // показывает номер («+7 963 370-70-07»), и это самый надёжный
+            // ключ для сопоставления с базой клиентов. У сохранённого
+            // контакта здесь имя — тогда цифр не будет, и сопоставлять
+            // придётся по имени (см. monitor._onlyClients).
+            digits: title.replace(/[^0-9]/g, ''),
             preview: lines.slice(1).join(' ').trim(),
             last_time: (lines[1] || '').trim(),
             unread,
