@@ -923,7 +923,9 @@ class WhatsAppManager {
           return { ok: true, title: hit.title || st.title || null, by_name: !!hit.by_name };
         }
         if (hit.title && st.title && st.title === hit.title.trim()) {
-          return { ok: true, title: hit.title, by_name: true };
+          // Возвращаем заголовок ЧАТА, а не строки списка: по нему потом
+          // сверяется readChat, и они должны совпадать дословно.
+          return { ok: true, title: st.title, by_name: true };
         }
         // Открылся не тот чат — это опаснее, чем не открыть ничего.
         if (attempt === 3) {
@@ -1029,10 +1031,15 @@ class WhatsAppManager {
       // поиск по номеру: он находит чат независимо от позиции и подписи.
       let title = null;
       let opened = await this.openChatByRow(digits);
+      // Открыт ли чат уже проверено внутри openChatByRow/searchAndOpen —
+      // обе сверяют заголовок и поле ввода. Запоминаем, что проверка
+      // пройдена, чтобы не делать её второй раз по другим правилам.
+      let verifiedTitle = opened.ok ? opened.title : null;
       if (!opened.ok) {
         const found = await this.searchAndOpen(digits);
         if (!found.ok) return { ok: false, ...found };
         title = found.title;
+        verifiedTitle = found.title;
         opened = { ok: true };
       }
       await new Promise(r => setTimeout(r, 2500));
@@ -1060,7 +1067,10 @@ class WhatsAppManager {
         };
       });
       const tail = digits.slice(-10);
-      const byTitle = title && st.title && st.title === String(title).trim();
+      // Заголовок совпадает с тем, что увидела уже пройденная проверка
+      // открытия, — значит это тот самый чат. Сверка по имени нужна,
+      // потому что у сохранённого контакта номера в заголовке нет.
+      const byTitle = verifiedTitle && st.title && st.title === String(verifiedTitle).trim();
       if (!st.open || (!st.digits.includes(tail) && !byTitle)) {
         return {
           ok: false,
