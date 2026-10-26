@@ -16,7 +16,7 @@
 //   случай, когда чат прочитали с телефона и счётчик непрочитанных сбросился
 //   раньше, чем дозор его увидел. Открытие чата — самое заметное для WhatsApp
 //   действие, поэтому оно остаётся редким.
-import { saveScraped, digitsOf, clientPhoneIndex } from './store.js';
+import { saveScraped, digitsOf, clientPhoneIndex, staffNames } from './store.js';
 
 const WATCH_MS = Number(process.env.WHATSAPP_MONITOR_WATCH_MS || 8_000);
 const FULL_MS = Number(process.env.WHATSAPP_MONITOR_FULL_MS || 900_000);
@@ -266,7 +266,7 @@ export class Monitor {
           while (this.running) await new Promise(r => setTimeout(r, 1000));
           this.running = true;
           try {
-            const res = await this.wa.readChat(digits, MSGS_PER_CHAT);
+            const res = await this.wa.readChat(digits, MSGS_PER_CHAT, await staffNames());
             const items = res?.items || [];
             if (res?.ok) this.importState.found++;
             else this.importState.not_found++;
@@ -323,7 +323,7 @@ export class Monitor {
       const digits = digitsOf(chat.digits);
       try {
         // readChat возвращает объект-конверт {ok, count, items}, а не массив.
-        const res = await this.wa.readChat(digits, MSGS_PER_CHAT);
+        const res = await this.wa.readChat(digits, MSGS_PER_CHAT, await staffNames());
         const items = res?.items || [];
         if (items.length) {
           const r = await saveScraped(digits, items);

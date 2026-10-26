@@ -5,7 +5,8 @@ import fsp from 'fs/promises';
 import { randomUUID } from 'crypto';
 import QRCode from 'qrcode';
 import wa from './whatsapp.js';
-import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone, clientPhoneIndex, linkKnownContacts } from './store.js';
+import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newIncoming, unlinkedChats, markAuthor, authorName, listChats, listByPhone, clientPhoneIndex, linkKnownContacts, staffNames
+} from './store.js';
 import { Monitor } from './monitor.js';
 import { authenticate, requireSend } from './auth.js';
 
@@ -188,7 +189,7 @@ app.post('/api/whatsapp/send', requireSend, async (req, res) => {
     // чтобы в базу попал настоящий идентификатор сообщения WhatsApp.
     try {
       const digits = digitsOf(phone);
-      const read = await wa.readChat(digits, 20);
+      const read = await wa.readChat(digits, 20, await staffNames());
       if (read?.items?.length) await saveScraped(digits, read.items);
       // Подпись автора: за одним номером клиники работают посменно, и по
       // истории должно быть видно, кто что обещал клиенту. У внутреннего
@@ -567,7 +568,7 @@ app.get('/api/whatsapp/read', async (req, res) => {
   try {
     if (!req.query.phone) return res.status(400).json({ error: 'phone required' });
     const limit = Math.min(Number(req.query.limit) || 50, 200);
-    return res.json(await wa.readChat(req.query.phone, limit));
+    return res.json(await wa.readChat(req.query.phone, limit, await staffNames()));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -625,7 +626,7 @@ app.post('/api/whatsapp/sync', async (req, res) => {
     const digits = digitsOf(req.body?.phone || '');
     if (!digits) return res.status(400).json({ error: 'phone required' });
     if (!wa.isReady) return res.json({ skipped: 'not ready' });
-    const read = await wa.readChat(digits, 30);
+    const read = await wa.readChat(digits, 30, await staffNames());
     const r = read?.items?.length ? await saveScraped(digits, read.items) : { saved: 0 };
     return res.json({ ok: true, saved: r.saved });
   } catch (err) {

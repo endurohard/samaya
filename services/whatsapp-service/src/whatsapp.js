@@ -1029,7 +1029,7 @@ class WhatsAppManager {
   // «[10:44, 15.09.2026] Имя:». Классы вроде message-in/message-out в текущей
   // вёрстке отсутствуют, а обфусцированные (x1n2onr6…) меняются от сборки к
   // сборке — на них опираться нельзя.
-  async readChat(phone, limit = 50) {
+  async readChat(phone, limit = 50, staffNames = []) {
     if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
     return this._enqueue(async () => {
       const digits = this._normalizePhone(phone);
@@ -1205,17 +1205,9 @@ class WhatsAppManager {
             wa_id: id,
             meta: meta ? meta.trim() : '',
             // Для пузыря без подписи — видимая метка времени внутри него
-            // («07:04») и сторона экрана (см. ниже).
+            // («07:04»). Направление для таких берётся из соседних
+            // сообщений уже снаружи.
             fallback_time: meta ? null : (node.innerText.match(/\b(\d{1,2}:\d{2})\b/) || [])[1] || null,
-            // Сторона пузыря — опора, когда подпись не даёт ответа.
-            // В WhatsApp Web исходящие прижаты вправо, входящие влево;
-            // сравниваем центр пузыря с центром области сообщений.
-            from_right: (() => {
-              const r = node.getBoundingClientRect();
-              const m = main.getBoundingClientRect();
-              if (!r.width || !m.width) return null;
-              return (r.left + r.width / 2) > (m.left + m.width / 2);
-            })(),
             body,
             kind,
             has_media: !!kind,
@@ -1237,18 +1229,36 @@ class WhatsAppManager {
         const p = (n) => String(n).padStart(2, '0');
         return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
       })();
-      const parsed = items.map((m) => {
+      // Наш сотрудник или собеседник: сверяем по словам — в CRM
+      // «Балакеримова Зухра», в WhatsApp может стоять «Зухра Балакеримова».
+      const isStaff = (name) => {
+        const a = String(name || '').toLowerCase();
+        if (!a || !staffNames.length) return false;
+        return staffNames.some((n) => {
+          const parts = String(n).split(/\s+/).filter(w => w.length > 2);
+          return parts.length > 0 && parts.every(w => a.includes(w));
+        });
+      };
+
+      const parsed = items.map((m, i) => {
         const mt = (m.meta || '').match(/\[(\d{1,2}:\d{2}),\s*(\d{1,2}[./]\d{1,2}[./]\d{2,4})\]\s*(.*?):?$/);
         if (!mt) {
-          // Подписи нет (вложение без текста) — опираемся на сторону пузыря
-          // и видимую метку времени.
-          return {
-            ...m,
-            time: m.fallback_time,
-            date: today,
-            author: '',
-            from_me: m.from_right === true,
-          };
+          // Подписи нет — это вложение, отправленное без текста. Направление
+          // берём у ближайшего соседа с подписью: переписка идёт блоками,
+          // и фото почти всегда рядом с репликой того же человека.
+          let near = null;
+          for (let d = 1; d < items.length && !near; d++) {
+            const a = items[i - d];
+            const b = items[i + d];
+            near = (a && a.meta) ? a : ((b && b.meta) ? b : null);
+          }
+          const nm = near ? (near.meta || '').match(/\]\s*(.*?):?$/) : null;
+          const nearAuthor = nm ? nm[1].trim() : '';
+          const nd = nearAuthor.replace(/[^0-9]/g, '');
+          let fm = false;
+          if (nd) fm = !digits.endsWith(nd.slice(-10));
+          else if (nearAuthor) fm = isStaff(nearAuthor);
+          return { ...m, time: m.fallback_time, date: today, author: '', from_me: fm };
         }
         const time = mt?.[1] || null;
         const date = mt?.[2] || null;
@@ -1258,24 +1268,27 @@ class WhatsAppManager {
         // Направление.
         //
         // Подпись WhatsApp — «[10:32, 25.10.2026] Асланова Шанисе БАРТЕР:».
-        // Автор в ней может быть НОМЕРОМ (контакт не сохранён) или ИМЕНЕМ
-        // (сохранён). Старое условие проверяло только цифры: при имени
-        // authorDigits пуст, и сообщение объявлялось нашим исходящим. Весь
-        // чат с сохранённым контактом приходил как OUT, включая явные
-        // реплики клиента («Я хочу начать массаж LPG»), — переписка
-        // читалась как монолог клиники.
+        // Автор в ней — НОМЕР, когда контакт не сохранён, и ИМЯ, когда
+        // сохранён. Старое условие смотрело только цифры: при имени
+        // authorDigits пуст, и сообщение объявлялось нашим исходящим — весь
+        // чат с сохранённым контактом приходил как OUT, включая реплики
+        // клиента («Я хочу начать массаж LPG»).
         //
-        // Поэтому при имени опираемся на сторону пузыря: в WhatsApp Web
-        // исходящие всегда прижаты вправо, входящие влево. Это свойство
-        // самой раскладки, а не класса, и переживает смену вёрстки.
+        // Порядок опор:
+        //   1) цифры в подписи — сверяем с номером собеседника;
+        //   2) имя совпадает с именем сотрудника клиники (их список
+        //      передаётся снаружи) — значит писали мы;
+        //   3) иначе это имя собеседника — входящее.
+        //
+        // Геометрия пузыря опорой не стала: проверка на живой странице
+        // показала, что вся переписка лежит в одной колонке, и сторона
+        // ничего не различает.
         let fromMe;
         if (authorDigits) {
           fromMe = !digits.endsWith(authorDigits.slice(-10));
-        } else if (m.from_right !== null && m.from_right !== undefined) {
-          fromMe = m.from_right;
+        } else if (author) {
+          fromMe = isStaff(author);
         } else {
-          // Ни цифр, ни геометрии — считаем входящим: подпись с именем
-          // чаще стоит у сообщений собеседника.
           fromMe = false;
         }
         return { ...m, time, date, author, from_me: fromMe };

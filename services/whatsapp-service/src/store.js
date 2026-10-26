@@ -338,6 +338,32 @@ export async function clientPhoneIndex() {
 
 // Диалог с клиентом. Файлы отдаются отдельным роутом по id сообщения, поэтому
 // здесь только метаданные вложения.
+/**
+ * Имена сотрудников клиники.
+ *
+ * Нужны, чтобы определить направление сообщения, когда контакт сохранён в
+ * телефоне: WhatsApp тогда подписывает сообщения ИМЕНАМИ, а не номерами
+ * («[10:32] Зухра Балакеримова:»), и сверить с номером собеседника нечего.
+ * Если автор подписи — наш сотрудник, сообщение исходящее.
+ *
+ * Список небольшой и меняется редко, поэтому держим его в памяти 5 минут:
+ * обход чатов вызывает чтение десятки раз подряд.
+ */
+let _staffCache = { at: 0, names: [] };
+export async function staffNames() {
+  if (Date.now() - _staffCache.at < 5 * 60_000) return _staffCache.names;
+  try {
+    const r = await pool.query(
+      `SELECT DISTINCT lower(TRIM(full_name)) AS name FROM users.users
+        WHERE full_name IS NOT NULL AND length(TRIM(full_name)) > 3`,
+    );
+    _staffCache = { at: Date.now(), names: r.rows.map(x => x.name) };
+  } catch (e) {
+    console.warn('[WA] имена сотрудников не прочитаны:', e.message);
+  }
+  return _staffCache.names;
+}
+
 export async function listByClient(clientId, limit = 200) {
   const r = await pool.query(
     `SELECT wa_id, from_me, body, msg_type, media_name, media_mime, media_size,
