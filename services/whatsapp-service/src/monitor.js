@@ -130,10 +130,16 @@ export class Monitor {
       // чат как «вне базы клиентов». Из-за этого присланное фото не
       // доходило до CRM: в логе шло «пропущено N чат(ов)», а чат при этом
       // принадлежал настоящему клиенту.
+      //
+      // Храним СПИСОК карточек на имя, а не одну: в базе 7522 клиента, и
+      // тёзки есть (два «Юсуфа» с разными номерами). Map имя→карточка
+      // молча оставлял последнего, и чат мог уйти под чужой номер.
       const byName = new Map();
       for (const c of index.values()) {
         const n = String(c.name || '').toLowerCase().trim();
-        if (n.length > 3) byName.set(n, c);
+        if (n.length <= 3) continue;
+        if (!byName.has(n)) byName.set(n, []);
+        byName.get(n).push(c);
       }
 
       const keep = list.filter((c) => {
@@ -148,14 +154,20 @@ export class Monitor {
         // неизбежны), чат пропускаем: лучше не прочитать, чем записать
         // переписку не тому человеку.
         const hits = [];
-        for (const [name, client] of byName) {
-          if (t === name || t.includes(name) || name.includes(t)) hits.push(client);
-          if (hits.length > 1) break;
+        for (const [name, clients] of byName) {
+          if (t === name || t.includes(name) || name.includes(t)) hits.push(...clients);
+          if (hits.length > 4) break;
         }
-        if (hits.length !== 1) return false;
-        // Номер берём из карточки: в строке списка его нет, а _readChats
-        // открывает чат именно по номеру.
-        c.digits = hits[0].digits;
+        if (!hits.length) return false;
+        if (hits.length === 1) {
+          // Номер берём из карточки: в строке списка его нет, а _readChats
+          // открывает чат именно по номеру.
+          c.digits = hits[0].digits;
+          return true;
+        }
+        // Тёзки. Номер выберем позже, открыв чат и сверив заголовок, —
+        // здесь просто запоминаем кандидатов.
+        c.candidates = hits.map(x => x.digits);
         return true;
       });
       const skipped = list.length - keep.length;
@@ -355,20 +367,29 @@ export class Monitor {
   async _readChats(targets) {
     let chats = 0; let saved = 0; let linked = 0;
     for (const chat of targets) {
-      const digits = digitsOf(chat.digits);
-      try {
-        // readChat возвращает объект-конверт {ok, count, items}, а не массив.
-        const res = await this.wa.readChat(digits, MSGS_PER_CHAT, await staffNames());
-        const items = res?.items || [];
-        if (items.length) {
-          const r = await saveScraped(digits, items);
-          saved += r.saved;
-          linked += r.linked || 0;
+      // Тёзки: имя в списке подошло нескольким карточкам. Перебираем их
+      // номера — readChat сам сверяет заголовок открытого чата с
+      // запрошенным номером и отказывается читать чужую переписку,
+      // поэтому подойдёт ровно тот кандидат, чей чат это на самом деле.
+      const tries = chat.candidates?.length ? chat.candidates : [digitsOf(chat.digits)];
+      for (const digits of tries) {
+        if (!digits) continue;
+        try {
+          // readChat возвращает объект-конверт {ok, count, items}, а не массив.
+          const res = await this.wa.readChat(digits, MSGS_PER_CHAT, await staffNames());
+          if (!res?.ok) continue;           // не тот номер — пробуем следующего
+          const items = res.items || [];
+          if (items.length) {
+            const r = await saveScraped(digits, items);
+            saved += r.saved;
+            linked += r.linked || 0;
+          }
+          chats++;
+          break;                            // нужный кандидат найден
+        } catch (e) {
+          // Один сломанный чат не должен прерывать обход остальных.
+          console.error(`[WA][monitor] chat ${digits}:`, e.message);
         }
-        chats++;
-      } catch (e) {
-        // Один сломанный чат не должен прерывать обход остальных.
-        console.error(`[WA][monitor] chat ${digits}:`, e.message);
       }
       // Пауза между чатами: подряд идущие переключения выглядят как
       // автоматизация и нагружают страницу.
