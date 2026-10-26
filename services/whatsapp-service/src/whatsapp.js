@@ -896,7 +896,12 @@ class WhatsAppManager {
     // сохранённого контакта в нём стоит имя («Юсуф Айти»), а не номер, и
     // сверять с искомым нечего.
     const state = async () => this.page.evaluate(() => {
-      const t = document.querySelector('header')?.innerText || '';
+      // ВАЖНО: именно заголовок ЧАТА, а не первый header на странице —
+      // первым идёт шапка левой панели («WhatsApp» со счётчиком
+      // непрочитанных), из-за чего сверка видела «18» вместо имени чата.
+      const head = document.querySelector('#main header')
+        || [...document.querySelectorAll('header')].pop();
+      const t = head?.innerText || '';
       const compose = document.querySelector(
         '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
       );
@@ -986,7 +991,12 @@ class WhatsAppManager {
     await new Promise(r => setTimeout(r, 1500));
     const tail = String(phoneDigits).replace(/[^0-9]/g, '').slice(-10);
     const st = await this.page.evaluate(() => {
-      const t = document.querySelector('header')?.innerText || '';
+      // ВАЖНО: именно заголовок ЧАТА, а не первый header на странице —
+      // первым идёт шапка левой панели («WhatsApp» со счётчиком
+      // непрочитанных), из-за чего сверка видела «18» вместо имени чата.
+      const head = document.querySelector('#main header')
+        || [...document.querySelectorAll('header')].pop();
+      const t = head?.innerText || '';
       const compose = document.querySelector(
         '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
       );
@@ -1034,7 +1044,12 @@ class WhatsAppManager {
       // У сохранённого контакта в заголовке имя, а не номер, поэтому опорой
       // служит название строки, по которой открывали (title из searchAndOpen).
       const st = await this.page.evaluate(() => {
-        const t = document.querySelector('header')?.innerText || '';
+        // ВАЖНО: именно заголовок ЧАТА, а не первый header на странице —
+      // первым идёт шапка левой панели («WhatsApp» со счётчиком
+      // непрочитанных), из-за чего сверка видела «18» вместо имени чата.
+      const head = document.querySelector('#main header')
+        || [...document.querySelectorAll('header')].pop();
+      const t = head?.innerText || '';
         const compose = document.querySelector(
           '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
         );
