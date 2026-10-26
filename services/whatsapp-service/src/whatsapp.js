@@ -687,7 +687,7 @@ class WhatsAppManager {
   // окно открыто, кликов по чату не видно и область сообщений недоступна —
   // монитор должен снимать их сам, а не ждать человека.
   async dismissDialogs() {
-    return this.page.evaluate(() => {
+    const closed = await this.page.evaluate(() => {
       const closed = [];
       for (const dlg of document.querySelectorAll('[role="dialog"]')) {
         if (!dlg.offsetParent) continue;
@@ -700,8 +700,42 @@ class WhatsAppManager {
           .find(b => /продолж|понятн|ок|got it|continue|ok/i.test(b.innerText || ''));
         if (ok) { ok.click(); closed.push(ok.innerText.slice(0, 20)); }
       }
+
+      // Полноэкранные шторки (настройки, профиль, «Обновления статуса»).
+      // Это НЕ role="dialog", поэтому цикл выше их не видел: WhatsApp
+      // помечает их data-testid="drawer-fullscreen". Такая шторка
+      // перекрывает интерфейс целиком — пропадает и #main, и список чатов,
+      // и чтение чата падает с «чат не найден в списке». Разово открытая
+      // (например, при диагностике) она висит до перезапуска сеанса и тихо
+      // ломает весь обход.
+      for (const drawer of document.querySelectorAll('[data-testid="drawer-fullscreen"]')) {
+        if (!drawer.offsetParent) continue;
+        const back = drawer.querySelector(
+          '[aria-label="Назад"], [aria-label="Back"], [data-icon="back"],'
+          + ' [aria-label="Закрыть"], [aria-label="Close"], [data-icon="x"]',
+        );
+        if (back) { back.click(); closed.push('drawer'); }
+      }
       return closed;
     });
+
+    // Шторка могла не иметь кнопки «назад» (вёрстка меняется) — добьём
+    // клавишей Escape и проверим, что интерфейс вернулся. Проверка важнее
+    // самого нажатия: без неё мы бы снова считали, что всё закрыто.
+    const stuck = await this.page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="drawer-fullscreen"]')]
+        .some(d => !!d.offsetParent));
+    if (stuck) {
+      for (let i = 0; i < 3; i++) {
+        await this.page.keyboard.press('Escape');
+        await new Promise(r => setTimeout(r, 500));
+        const still = await this.page.evaluate(() =>
+          [...document.querySelectorAll('[data-testid="drawer-fullscreen"]')]
+            .some(d => !!d.offsetParent));
+        if (!still) { closed.push('drawer-esc'); break; }
+      }
+    }
+    return closed;
   }
 
   /**
