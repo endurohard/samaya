@@ -242,9 +242,12 @@ app.post('/api/instagram/session/cookies', async (req, res) => {
 });
 
 // ── Диалоги ──
-app.get('/api/instagram/threads', async (_req, res) => {
+// Список диалогов. q — строка поиска: ищется в БАЗЕ, а не в отданной сотне,
+// иначе существующий диалог на 215-м месте «не находится».
+app.get('/api/instagram/threads', async (req, res) => {
   try {
-    return res.json(await listThreads());
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    return res.json(await listThreads(limit, String(req.query.q || '')));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

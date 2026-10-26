@@ -371,16 +371,52 @@ export async function linkThreadToClient(threadId, clientId) {
 }
 
 // Список диалогов для интерфейса.
-export async function listThreads(limit = 100) {
+/**
+ * Диалоги для списка в админке.
+ *
+ * q — строка поиска: имя из карточки клиента, @ник, видимое имя в Instagram
+ * или текст последнего сообщения. Искать ОБЯЗАТЕЛЬНО в базе, а не в уже
+ * загруженном списке: диалогов 3000+, а на экран отдаётся сотня последних,
+ * и нужный собеседник запросто лежит на 215-м месте — именно так «поиск не
+ * находил» существующий диалог.
+ *
+ * При поиске лимит поднимаем: отобранных по условию строк немного, а
+ * обрезать результат на сотне — снова прятать то, что человек ищет.
+ */
+export async function listThreads(limit = 100, q = '') {
+  const term = String(q || '').trim();
+  if (!term) {
+    const r = await pool.query(
+      `SELECT t.thread_id, t.username, t.full_name, t.avatar_url, t.unread,
+              t.last_at, t.last_body, t.client_id, c.full_name AS client_name
+         FROM instagram.threads t
+         LEFT JOIN clients.clients c ON c.id = t.client_id
+        WHERE t.company_id = $1
+        ORDER BY t.last_at DESC NULLS LAST
+        LIMIT $2`,
+      [COMPANY_ID, limit],
+    );
+    return r.rows;
+  }
+
+  // Ищем без учёта регистра по всем четырём полям. Ведущую «@» отбрасываем:
+  // человек набирает «@madina.dii__», а в базе хранится «madina.dii__».
+  //
+  // ESCAPE обязателен: в никах Instagram часто есть «_», а для LIKE это
+  // «любой символ». Без экранирования «madina.dii__» совпало бы и с
+  // «madina.diiXY», и поиск возвращал бы лишнее.
+  const like = '%' + term.replace(/^@+/, '').replace(/[\\%_]/g, (c) => '\\' + c) + '%';
   const r = await pool.query(
     `SELECT t.thread_id, t.username, t.full_name, t.avatar_url, t.unread,
             t.last_at, t.last_body, t.client_id, c.full_name AS client_name
        FROM instagram.threads t
        LEFT JOIN clients.clients c ON c.id = t.client_id
       WHERE t.company_id = $1
+        AND (t.username ILIKE $2 ESCAPE '\\' OR t.full_name ILIKE $2 ESCAPE '\\'
+             OR c.full_name ILIKE $2 ESCAPE '\\' OR t.last_body ILIKE $2 ESCAPE '\\')
       ORDER BY t.last_at DESC NULLS LAST
-      LIMIT $2`,
-    [COMPANY_ID, limit],
+      LIMIT $3`,
+    [COMPANY_ID, like, Math.max(limit, 300)],
   );
   return r.rows;
 }

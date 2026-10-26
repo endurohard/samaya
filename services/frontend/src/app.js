@@ -15159,7 +15159,11 @@ function waAttachChatToClient(phoneDigits, row) {
     const box = document.getElementById('igThreads');
     if (!box) return;
     try {
-      const r = await apiCall('GET', '/api/instagram/threads');
+      // Поиск уходит на сервер: диалогов 3000+, а на экран отдаётся сотня
+      // последних. Фильтровать только загруженное — значит не находить
+      // существующий диалог, который лежит на 215-м месте.
+      const q = (document.getElementById('igThreadSearch')?.value || '').trim();
+      const r = await apiCall('GET', '/api/instagram/threads' + (q ? '?q=' + encodeURIComponent(q) : ''));
       _igAllThreads = r.data || [];
       renderIgThreads();
     } catch (e) {
@@ -15168,22 +15172,17 @@ function waAttachChatToClient(phoneDigits, row) {
   }
 
   /**
-   * Отрисовать список диалогов с учётом строки поиска.
+   * Отрисовать список диалогов.
    *
-   * Фильтрация идёт по уже загруженному списку, без обращения к серверу:
-   * диалогов немного, а отклик на каждое нажатие клавиши должен быть
-   * мгновенным. Ищем по имени из карточки клиента, по @нику и по тексту
-   * последнего сообщения — администратор помнит диалог по-разному.
+   * Отбор делает сервер (см. loadIgThreadsInner), здесь только разметка:
+   * фильтровать второй раз на клиенте нельзя — совпадение могло найтись по
+   * полю, которого нет в списке (например, по имени карточки клиента).
    */
   function renderIgThreads() {
     const box = document.getElementById('igThreads');
     if (!box) return;
-    const q = (document.getElementById('igThreadSearch')?.value || '').trim().toLowerCase();
-    const items = !q ? _igAllThreads : _igAllThreads.filter((t) => {
-      const hay = [t.client_name, t.full_name, t.username, t.last_body]
-        .filter(Boolean).join(' ').toLowerCase();
-      return hay.includes(q);
-    });
+    const q = (document.getElementById('igThreadSearch')?.value || '').trim();
+    const items = _igAllThreads;
     if (!items.length) {
       box.innerHTML = '<div class="ig-empty">'
         + (q ? 'По запросу ничего не найдено' : 'Диалогов пока нет') + '</div>';
@@ -15217,9 +15216,14 @@ function waAttachChatToClient(phoneDigits, row) {
     });
   }
 
-  // Фильтруем на каждое нажатие клавиши: список уже в памяти, запрос к
-  // серверу не нужен.
-  document.getElementById('igThreadSearch')?.addEventListener('input', () => renderIgThreads());
+  // Запрос уходит на сервер, поэтому не на каждую букву: ждём паузу в
+  // наборе. Без задержки «madina» — это шесть запросов подряд, и ответы
+  // могут прийти не в том порядке, в каком отправлены.
+  let _igSearchTimer = null;
+  document.getElementById('igThreadSearch')?.addEventListener('input', () => {
+    clearTimeout(_igSearchTimer);
+    _igSearchTimer = setTimeout(() => void loadIgThreadsInner(), 300);
+  });
 
   async function openIgThread(threadId) {
     _igThread = threadId;
