@@ -9,6 +9,7 @@ import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 import type { Decision } from '../ai/classifier';
 import {
   handleMessage as handlePriceMessage, isCollecting, isCitySwitch, isPriceDialogEnabled,
+  resetState as resetPriceState,
   PriceOutcome,
 } from '../ai/price-dialog';
 import { looksLikeServiceInterest } from '../ai/price';
@@ -574,12 +575,21 @@ router.delete('/templates/:id', manage, async (req: ExpressRequest, res, next) =
 /**
  * POST /api/salons/ai/try — песочница.
  *
- * Прогнать произвольный текст через классификатор и увидеть, что ответил бы
- * бот. Нужна, чтобы проверять формулировки описаний до того, как они начнут
- * работать на живых клиентах: ошибка в описании темы видна только на
- * примерах, а не при чтении.
+ * Прогнать произвольный текст и увидеть, что ответил бы бот. Нужна, чтобы
+ * проверять формулировки описаний до того, как они начнут работать на живых
+ * клиентах: ошибка в описании темы видна только на примерах, а не при
+ * чтении.
  *
- * В журнал не пишется: это проверка, а не разговор с клиентом.
+ * Показывает ТО ЖЕ решение, что примет живой разговор. Раньше здесь
+ * работал только классификатор, и песочница врала: «услуга лл ног»
+ * показывалась как manual_review → «черновик администратору», хотя
+ * настоящий бот на это сообщение запускает опросник цены и отвечает
+ * прайсом. Владелец проверял формулировку по этой вкладке и видел
+ * несуществующую проблему.
+ *
+ * В журнал не пишется и состояние разговора не сохраняется: это проверка,
+ * а не разговор с клиентом. Поэтому проверяется первое сообщение — ответы
+ * «Каспийск», «70» в песочнице смысла не имеют, им нужен живой диалог.
  */
 router.post('/try', manage, async (req: ExpressRequest, res, next) => {
   try {
@@ -588,7 +598,37 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
       client_name: z.string().max(200).optional(),
     }).parse(req.body);
 
-    const d = await classify(req.auth!.company_id, text, client_name);
+    const companyId = req.auth!.company_id;
+    const d = await classify(companyId, text, client_name);
+
+    // Та же развилка, что в /reply: классификатор не понял тему, но
+    // сообщение похоже на интерес к услуге — ведём в опросник цены.
+    const priceOn = await isPriceDialogEnabled(companyId);
+    if (priceOn && (!d.ok || d.topic === 'manual_review') && looksLikeServiceInterest(text)) {
+      // Отдельный канал и одноразовый идентификатор: состояние ляжет в свою
+      // строку и тут же удаляется, живые диалоги не затрагиваются.
+      const tryThread = 'try-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const out = await handlePriceMessage({
+        companyId, channel: 'try', threadId: tryThread, text, fresh: true,
+      });
+      // Строку состояния за собой убираем: иначе каждая проверка из админки
+      // оставляла бы мусор в ai.price_dialog.
+      await resetPriceState(companyId, 'try', tryThread).catch(() => {});
+      if (out.kind !== 'none') {
+        const decision = priceOutcomeToDecision(out, d.ok ? d : undefined);
+        return res.json({
+          ok: true,
+          topic: decision.topic,
+          title: 'Стоимость',
+          confidence: decision.confidence ?? 1,
+          action: decision.action,
+          reply: decision.reply,
+          reason: decision.reason,
+          probabilities: d.probabilities,
+        });
+      }
+    }
+
     return res.json({
       ok: d.ok,
       topic: d.topic,
