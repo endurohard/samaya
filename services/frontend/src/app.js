@@ -8801,6 +8801,44 @@ function closeWaChat() {
   }
 }
 
+/**
+ * Разметка вложения WhatsApp.
+ *
+ * Фото и видео показываем прямо в переписке, а не ссылкой «вложение»:
+ * администратору нужно видеть присланное фото сразу, не открывая вкладку.
+ * Голосовые — проигрывателем. Документы и случаи, когда файл скачать не
+ * удалось, остаются ссылкой.
+ *
+ * Одна функция на оба списка (карточка клиента и раздел «Сообщения»):
+ * раньше разметка была продублирована, и правка в одном месте не доходила
+ * до второго.
+ */
+function waMediaHtml(m) {
+  if (!m.has_media) return '';
+  const url = '/api/whatsapp/media/' + encodeURIComponent(m.wa_id);
+  const kind = m.msg_type;
+  const mime = m.media_mime || '';
+  if (kind === 'image' || /^image\//.test(mime)) {
+    // loading=lazy: в переписке бывают десятки фото, грузим по мере прокрутки.
+    return '<a class="wa-media-link" href="' + url + '" target="_blank" rel="noopener">'
+      + '<img class="wa-media-img" src="' + url + '" alt="фото" loading="lazy"></a>';
+  }
+  if (kind === 'video' || /^video\//.test(mime)) {
+    // У видео со страницы доступен только кадр-превью: сам файл WhatsApp
+    // отдаёт после нажатия в своём окне. Показываем кадр с пометкой, а не
+    // битый плеер.
+    return '<a class="wa-media-link is-video" href="' + url + '" target="_blank" rel="noopener">'
+      + '<img class="wa-media-img" src="' + url + '" alt="видео" loading="lazy">'
+      + '<span class="wa-media-play" aria-hidden="true">▶</span></a>';
+  }
+  if (kind === 'voice' || /^audio\//.test(mime)) {
+    return '<audio class="wa-media-audio" controls preload="none" src="' + url + '"></audio>';
+  }
+  const label = kind === 'document' ? (m.media_name || 'документ') : (m.media_name || 'вложение');
+  return '<a class="wa-media" href="' + url + '" target="_blank" rel="noopener">'
+    + escapeHtml(label) + '</a>';
+}
+
 async function loadWaChat(silent = false) {
   const list = document.getElementById('waChatList');
   const status = document.getElementById('waChatStatus');
@@ -8867,9 +8905,7 @@ async function loadWaChat(silent = false) {
         : escapeHtml(clientName);
       const time = dt ? dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
       const body = escapeHtml(m.body || '');
-      const media = m.has_media
-        ? '<a class="wa-chat-media" href="/api/whatsapp/media/' + encodeURIComponent(m.wa_id) + '" target="_blank">вложение</a>'
-        : '';
+      const media = waMediaHtml(m);
       parts.push(
         '<div class="wa-msg' + (out ? ' wa-msg--out' : ' wa-msg--in') + '">'
         + '<div class="wa-msg-who">' + who + '</div>'
@@ -9256,10 +9292,7 @@ async function openWaChat(phone, silent = false) {
         : { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
     if (day !== lastDay) { parts.push('<div class="wa-day">' + escapeHtml(day) + '</div>'); lastDay = day; }
     const time = dt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const media = m.has_media
-      ? '<a class="wa-media" href="/api/whatsapp/media/' + encodeURIComponent(m.wa_id) + '" target="_blank" rel="noopener">'
-        + escapeHtml(m.media_name || 'Вложение') + '</a>'
-      : '';
+    const media = waMediaHtml(m);
     const read = m.from_me ? '<span class="wa-msg-ack' + (Number(m.ack) >= 3 ? ' is-read' : '') + '">' + WA_TICKS + '</span>' : '';
     parts.push('<div class="wa-msg ' + (m.from_me ? 'wa-msg--out' : 'wa-msg--in') + '">'
       + (m.from_me && m.author_name ? '<div class="wa-msg-author">' + escapeHtml(m.author_name) + '</div>' : '')

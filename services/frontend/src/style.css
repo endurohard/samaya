@@ -5667,6 +5667,22 @@ tr.is-missed td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 .wa-msg-body { font-size: 14px; white-space: pre-wrap; word-break: break-word; }
 .wa-msg-time { font-size: 11px; color: #667781; text-align: right; margin-top: 2px; }
 .wa-chat-media { display: inline-block; margin-left: 6px; font-size: 13px; }
+
+/* ── Вложения WhatsApp в переписке ────────────────────────────────────────
+   Фото и видео показываются прямо в пузыре. Размер ограничен: присланные
+   с телефона снимки бывают 3000px по стороне, и без ограничения один кадр
+   занимал бы весь экран переписки. */
+.wa-media { display: inline-block; margin-left: 6px; font-size: 13px; }
+.wa-media-link { display: block; position: relative; margin: 4px 0 2px; max-width: 260px; }
+.wa-media-img { display: block; width: 100%; max-width: 260px; max-height: 320px;
+  object-fit: cover; border-radius: 10px; background: #f0f0f0; }
+/* Кадр видео приглушаем и кладём сверху кнопку: иначе превью не отличить
+   от обычного фото, и непонятно, что вложение нужно открыть. */
+.wa-media-link.is-video .wa-media-img { filter: brightness(0.88); }
+.wa-media-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 44px; height: 44px; border-radius: 50%; background: rgba(0, 0, 0, 0.55);
+  color: #fff; font-size: 17px; line-height: 44px; text-align: center; pointer-events: none; }
+.wa-media-audio { display: block; margin: 4px 0 2px; max-width: 260px; height: 36px; }
 .wa-chat-compose { display: flex; gap: 8px; margin-top: 10px; }
 .wa-chat-compose textarea {
   flex: 1; resize: vertical; padding: 8px 10px;

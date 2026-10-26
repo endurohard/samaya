@@ -889,9 +889,34 @@ class WhatsAppManager {
       }
       await new Promise(r => setTimeout(r, 2500));
 
-      const items = await this.page.evaluate((max) => {
+      const items = await this.page.evaluate(async (max) => {
         const main = document.querySelector('#main');
         if (!main) return [];
+
+        // Прочитать blob:/data: ссылку как base64. Внутри страницы такая
+        // ссылка доступна (она принадлежит origin WhatsApp), а снаружи —
+        // нет, поэтому скачивание делается здесь, а не в Node.
+        const fetchAsBase64 = async (url) => {
+          try {
+            const resp = await fetch(url);
+            if (!resp.ok) return null;
+            const buf = await resp.arrayBuffer();
+            // Больше 25 МБ в CRM не тащим: это уже не просмотр переписки.
+            if (buf.byteLength > 25 * 1024 * 1024) return null;
+            let bin = '';
+            const bytes = new Uint8Array(buf);
+            const CHUNK = 0x8000; // по частям: иначе стек падает на больших файлах
+            for (let i = 0; i < bytes.length; i += CHUNK) {
+              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            }
+            return {
+              b64: btoa(bin),
+              mime: resp.headers.get('content-type') || null,
+              size: buf.byteLength,
+            };
+          } catch { return null; }
+        };
+
         const out = [];
         for (const node of main.querySelectorAll('[data-id]')) {
           const id = node.getAttribute('data-id');
@@ -903,10 +928,70 @@ class WhatsAppManager {
           if (!meta) continue;
           const textEl = node.querySelector('.selectable-text, span.selectable-text');
           const body = (textEl?.innerText ?? '').trim();
-          // Вложение: у медиа-сообщений текста нет, но есть картинка/иконка.
-          const img = node.querySelector('img[src^="blob:"], img[src^="data:"]');
-          const hasMedia = !!img || !!node.querySelector('[data-icon="audio-play"], [data-icon="document"]');
-          out.push({ wa_id: id, meta: meta.trim(), body, has_media: hasMedia });
+
+          // ── Тип вложения ────────────────────────────────────────────────
+          // Раньше признаком медиа считался ЛЮБОЙ img с blob:/data: внутри
+          // пузыря. Так в «медиа» попадали обычные тексты: такие картинки
+          // есть и у превью ссылок, и у цитаты ответа, и у стикеров в
+          // соседнем узле. В базе 104 текстовых сообщения получили
+          // msg_type='media' — поэтому признаки теперь точные.
+          //
+          // Цитату исключаем: внутри пузыря лежит превью сообщения, НА
+          // которое отвечают, и его картинку принимать за вложение нельзя.
+          const quoted = node.querySelector('[data-pre-plain-text] blockquote, blockquote');
+          const inQuote = (el) => !!el && !!quoted && quoted.contains(el);
+
+          // Видео: у пузыря есть <video> либо иконка воспроизведения.
+          const videoEl = node.querySelector('video');
+          const playIcon = node.querySelector('[data-icon="media-play"], [data-icon="video-camera"], span[data-icon="msg-video"]');
+          // Голосовое: своя иконка и ползунок длительности.
+          const voiceIcon = node.querySelector('[data-icon="audio-play"], [data-icon="ptt-play"], [data-icon="audio-pause"]');
+          // Документ: иконка файла.
+          const docIcon = node.querySelector('[data-icon="document"], [data-icon="msg-document"], [data-icon="poll-doc"]');
+          // Картинка: img внутри ссылки-открытия просмотрщика. Именно такой
+          // img принадлежит самому вложению, а не оформлению пузыря.
+          let imgEl = node.querySelector('div[role="button"] img[src^="blob:"], a img[src^="blob:"], img[data-testid="image-thumb"]');
+          if (!imgEl) {
+            const cand = node.querySelector('img[src^="blob:"]');
+            if (cand && !inQuote(cand) && cand.naturalWidth > 80 && cand.naturalHeight > 80) imgEl = cand;
+          }
+          if (inQuote(imgEl)) imgEl = null;
+
+          let kind = null;
+          let media = null;
+          if (videoEl || playIcon) {
+            kind = 'video';
+            // У видео в пузыре лежит только кадр-превью: сам файл WhatsApp
+            // подгружает после нажатия. Забираем превью — по нему в CRM
+            // видно, что прислали, а полный файл открывается в WhatsApp.
+            const src = videoEl?.getAttribute('src') || videoEl?.querySelector('source')?.getAttribute('src');
+            const poster = videoEl?.getAttribute('poster');
+            const thumb = node.querySelector('img[src^="blob:"]');
+            const url = (src && src.startsWith('blob:')) ? src
+              : (poster && poster.startsWith('blob:')) ? poster
+                : (thumb && !inQuote(thumb) ? thumb.getAttribute('src') : null);
+            if (url) media = await fetchAsBase64(url);
+          } else if (voiceIcon) {
+            kind = 'voice';
+            const audio = node.querySelector('audio');
+            const url = audio?.getAttribute('src');
+            if (url && url.startsWith('blob:')) media = await fetchAsBase64(url);
+          } else if (docIcon) {
+            kind = 'document';
+          } else if (imgEl) {
+            kind = 'image';
+            const url = imgEl.getAttribute('src');
+            if (url) media = await fetchAsBase64(url);
+          }
+
+          out.push({
+            wa_id: id,
+            meta: meta.trim(),
+            body,
+            kind,
+            has_media: !!kind,
+            media,
+          });
         }
         return out.slice(-max);
       }, limit);

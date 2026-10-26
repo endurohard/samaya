@@ -9,6 +9,36 @@ import fsp from 'fs/promises';
 import path from 'path';
 
 const MEDIA_DIR = process.env.WHATSAPP_MEDIA_DIR || '/data/media';
+
+/**
+ * С какого момента скачивать вложения.
+ *
+ * Владелец решил: «медиа будем грузить с сегодняшнего дня» — историю
+ * вложений задним числом не выкачиваем. Причина практическая: обход всей
+ * переписки за файлами идёт часами, занимает единственный сеанс WhatsApp и
+ * заметен как поведение бота, а в работе нужны свежие фото (их присылают по
+ * текущим записям — «отправьте фото прямо/сбоку»).
+ *
+ * Формат WHATSAPP_MEDIA_SINCE — YYYY-MM-DD. Без переменной порогом служит
+ * день запуска контейнера: это ровно «с сегодня» при первом выкате.
+ */
+const MEDIA_SINCE_TS = (() => {
+  const raw = String(process.env.WHATSAPP_MEDIA_SINCE || '').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (m) {
+    return Math.floor(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() / 1000);
+  }
+  const now = new Date();
+  return Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000);
+})();
+
+/** Запасной mime, когда страница его не сообщила. */
+function mimeOfKind(kind) {
+  if (kind === 'image') return 'image/jpeg';
+  if (kind === 'video') return 'video/mp4';
+  if (kind === 'voice') return 'audio/ogg';
+  return 'application/octet-stream';
+}
 const COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '';
 
 export const pool = new pg.Pool({
@@ -150,29 +180,81 @@ function parseStamp(date, time) {
  * Записать собранные со страницы сообщения одного чата.
  * Идемпотентно по wa_id: повторный обход того же чата не плодит дубли.
  * Возвращает, сколько записей добавлено новых.
+ *
+ * Вложения сохраняются НЕ ЗАДНИМ ЧИСЛОМ: файлы берутся только у сообщений
+ * начиная с даты, заданной WHATSAPP_MEDIA_SINCE (по умолчанию — день, когда
+ * сервис запустили с этой возможностью). Так решил владелец: выкачивать всю
+ * историю вложений долго, тяжело для диска и заметно для WhatsApp, а в
+ * работе нужны свежие фото — их присылают по текущим записям.
  */
 export async function saveScraped(phoneDigits, items) {
   if (!COMPANY_ID || !items?.length) return { saved: 0, clientId: null };
   const clientId = await findClientId(phoneDigits);
   const chatId = `${phoneDigits}@c.us`;
   let saved = 0;
+  let mediaSaved = 0;
 
   for (const it of items) {
     if (!it.wa_id) continue;
+
+    const ts = parseStamp(it.date, it.time);
+    // Тип сообщения теперь приходит из разбора страницы (image/video/voice/
+    // document). Старое значение 'media' сохраняем как общий признак, когда
+    // вид вложения определить не удалось.
+    const msgType = it.kind || (it.has_media ? 'media' : 'chat');
+
+    // Файл пишем на диск только если он действительно скачан со страницы и
+    // сообщение не старше порога.
+    let rel = null;
+    let size = null;
+    let mime = null;
+    let name = null;
+    if (it.media?.b64 && ts >= MEDIA_SINCE_TS) {
+      try {
+        const res = await saveMedia(it.wa_id, phoneDigits, {
+          mimetype: it.media.mime || mimeOfKind(it.kind),
+          data: it.media.b64,
+        });
+        rel = res.rel;
+        size = it.media.size ?? res.size;
+        mime = it.media.mime || mimeOfKind(it.kind);
+        name = path.basename(res.rel);
+        mediaSaved++;
+      } catch (e) {
+        // Неудачная запись файла не должна терять сам текст сообщения.
+        console.error(`[WA][медиа] ${it.wa_id}:`, e.message);
+      }
+    }
+
     const r = await pool.query(
       `INSERT INTO whatsapp.messages
          (wa_id, company_id, client_id, chat_id, phone_digits, from_me, body,
           msg_type, media_path, media_name, media_mime, media_size, ack, sent_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,NULL,NULL,$9, to_timestamp($10))
-       ON CONFLICT (wa_id) DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, to_timestamp($14))
+       ON CONFLICT (wa_id) DO UPDATE SET
+         -- Вложение могло не скачаться с первого раза: WhatsApp подгружает
+         -- картинку лениво, и на первом проходе её ещё нет в DOM. Поэтому
+         -- при повторном обходе файл дописываем, но НИКОГДА не затираем
+         -- уже сохранённый путь пустым значением.
+         media_path = COALESCE(whatsapp.messages.media_path, EXCLUDED.media_path),
+         media_name = COALESCE(whatsapp.messages.media_name, EXCLUDED.media_name),
+         media_mime = COALESCE(whatsapp.messages.media_mime, EXCLUDED.media_mime),
+         media_size = COALESCE(whatsapp.messages.media_size, EXCLUDED.media_size),
+         msg_type = CASE WHEN EXCLUDED.msg_type <> 'chat'
+                         THEN EXCLUDED.msg_type ELSE whatsapp.messages.msg_type END
+       -- xmax = 0 только у настоящей вставки. Нужно потому, что раньше стояло
+       -- DO NOTHING и rowCount честно показывал «сколько новых»; с DO UPDATE
+       -- он считал бы и повторно обойдённые строки, а на этом счётчике
+       -- держится уведомление «новое сообщение» и лог монитора.
+       RETURNING (xmax = 0) AS inserted`,
       [
         it.wa_id, COMPANY_ID, clientId, chatId, phoneDigits,
         !!it.from_me, it.body || '',
-        it.has_media ? 'media' : 'chat',
-        0, parseStamp(it.date, it.time),
+        msgType, rel, name, mime, size,
+        0, ts,
       ],
     );
-    saved += r.rowCount;
+    if (r.rows[0]?.inserted) saved++;
   }
 
   // Переписка часто появляется раньше карточки: клиент звонит, ему отвечают, и
@@ -187,7 +269,7 @@ export async function saveScraped(phoneDigits, items) {
     );
     linked = u.rowCount;
   }
-  return { saved, linked, clientId };
+  return { saved, linked, clientId, mediaSaved };
 }
 
 // Подпись автора у только что отправленного сообщения.
