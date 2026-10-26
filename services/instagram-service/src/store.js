@@ -197,6 +197,23 @@ async function fetchMedia(igId, threadId, url) {
     const buf = Buffer.from(await r.arrayBuffer());
     if (!buf.length) return null;
 
+    // Ссылки Meta живут часы. По истёкшей ссылке приходит НЕ ошибка, а
+    // HTML-страница входа Instagram со статусом 200 — r.ok её пропускает.
+    // Без этой проверки такая страница сохранялась как «вложение» (90 штук
+    // с mime text/html и расширением .bin), а в переписке вместо фото
+    // висела битая картинка: браузер не может показать HTML в <img>.
+    if (/^text\//.test(mime) || mime === 'application/json') {
+      console.warn(`[IG][медиа] ${igId}: ссылка протухла, пришёл ${mime} вместо файла`);
+      return null;
+    }
+    // Вторая опора — само тело: content-type можно получить любой, а
+    // HTML-страница всегда начинается с «<». Отсекаем случай, когда
+    // страница входа приезжает с типом картинки.
+    if (buf.slice(0, 1).toString() === '<') {
+      console.warn(`[IG][медиа] ${igId}: в теле HTML, а не файл`);
+      return null;
+    }
+
     const EXT = {
       'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
       'video/mp4': 'mp4', 'video/quicktime': 'mov',
@@ -565,7 +582,11 @@ export async function sentSince(threadId, sinceIso) {
 export async function listThreadMessages(threadId, limit = 200) {
   const r = await pool.query(
     `SELECT ig_id, from_me, body, msg_type, media_name, media_mime,
-            (media_path IS NOT NULL) AS has_media, sent_at, author_name
+            -- Файл считается вложением, только если это НЕ сохранённая по ошибке
+            -- HTML-страница: по истёкшей ссылке Meta отдаёт страницу входа со
+            -- статусом 200, и она попадала на диск как «вложение». В переписке
+            -- такой файл давал битую картинку — браузер не покажет HTML в <img>.
+            (media_path IS NOT NULL AND coalesce(media_mime,'') NOT LIKE 'text/%') AS has_media, sent_at, author_name
        FROM instagram.messages
       WHERE thread_id = $1
       ORDER BY sent_at DESC, created_at DESC
@@ -579,7 +600,7 @@ export async function listThreadMessages(threadId, limit = 200) {
 export async function listByClient(clientId, limit = 200) {
   const r = await pool.query(
     `SELECT m.ig_id, m.thread_id, m.from_me, m.body, m.msg_type,
-            (m.media_path IS NOT NULL) AS has_media, m.sent_at, m.author_name,
+            (m.media_path IS NOT NULL AND coalesce(m.media_mime,'') NOT LIKE 'text/%') AS has_media, m.sent_at, m.author_name,
             t.username
        FROM instagram.messages m
        JOIN instagram.threads t ON t.thread_id = m.thread_id
@@ -598,7 +619,7 @@ export async function listByClient(clientId, limit = 200) {
 export async function newIncoming(since, limit = 20) {
   const r = await pool.query(
     `SELECT m.ig_id, m.thread_id, m.client_id, m.body, m.msg_type,
-            (m.media_path IS NOT NULL) AS has_media, m.sent_at, m.created_at,
+            (m.media_path IS NOT NULL AND coalesce(m.media_mime,'') NOT LIKE 'text/%') AS has_media, m.sent_at, m.created_at,
             t.username, t.full_name AS ig_name, c.full_name AS client_name
        FROM instagram.messages m
        JOIN instagram.threads t ON t.thread_id = m.thread_id
