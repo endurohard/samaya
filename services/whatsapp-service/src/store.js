@@ -241,7 +241,13 @@ export async function saveScraped(phoneDigits, items) {
          media_mime = COALESCE(whatsapp.messages.media_mime, EXCLUDED.media_mime),
          media_size = COALESCE(whatsapp.messages.media_size, EXCLUDED.media_size),
          msg_type = CASE WHEN EXCLUDED.msg_type <> 'chat'
-                         THEN EXCLUDED.msg_type ELSE whatsapp.messages.msg_type END
+                         THEN EXCLUDED.msg_type ELSE whatsapp.messages.msg_type END,
+         -- Направление уточняем при повторном чтении. Нужно потому, что
+         -- разбор подписи со временем исправляли: у чатов с сохранённым
+         -- контактом автором стоит ИМЯ, и раньше такие сообщения все
+         -- записывались как исходящие. Без этой строки починенный парсер не
+         -- исправлял бы уже сохранённые записи — только новые.
+         from_me = EXCLUDED.from_me
        -- xmax = 0 только у настоящей вставки. Нужно потому, что раньше стояло
        -- DO NOTHING и rowCount честно показывал «сколько новых»; с DO UPDATE
        -- он считал бы и повторно обойдённые строки, а на этом счётчике
