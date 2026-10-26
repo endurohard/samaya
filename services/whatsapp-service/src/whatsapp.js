@@ -981,7 +981,10 @@ class WhatsAppManager {
       const row = real.find(r => onlyDigits(r.innerText).includes(tail));
       if (!row) return { ok: false, reason: 'чат не найден в списке', rows: real.length };
       const r = row.getBoundingClientRect();
-      return { ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      // Название строки пригодится вызывающему: у сохранённого контакта в
+      // заголовке чата стоит имя, и сверять его с номером бесполезно.
+      const rowTitle = row.querySelector('span[title]')?.getAttribute('title') || '';
+      return { ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2, rowTitle };
     }, phoneDigits);
 
     if (!box.ok) return box;
@@ -1009,6 +1012,12 @@ class WhatsAppManager {
       };
     });
     if (st.open && st.digits.includes(tail)) return { ok: true, title: st.title || null };
+    // Номера в заголовке нет, но он совпал с названием строки, по которой
+    // кликали, — это тот самый чат: у сохранённого контакта WhatsApp
+    // показывает имя вместо номера.
+    if (st.open && box.rowTitle && st.title && st.title === box.rowTitle.trim()) {
+      return { ok: true, title: st.title };
+    }
     // Не открылось или открылось не то — пусть вызывающий уходит в поиск по
     // номеру: там есть свои повторы и сверка.
     return { ok: false, reason: 'чат по строке списка не открылся', title: st.title || null };
