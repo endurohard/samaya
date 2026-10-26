@@ -852,9 +852,24 @@ class WhatsAppManager {
           return { ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2, title };
         }
       }
-      // Контакт сохранён: номера в строке нет, показано имя. Результат поиска
-      // по номеру всё равно относится к нему — берём первую строку списка.
-      const first = pane.querySelector('[role="row"], [role="listitem"]');
+      // Контакт сохранён: номера в строке нет, показано имя. Берём первую
+      // НАСТОЯЩУЮ строку чата, а не просто первый узел.
+      //
+      // Раньше здесь стоял `pane.querySelector(row)` — первый попавшийся
+      // элемент. В панели результатов первым идёт заголовок секции («Чаты»),
+      // у него тоже role="row": клик по нему не открывает ничего, а код
+      // считал, что чат открыт, и читал прежнюю переписку. Отсюда и
+      // сообщения одного клиента в карточке другого.
+      //
+      // Признак настоящей строки — span[title] с названием чата и заметная
+      // высота: у заголовков секций его нет.
+      const rows = [...pane.querySelectorAll('[role="row"], [role="listitem"]')];
+      const first = rows.find((row) => {
+        const title = row.querySelector('span[title]')?.getAttribute('title');
+        if (!title) return false;
+        const rect = row.getBoundingClientRect();
+        return rect.height > 40 && rect.width > 100;
+      });
       if (first) {
         const r = first.getBoundingClientRect();
         const title = first.querySelector('span[title]')?.getAttribute('title') || '';
@@ -876,33 +891,49 @@ class WhatsAppManager {
     // шло по ТОМУ ЖЕ чату, что был открыт до поиска. Внешне всё выглядело
     // успешно: сообщения возвращались, просто чужие. Так переписка одного
     // клиента могла попасть в карточку другого.
-    const headerDigits = async () => this.page.evaluate(() => {
-      const head = document.querySelector('#main header');
-      const t = head?.innerText || '';
-      return { digits: t.replace(/[^0-9]/g, ''), title: t.split('\n')[0] || '' };
+    //
+    // Признак открытого чата — поле ввода сообщения. Заголовка мало: у
+    // сохранённого контакта в нём стоит имя («Юсуф Айти»), а не номер, и
+    // сверять с искомым нечего.
+    const state = async () => this.page.evaluate(() => {
+      const t = document.querySelector('header')?.innerText || '';
+      const compose = document.querySelector(
+        '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
+      );
+      return {
+        digits: t.replace(/[^0-9]/g, ''),
+        title: (t.split('\n')[0] || '').trim(),
+        open: !!compose,
+      };
     });
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       await this.page.mouse.click(hit.x, hit.y);
-      await new Promise(r => setTimeout(r, 1800));
-      const head = await headerDigits();
-      // Заголовок показывает номер — сверяем напрямую.
-      if (head.digits.includes(tail)) {
-        return { ok: true, title: hit.title || head.title || null, by_name: !!hit.by_name };
+      await new Promise(r => setTimeout(r, 2000));
+      const st = await state();
+      if (st.open) {
+        // Чат открыт. Если в заголовке есть номер — сверяем с искомым;
+        // если там имя — сверяем с названием строки, по которой кликали.
+        if (st.digits.includes(tail)) {
+          return { ok: true, title: hit.title || st.title || null, by_name: !!hit.by_name };
+        }
+        if (hit.title && st.title && st.title === hit.title.trim()) {
+          return { ok: true, title: hit.title, by_name: true };
+        }
+        // Открылся не тот чат — это опаснее, чем не открыть ничего.
+        if (attempt === 3) {
+          return { ok: false, reason: `открыт другой чат: «${st.title || '—'}»` };
+        }
       }
-      // Контакт сохранён под именем: номера в заголовке нет. Тогда опора —
-      // совпадение заголовка с названием строки, по которой кликали.
-      if (hit.title && head.title && head.title.trim() === hit.title.trim()) {
-        return { ok: true, title: hit.title, by_name: true };
-      }
-      // Не открылось — пробуем ещё раз: строка могла сдвинуться, пока
-      // подгружались аватарки. Перечитываем её координаты.
+      // Не открылось — перечитываем координаты строки: она могла сдвинуться,
+      // пока подгружались аватарки.
       if (attempt < 3) {
         const again = await this.page.evaluate((t) => {
           const pane = document.querySelector('#pane-side');
           if (!pane) return null;
           const onlyDigits = (s) => (s || '').replace(/[^0-9]/g, '');
-          const rows = [...pane.querySelectorAll('[role="row"], [role="listitem"]')];
+          const rows = [...pane.querySelectorAll('[role="row"], [role="listitem"]')]
+            .filter(r => !!r.querySelector('span[title]'));
           const row = rows.find(r => onlyDigits(r.innerText).includes(t)) || rows[0];
           if (!row) return null;
           const r = row.getBoundingClientRect();
@@ -915,11 +946,10 @@ class WhatsAppManager {
 
     // Три попытки не открыли нужный чат. Возвращаем неудачу, а НЕ успех:
     // прочитать чужую переписку хуже, чем пропустить проход.
-    const head = await headerDigits();
-    await this.page.keyboard.press('Escape');
+    const st = await state();
     return {
       ok: false,
-      reason: `чат не открылся: в заголовке «${head.title || '—'}», ожидали ${tail}`,
+      reason: `чат не открылся: в заголовке «${st.title || '—'}», ожидали ${tail}`,
     };
   }
 
@@ -938,8 +968,11 @@ class WhatsAppManager {
       const rows = [...pane.querySelectorAll('[role="row"], [role="listitem"]')];
       const onlyDigits = (s) => (s || '').replace(/[^0-9]/g, '');
       const tail = digits.slice(-10);
-      const row = rows.find(r => onlyDigits(r.innerText).includes(tail));
-      if (!row) return { ok: false, reason: 'чат не найден в списке', rows: rows.length };
+      // Только строки с названием чата: у заголовков секций («Чаты»,
+      // «Контакты») тоже role="row", и клик по ним ничего не открывает.
+      const real = rows.filter(r => !!r.querySelector('span[title]'));
+      const row = real.find(r => onlyDigits(r.innerText).includes(tail));
+      if (!row) return { ok: false, reason: 'чат не найден в списке', rows: real.length };
       const r = row.getBoundingClientRect();
       return { ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }, phoneDigits);
@@ -950,16 +983,23 @@ class WhatsAppManager {
     // переписку, открытую ДО вызова: клик по строке не всегда срабатывает с
     // первого раза, а возвращаемый ok:true это скрывал — в карточку клиента
     // попадали чужие сообщения.
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 1500));
     const tail = String(phoneDigits).replace(/[^0-9]/g, '').slice(-10);
-    const head = await this.page.evaluate(() => {
-      const t = document.querySelector('#main header')?.innerText || '';
-      return { digits: t.replace(/[^0-9]/g, ''), title: t.split('\n')[0] || '' };
+    const st = await this.page.evaluate(() => {
+      const t = document.querySelector('header')?.innerText || '';
+      const compose = document.querySelector(
+        '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
+      );
+      return {
+        digits: t.replace(/[^0-9]/g, ''),
+        title: (t.split('\n')[0] || '').trim(),
+        open: !!compose,
+      };
     });
-    if (head.digits.includes(tail)) return { ok: true, title: head.title || null };
-    // Номер в заголовке не совпал — пусть вызывающий уходит в поиск по
+    if (st.open && st.digits.includes(tail)) return { ok: true, title: st.title || null };
+    // Не открылось или открылось не то — пусть вызывающий уходит в поиск по
     // номеру: там есть свои повторы и сверка.
-    return { ok: false, reason: 'чат по строке списка не открылся', title: head.title || null };
+    return { ok: false, reason: 'чат по строке списка не открылся', title: st.title || null };
   }
 
   // Прочитать сообщения открытого чата. Разбор устроен «от данных»: у каждого
@@ -987,21 +1027,32 @@ class WhatsAppManager {
       }
       await new Promise(r => setTimeout(r, 2500));
 
-      // Последняя сверка перед чтением: заголовок открытого чата должен
-      // относиться к запрошенному номеру. Защита от того, что сообщения
-      // чужого чата попадут в карточку клиента — читать не то хуже, чем не
-      // прочитать ничего.
-      const head = await this.page.evaluate(() => {
-        const t = document.querySelector('#main header')?.innerText || '';
-        return { digits: t.replace(/[^0-9]/g, ''), title: t.split('\n')[0] || '' };
+      // Последняя сверка перед чтением: открытый чат должен относиться к
+      // запрошенному номеру. Защита от того, что сообщения чужого чата
+      // попадут в карточку клиента — читать не то хуже, чем не прочитать.
+      //
+      // У сохранённого контакта в заголовке имя, а не номер, поэтому опорой
+      // служит название строки, по которой открывали (title из searchAndOpen).
+      const st = await this.page.evaluate(() => {
+        const t = document.querySelector('header')?.innerText || '';
+        const compose = document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
+        );
+        return {
+          digits: t.replace(/[^0-9]/g, ''),
+          title: (t.split('\n')[0] || '').trim(),
+          open: !!compose,
+        };
       });
       const tail = digits.slice(-10);
-      const titleMatches = title && head.title && head.title.trim() === title.trim();
-      if (!head.digits.includes(tail) && !titleMatches) {
+      const byTitle = title && st.title && st.title === String(title).trim();
+      if (!st.open || (!st.digits.includes(tail) && !byTitle)) {
         return {
           ok: false,
           phone: digits,
-          reason: `открыт другой чат: «${head.title || '—'}»`,
+          reason: st.open
+            ? `открыт другой чат: «${st.title || '—'}»`
+            : 'чат не открыт',
         };
       }
 
