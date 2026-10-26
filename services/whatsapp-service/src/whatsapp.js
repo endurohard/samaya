@@ -1106,8 +1106,24 @@ class WhatsAppManager {
           const copy = node.querySelector('.copyable-text');
           // Системные плашки (шифрование, «Сегодня») своей подписи не имеют —
           // по её отсутствию их и отсекаем.
+          //
+          // НО: у вложения без подписи (фото «как есть», без текста) этого
+          // атрибута тоже нет — WhatsApp кладёт его только к текстовым
+          // пузырям. Из-за `continue` такие сообщения отбрасывались целиком,
+          // и фото никогда не доходило до сохранения: readChat возвращал
+          // «0 сообщений» на чате, где фото видно глазами.
+          //
+          // Поэтому пузырь без подписи не выбрасываем сразу: если в нём есть
+          // вложение, разбираем его, а время берём из видимой метки внутри
+          // пузыря («07:04») и направление — из data-id (true_… это
+          // входящие, false_… исходящие).
           const meta = copy?.getAttribute('data-pre-plain-text');
-          if (!meta) continue;
+          const hasAttachment = !!node.querySelector(
+            'video, audio, img[src^="blob:"],'
+            + ' [data-icon="media-play"], [data-icon="audio-play"], [data-icon="ptt-play"],'
+            + ' [data-icon="document"], [data-icon="msg-video"]',
+          );
+          if (!meta && !hasAttachment) continue;
           const textEl = node.querySelector('.selectable-text, span.selectable-text');
           const body = (textEl?.innerText ?? '').trim();
 
@@ -1168,7 +1184,12 @@ class WhatsAppManager {
 
           out.push({
             wa_id: id,
-            meta: meta.trim(),
+            meta: meta ? meta.trim() : '',
+            // Для пузыря без подписи — видимая метка времени внутри него
+            // («07:04») и направление из data-id: WhatsApp начинает его с
+            // «true_» у входящих и «false_» у исходящих.
+            fallback_time: meta ? null : (node.innerText.match(/\b(\d{1,2}:\d{2})\b/) || [])[1] || null,
+            fallback_from_me: meta ? null : /^false_/.test(id),
             body,
             kind,
             has_media: !!kind,
@@ -1180,8 +1201,27 @@ class WhatsAppManager {
 
       // Подпись WhatsApp: «[10:44, 15.09.2026] Автор: ». Автор — это тот, кто
       // отправил; сравниваем с номером собеседника, чтобы понять направление.
+      //
+      // У вложения без подписи этого атрибута нет — там опираемся на
+      // видимую метку времени в пузыре и на префикс data-id. Дату в таком
+      // случае берём сегодняшнюю: пузыри без подписи встречаются только
+      // среди свежих сообщений на экране, а старые подгружаются с подписью.
+      const today = (() => {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
+      })();
       const parsed = items.map((m) => {
-        const mt = m.meta.match(/\[(\d{1,2}:\d{2}),\s*(\d{1,2}[./]\d{1,2}[./]\d{2,4})\]\s*(.*?):?$/);
+        const mt = (m.meta || '').match(/\[(\d{1,2}:\d{2}),\s*(\d{1,2}[./]\d{1,2}[./]\d{2,4})\]\s*(.*?):?$/);
+        if (!mt && m.fallback_time) {
+          return {
+            ...m,
+            time: m.fallback_time,
+            date: today,
+            author: '',
+            from_me: !!m.fallback_from_me,
+          };
+        }
         const time = mt?.[1] || null;
         const date = mt?.[2] || null;
         const author = (mt?.[3] || '').trim();
