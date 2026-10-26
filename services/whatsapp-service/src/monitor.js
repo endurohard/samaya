@@ -172,7 +172,13 @@ export class Monitor {
       });
       const skipped = list.length - keep.length;
       if (skipped) {
-        console.log(`[WA][monitor] пропущено ${skipped} чат(ов) вне базы клиентов`);
+        // Показываем, КОГО отсеяли: иначе «пропущено 8 чат(ов)» не даёт
+        // понять, потерялся ли среди них настоящий клиент.
+        const names = list
+          .filter(c => !keep.includes(c))
+          .map(c => c.title || c.digits || '?')
+          .slice(0, 8);
+        console.log(`[WA][monitor] пропущено ${skipped} чат(ов) вне базы клиентов: ${names.join(' | ')}`);
       }
       return keep;
     } catch (e) {
