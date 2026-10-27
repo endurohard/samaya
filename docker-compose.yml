@@ -431,6 +431,9 @@ services:
       WHATSAPP_MONITOR_FULL_MS: ${WHATSAPP_MONITOR_FULL_MS:-900000}
       WHATSAPP_MONITOR_CHATS: ${WHATSAPP_MONITOR_CHATS:-10}
       WHATSAPP_MONITOR_DEPTH: ${WHATSAPP_MONITOR_DEPTH:-50}
+      # Через сколько чатов импорт перезагружает страницу: WhatsApp копит DOM
+      # и к ~1300-му чату перестаёт отвечать за отведённый тайм-аут.
+      WHATSAPP_IMPORT_RELOAD_EVERY: ${WHATSAPP_IMPORT_RELOAD_EVERY:-300}
       # Копировать в CRM только чаты, чей номер есть в базе клиентов.
       # Умолчание true: без фильтра монитор тащит и личную переписку с
       # рабочего номера. Снимать осознанно.
