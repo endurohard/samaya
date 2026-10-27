@@ -674,7 +674,11 @@ app.post('/api/whatsapp/import-all', async (req, res) => {
     // строку поиска WhatsApp. Находит чаты, которых нет в видимом списке,
     // и чаты сохранённых контактов, где вместо номера показано имя.
     const byClientBase = req.body?.by_base === true;
-    return res.json(await monitor.importAll({ pauseMs, limit, onlyClients, byClientBase }));
+    // skip_done=false — перечитать все номера, включая уже скачанные.
+    // По умолчанию пропускаем: обход идёт часами и может прерваться, а
+    // повторное чтение 1300 готовых чатов съедает всю ночь.
+    const skipDone = req.body?.skip_done !== false;
+    return res.json(await monitor.importAll({ pauseMs, limit, onlyClients, byClientBase, skipDone }));
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

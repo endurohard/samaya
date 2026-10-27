@@ -16,12 +16,15 @@
 //   случай, когда чат прочитали с телефона и счётчик непрочитанных сбросился
 //   раньше, чем дозор его увидел. Открытие чата — самое заметное для WhatsApp
 //   действие, поэтому оно остаётся редким.
-import { saveScraped, digitsOf, clientPhoneIndex, staffNames } from './store.js';
+import { saveScraped, digitsOf, clientPhoneIndex, staffNames, importedPhones } from './store.js';
 
 const WATCH_MS = Number(process.env.WHATSAPP_MONITOR_WATCH_MS || 8_000);
 const FULL_MS = Number(process.env.WHATSAPP_MONITOR_FULL_MS || 900_000);
 const CHATS_PER_PASS = Number(process.env.WHATSAPP_MONITOR_CHATS || 10);
 const MSGS_PER_CHAT = Number(process.env.WHATSAPP_MONITOR_DEPTH || 50);
+// Через сколько прочитанных чатов перезагружать страницу, чтобы DOM не рос.
+// 300 выбрано с запасом: деградация на ночном прогоне стала заметна после ~1300.
+const RELOAD_EVERY = Number(process.env.WHATSAPP_IMPORT_RELOAD_EVERY || 300);
 // Монитор включается ТОЛЬКО явным WHATSAPP_MONITOR=true.
 // Раньше условие было «!== 'false'», то есть при отсутствии переменной обход
 // чатов стартовал сам. На боевом номере клиники это значит, что сервис без
@@ -258,7 +261,7 @@ export class Monitor {
    * чтобы прогресс был виден в админке. Запускать лучше в нерабочее время —
    * пока идёт импорт, сеанс занят и отправка ждёт очереди.
    */
-  async importAll({ pauseMs = 4000, limit = 0, onlyClients = true, byClientBase = false } = {}) {
+  async importAll({ pauseMs = 4000, limit = 0, onlyClients = true, byClientBase = false, skipDone = true } = {}) {
     if (this.importState?.running) return { error: 'импорт уже идёт' };
     if (!this.wa.isReady) return { error: 'WhatsApp не подключён' };
 
@@ -274,6 +277,18 @@ export class Monitor {
       const index = await clientPhoneIndex();
       clientsTotal = index.size;
       targets = [...index.values()].map((c) => ({ digits: c.digits, name: c.name }));
+      // Пропускаем уже обработанные номера.
+      //
+      // Зачем: обход 7500 чатов идёт часами и может прерваться (зависание
+      // страницы, перезапуск сервиса). Без этого следующий запуск снова
+      // тратил бы часы на то, что уже скачано. Номер считается обработанным,
+      // если по нему есть хоть одно сообщение в базе.
+      if (skipDone) {
+        const done = await importedPhones();
+        const before = targets.length;
+        targets = targets.filter(t => !done.has(digitsOf(t.digits).slice(-10)));
+        console.log(`[WA][import] уже обработано ранее: ${before - targets.length}, осталось ${targets.length}`);
+      }
       console.log(`[WA][import] режим «по базе»: номеров клиентов ${clientsTotal}`);
     } else {
       // Прокрутка обязательна: иначе в списке будет десяток строк с экрана.
@@ -342,6 +357,26 @@ export class Monitor {
           console.error(`[WA][import] chat ${digits}:`, e.message);
         }
         this.importState.done++;
+        // Периодическая чистка страницы.
+        //
+        // Зачем: WhatsApp держит в DOM всё, что открывалось за обход. На
+        // ночном прогоне к 1300-му чату обращения начали упираться в тайм-аут
+        // (Runtime.callFunctionOn timed out), и импорт встал: 47 номеров за
+        // пять часов против 1313 за предыдущие пять. Перезагрузка чистит DOM
+        // и не трогает сеанс — повторный вход не нужен.
+        if (this.importState.done % RELOAD_EVERY === 0) {
+          while (this.running) await new Promise(r => setTimeout(r, 1000));
+          this.running = true;
+          try {
+            const r = await this.wa.reloadPage();
+            console.log(`[WA][import] чистка страницы после ${this.importState.done} чатов`
+              + (r.ok ? '' : ` — не удалась: ${r.error}`));
+          } catch (e) {
+            console.error('[WA][import] чистка страницы:', e.message);
+          } finally {
+            this.running = false;
+          }
+        }
         if (this.importState.done % 25 === 0) {
           console.log(`[WA][import] ${this.importState.done}/${this.importState.total}, `
             + `найдено ${this.importState.found}, сохранено ${this.importState.saved}`);

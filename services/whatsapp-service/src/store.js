@@ -314,6 +314,17 @@ export async function authorName(userId) {
   return r.rows[0]?.name || null;
 }
 
+// Номера, по которым в базе уже есть хоть одно сообщение. Нужен импорту,
+// чтобы после обрыва не перечитывать заново то, что уже скачано.
+export async function importedPhones() {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT right(regexp_replace(phone_digits, '\\D', '', 'g'), 10) AS d
+       FROM whatsapp.messages
+      WHERE phone_digits IS NOT NULL`,
+  );
+  return new Set(rows.map(r => r.d).filter(d => d && d.length === 10));
+}
+
 // Номера клиентов компании в виде цифр, пригодных для сравнения с WhatsApp.
 // Нормализация та же, что в digitsOf: иначе «+7 (999)…» из карточки и
 // «7999…» из заголовка чата никогда не совпадут. Возвращает Map из

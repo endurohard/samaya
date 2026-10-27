@@ -1297,6 +1297,39 @@ class WhatsAppManager {
     });
   }
 
+  /**
+   * Перезагрузить страницу WhatsApp Web, сохранив сеанс.
+   *
+   * Зачем: при длительном обходе (ночной импорт по 7500 номерам) WhatsApp
+   * держит в DOM всё, что открывалось, и разбор каждого следующего чата идёт
+   * медленнее. К 1300-му чату обращения к странице начали упираться в
+   * тайм-аут Runtime.callFunctionOn, и импорт фактически встал: за пять
+   * часов прошло 47 номеров против 1313 за предыдущие пять.
+   *
+   * Перезагрузка чистит DOM, но не трогает userDataDir — повторный вход и
+   * QR-код не нужны.
+   */
+  async reloadPage() {
+    if (!this.page) throw new Error('страница не создана');
+    console.log('[WA] перезагрузка страницы (чистка DOM)…');
+    this.isReady = false;
+    try {
+      await this.page.reload({ waitUntil: 'networkidle2', timeout: 120_000 });
+      // Ждём список чатов — признак, что сеанс поднялся.
+      await this.page.waitForSelector('#pane-side', { timeout: 120_000 });
+      await new Promise(r => setTimeout(r, 3000));
+      this.isReady = true;
+      console.log('[WA] страница перезагружена');
+      return { ok: true };
+    } catch (e) {
+      console.error('[WA] перезагрузка не удалась:', e.message);
+      // Сеанс мог остаться рабочим — не гасим его молча, пусть вызывающий
+      // решает, продолжать или ждать переинициализации.
+      this.isReady = true;
+      return { ok: false, error: e.message };
+    }
+  }
+
   // Подробный разбор области сообщений: по нему пишется парсер монитора.
   async inspectChat(phone) {
     if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
