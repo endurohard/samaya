@@ -447,7 +447,13 @@ export async function unlinkedChats(limit = 50) {
 // поэтому «ждут ответа» считаем сами: входящие после нашего последнего
 // исходящего. Для администратора это и есть смысл непрочитанного — клиенту
 // ещё никто не ответил.
-export async function listChats(limit = 100) {
+// Поиск идёт в БД, а не по уже загруженному списку: после импорта чатов
+// несколько сотен, выдача обрезается лимитом, и человек, лежащий за сотым
+// местом, по поиску просто не находился. Та же ошибка была в списке
+// диалогов Instagram — там отдавалось 100 из 3033.
+export async function listChats(limit = 100, search = '') {
+  const q = String(search || '').trim().toLowerCase();
+  const qDigits = q.replace(/\D/g, '');
   const r = await pool.query(
     `WITH last_out AS (
        SELECT phone_digits, max(sent_at) AS at
@@ -483,10 +489,13 @@ export async function listChats(limit = 100) {
           LIMIT 1
        ) c ON TRUE
       WHERE m.company_id = $1
+        AND ($3 = '' OR
+             lower(coalesce(c.full_name, '')) LIKE '%' || $3 || '%' OR
+             ($4 <> '' AND m.phone_digits LIKE '%' || $4 || '%'))
       GROUP BY m.phone_digits, c.full_name
       ORDER BY max(m.sent_at) DESC
       LIMIT $2`,
-    [COMPANY_ID, limit],
+    [COMPANY_ID, limit, q, qDigits],
   );
   return r.rows;
 }

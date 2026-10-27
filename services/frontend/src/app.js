@@ -9201,7 +9201,12 @@ async function loadWaInboxStatus() {
 async function loadWaChats() {
   const list = document.getElementById('waInboxList');
   if (!list) return;
-  const r = await apiCall('GET', '/api/whatsapp/chats');
+  // Поиск уходит на сервер: в базе сотни чатов, а выдача ограничена лимитом,
+  // поэтому фильтровать уже загруженную сотню — значит не находить тех, кто
+  // лежит дальше по списку.
+  const q = (document.getElementById('waInboxSearch')?.value || '').trim();
+  const url = '/api/whatsapp/chats' + (q ? '?search=' + encodeURIComponent(q) : '');
+  const r = await apiCall('GET', url);
   if (!r.ok) {
     list.innerHTML = '<div class="wa-inbox-empty">Не удалось загрузить чаты</div>';
     return;
@@ -9213,14 +9218,13 @@ async function loadWaChats() {
 function renderWaChats() {
   const list = document.getElementById('waInboxList');
   if (!list) return;
-  const q = (document.getElementById('waInboxSearch')?.value || '').trim().toLowerCase();
-  const qDigits = q.replace(/\D/g, '');
   const items = _waChats.filter((c) => {
     if (_waFilter === 'waiting' && !c.waiting) return false;
     if (_waFilter === 'new' && c.client_id) return false;
-    if (!q) return true;
-    return (c.client_name || '').toLowerCase().includes(q)
-      || (qDigits && String(c.phone_digits).includes(qDigits));
+    // По тексту не фильтруем: поиск уже отработал в БД, и повторная
+    // проверка здесь отбрасывала бы найденное (например, совпадение по
+    // номеру с кодом страны, которого нет в видимом имени).
+    return true;
   });
   if (!items.length) {
     list.innerHTML = '<div class="wa-inbox-empty">' + (_waChats.length ? 'Ничего не найдено' : 'Чатов пока нет') + '</div>';
@@ -9355,7 +9359,13 @@ document.getElementById('waInboxForm')?.addEventListener('submit', (e) => {
   e.preventDefault();
   void sendWaInbox();
 });
-document.getElementById('waInboxSearch')?.addEventListener('input', () => renderWaChats());
+// Поиск перезапрашивает список с сервера. Задержка 300 мс, чтобы не слать
+// запрос на каждую букву.
+let _waSearchTimer = null;
+document.getElementById('waInboxSearch')?.addEventListener('input', () => {
+  clearTimeout(_waSearchTimer);
+  _waSearchTimer = setTimeout(() => { void loadWaChats(); }, 300);
+});
 document.querySelectorAll('[data-wa-filter]').forEach((b) => {
   b.addEventListener('click', () => {
     _waFilter = b.dataset.waFilter;

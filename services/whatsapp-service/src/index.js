@@ -523,8 +523,11 @@ app.get('/api/whatsapp/media/:waId', async (req, res) => {
 // Только чтение из базы: окно WhatsApp не трогаем, опрашивать можно часто.
 app.get('/api/whatsapp/chats', async (req, res) => {
   try {
-    const limit = Math.min(Number(req.query.limit) || 100, 300);
-    return res.json({ items: await listChats(limit) });
+    // Потолок 1000: после импорта по базе клиентов чатов будут сотни, а
+    // прежние 300 молча обрезали список.
+    const limit = Math.min(Number(req.query.limit) || 200, 1000);
+    const search = String(req.query.search || '').slice(0, 100);
+    return res.json({ items: await listChats(limit, search) });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
