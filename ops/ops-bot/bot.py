@@ -122,13 +122,25 @@ def cmd_status():
     if not out:
         return "не удалось получить список"
     lines = []
+    paused = 0
     for ln in out.splitlines():
         if "\t" not in ln:
             continue
         name, status = ln.split("\t", 1)
-        mark = "✅" if "Up" in status else "🔴"
+        # Паузу показываем отдельной отметкой: docker пишет «Up (paused)»,
+        # и без этого замороженный проект выглядел бы как работающий.
+        if "paused" in status.lower():
+            mark = "⏸"
+            paused += 1
+        elif "Up" in status:
+            mark = "✅"
+        else:
+            mark = "🔴"
         lines.append(f"{mark} <b>{name.replace('samaya-', '')}</b> — {status}")
-    return "<b>Состояние сервисов</b>\n\n" + "\n".join(sorted(lines))
+    head = "<b>Состояние сервисов</b>"
+    if paused:
+        head += f"\n⏸ на паузе: {paused} — вернуть /resume"
+    return head + "\n\n" + "\n".join(sorted(lines))
 
 
 def cmd_restart(service):
@@ -154,6 +166,32 @@ def cmd_start(service):
     out = compose("up", "-d", service, timeout=240)
     ok = "Error" not in out and "error" not in out
     return ("▶️ Запущен <b>%s</b>" % service) if ok else f"Не вышло:\n<code>{out[-400:]}</code>"
+
+
+def cmd_pause_all():
+    """Пауза всего проекта: SIGSTOP всем процессам, без остановки контейнеров.
+
+    Зачем pause, а не stop: процессы замирают как есть — соединения с базой,
+    открытый сеанс WhatsApp Web в Chrome, незаписанные буферы. Ничего не
+    закрывается и не поднимается заново, поэтому возобновление мгновенное и
+    без риска потерять сеанс. Данные и так лежат в именованных томах, но
+    здесь их даже не трогают.
+    """
+    out = compose("pause", timeout=120)
+    low = out.lower()
+    if "error" in low and "already paused" not in low:
+        return f"Не вышло:\n<code>{out[-400:]}</code>"
+    return ("⏸ <b>Проект на паузе</b>\n\n"
+            "Процессы заморожены, данные на месте: ничего не останавливалось "
+            "и не перезапускалось.\n\nВернуть: /resume")
+
+
+def cmd_resume_all():
+    out = compose("unpause", timeout=120)
+    low = out.lower()
+    if "error" in low and "not paused" not in low:
+        return f"Не вышло:\n<code>{out[-400:]}</code>"
+    return "▶️ <b>Проект снова работает</b>\n\nПроверить: /status"
 
 
 def cmd_logs(service, n=20):
@@ -215,6 +253,11 @@ def cmd_deladmin(uid, args):
 
 HELP = """<b>Управление сервисами «Самая»</b>
 
+<b>Пауза всего проекта</b>
+/pause — заморозить (данные на месте)
+/resume — вернуть в работу
+
+<b>Отдельные сервисы</b>
 /status — что сейчас поднято
 /restart &lt;сервис&gt; — перезапустить
 /stop &lt;сервис&gt; — остановить
@@ -260,6 +303,10 @@ def handle(msg):
         out = cmd_stop(svc) if svc else "Укажите сервис: <code>/stop whatsapp-service</code>"
     elif cmd == "/start_svc":
         out = cmd_start(svc) if svc else "Укажите сервис: <code>/start_svc whatsapp-service</code>"
+    elif cmd == "/pause":
+        out = cmd_pause_all()
+    elif cmd == "/resume":
+        out = cmd_resume_all()
     elif cmd == "/logs":
         out = cmd_logs(svc) if svc else "Укажите сервис: <code>/logs whatsapp-service</code>"
     elif cmd == "/admins":

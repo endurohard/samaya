@@ -2,6 +2,11 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: samaya-postgres
+    # Даём базе время закрыться самой. По умолчанию docker ждёт 10 секунд и
+    # добивает SIGKILL — для постгреса это аварийное завершение: при старте
+    # он поднимает данные из журнала, и на большой базе это небыстро.
+    # Зафиксированные транзакции не теряются, но рисковать нечем.
+    stop_grace_period: 90s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
@@ -406,6 +411,10 @@ services:
       context: ./services/whatsapp-service
       dockerfile: Dockerfile
     container_name: samaya-whatsapp
+    # Внутри Chrome с живым сеансом WhatsApp Web. При жёстком убийстве
+    # профиль в whatsapp_session остаётся недописанным, и после запуска
+    # возможен повторный вход по QR — а телефон клиники не всегда под рукой.
+    stop_grace_period: 60s
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3008
