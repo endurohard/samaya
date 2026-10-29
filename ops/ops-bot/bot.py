@@ -41,6 +41,16 @@ def load_config():
 CFG = load_config()
 TOKEN = CFG.get("TG_TOKEN", "")
 API = f"https://api.telegram.org/bot{TOKEN}"
+# Прямого выхода в Telegram у сервера нет (ни IPv4, ни IPv6 — проверено:
+# «Network is unreachable»), весь трафик идёт через локальный мост xray.
+# В /etc/environment он прописан как socks5://127.0.0.1:1080, но это файл
+# для сессий входа — systemd его не читает, поэтому адрес задаётся здесь.
+# Схему пишем http://: стандартная библиотека socks5 не умеет, а мост
+# принимает и обычный HTTP CONNECT.
+PROXY = CFG.get("TG_PROXY", "http://127.0.0.1:1080").strip()
+_opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({"http": PROXY, "https": PROXY} if PROXY else {})
+)
 ALLOWED = [s.strip() for s in CFG.get("TG_ALLOWED", "").split(",") if s.strip()]
 STOPPABLE = [s.strip() for s in CFG.get("TG_STOPPABLE", "").split(",") if s.strip()]
 # Владельцы из config.env неудаляемы: иначе можно случайно разжаловать всех
@@ -84,7 +94,8 @@ def audit(uid, name, action, result):
 def api(method, **params):
     url = f"{API}/{method}?" + urllib.parse.urlencode(params)
     try:
-        with urllib.request.urlopen(url, timeout=40) as r:
+        # Через _opener, а не urlopen: сервер ходит наружу только через мост.
+        with _opener.open(url, timeout=40) as r:
             return json.load(r)
     except Exception as e:
         print("[tg] ошибка:", e, flush=True)
