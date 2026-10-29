@@ -1,0 +1,23 @@
+[Unit]
+# Агент управления контейнерами через Telegram.
+# Живёт на хосте, а не в docker: он должен работать именно тогда, когда
+# контейнеры легли, и уметь перезапустить любой из них. Управлять докером
+# изнутри контейнера можно только пробросив docker.sock, то есть отдав
+# веб-приложению права root на хосте — этого мы делать не стали.
+Description=Samaya ops bot (Telegram)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=it
+Group=it
+WorkingDirectory=/home/it/ops-bot
+ExecStart=/usr/bin/python3 /home/it/ops-bot/bot.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/it/ops-bot/bot.log
+StandardError=append:/home/it/ops-bot/bot.log
+
+[Install]
+WantedBy=multi-user.target
