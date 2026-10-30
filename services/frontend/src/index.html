@@ -3170,6 +3170,10 @@
 
                     <details class="ai-more">
                       <summary>Дополнительно</summary>
+                      <label for="aiTplShortcut">Код быстрого шаблона</label>
+                      <input type="text" id="aiTplShortcut" maxlength="8" inputmode="numeric"
+                             placeholder="например 000" autocomplete="off">
+                      <div class="hint">Менеджер пишет этот код в поле ответа клиенту и нажимает Enter — уйдёт текст шаблона. Только цифры; пусто — кода нет.</div>
                       <label for="aiTplOrder">Приоритет</label>
                       <input type="number" id="aiTplOrder" value="100" min="0" max="10000">
                       <div class="hint">Порядок тем в списке и в подсказке ассистенту: меньшее число — выше. Обычно трогать не нужно.</div>

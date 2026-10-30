@@ -18,6 +18,15 @@ import type { ZoneKey } from './price';
 /** Тема-хранилище текстов и порядка частей вступления. */
 export const LEGS_INTRO_TOPIC = process.env.AI_LEGS_INTRO_TOPIC || 'legs_intro';
 
+/**
+ * Вторая половина вступления — текст про авторскую методику и 7 зон.
+ *
+ * Отдельной темой, а не куском первой: у менеджера обе части живут под
+ * своими кодами быстрых шаблонов (6 и 66), и склеенный текст пришлось бы
+ * держать в базе дважды. Автоответ склеивает их здесь.
+ */
+export const LEGS_METHOD_TOPIC = process.env.AI_LEGS_METHOD_TOPIC || 'legs_method';
+
 /** Зона, при упоминании которой вступление обязательно. */
 const LEGS_ZONE: ZoneKey = 'legs_circular';
 
@@ -35,12 +44,24 @@ export function mentionsLegs(text: string): boolean {
 export async function loadIntroParts(companyId: string): Promise<ReplyPart[]> {
   try {
     const { rows } = await pool.query(
-      `SELECT body, enabled FROM ai.reply_templates
-        WHERE company_id = $1 AND topic = $2`,
-      [companyId, LEGS_INTRO_TOPIC],
+      `SELECT topic, body, enabled FROM ai.reply_templates
+        WHERE company_id = $1 AND topic = ANY($2::text[])`,
+      [companyId, [LEGS_INTRO_TOPIC, LEGS_METHOD_TOPIC]],
     );
-    if (!rows.length || rows[0].enabled === false) return [];
-    return parseParts(rows[0].body ?? '');
+    const by = new Map(rows.map(r => [r.topic, r]));
+    const head = by.get(LEGS_INTRO_TOPIC);
+    // Выключить вступление целиком владелец может первой темой: она
+    // главная, и без неё схемы зон отправлять незачем.
+    if (!head || head.enabled === false) return [];
+
+    const parts = parseParts(head.body ?? '');
+    const method = by.get(LEGS_METHOD_TOPIC);
+    // Вторую часть добавляем только если она включена и заполнена:
+    // заготовка-подсказка «(текст не заполнен)» клиенту уйти не должна.
+    if (method && method.enabled !== false) {
+      parts.push(...parseParts(method.body ?? ''));
+    }
+    return parts;
   } catch (e) {
     // Молчаливый пропуск выглядел бы как «вступление перестало
     // отправляться» без единой подсказки, где искать.

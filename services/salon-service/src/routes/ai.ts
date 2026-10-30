@@ -10,10 +10,12 @@ import type { Decision } from '../ai/classifier';
 import {
   handleMessage as handlePriceMessage, isCollecting, isCitySwitch, isPriceDialogEnabled,
   resetState as resetPriceState,
+  loadZoneCatalog,
   PriceOutcome,
 } from '../ai/price-dialog';
-import { looksLikeServiceInterest } from '../ai/price';
+import { looksLikeServiceInterest, renderPrices } from '../ai/price';
 import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
+import { parseParts } from '../ai/parts';
 import type { ReplyPart } from '../ai/parts';
 
 /**
@@ -412,6 +414,13 @@ const templateSchema = z.object({
   body: z.string().min(1).max(2000),
   autosend: z.boolean().optional(),
   enabled: z.boolean().optional(),
+  // Код быстрого шаблона: менеджер пишет «000» в поле ответа и получает
+  // этот текст. Только цифры — коды набирают с телефона посреди диалога,
+  // и буква в коде означала бы случайные срабатывания на обычном слове.
+  // Пустая строка = «кода нет»: в базе лежит NULL, иначе несколько
+  // шаблонов с '' нарушат уникальный индекс.
+  shortcut: z.string().max(8).regex(/^[0-9]*$/, 'код шаблона: только цифры')
+    .nullable().optional(),
   sort_order: z.number().int().min(0).max(10_000).optional(),
 });
 
@@ -540,7 +549,7 @@ router.put('/price/:zone', manage, async (req: ExpressRequest, res, next) => {
 router.get('/templates', view, async (req: ExpressRequest, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, topic, title, matcher, body, autosend, enabled, sort_order, updated_at
+      `SELECT id, topic, title, matcher, body, autosend, enabled, shortcut, sort_order, updated_at
          FROM ai.reply_templates
         WHERE company_id = $1
         ORDER BY sort_order, title`,
@@ -560,12 +569,16 @@ router.post('/templates', manage, async (req: ExpressRequest, res, next) => {
     const topic = t.topic ?? await freeTopic(req.auth!.company_id, topicKey(t.title));
     const { rows } = await pool.query(
       `INSERT INTO ai.reply_templates
-         (company_id, topic, title, matcher, body, autosend, enabled, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING id, topic, title, matcher, body, autosend, enabled, sort_order, updated_at`,
+         (company_id, topic, title, matcher, body, autosend, enabled, shortcut, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id, topic, title, matcher, body, autosend, enabled, shortcut, sort_order, updated_at`,
       [
         req.auth!.company_id, topic, t.title, t.matcher, t.body,
-        t.autosend ?? false, t.enabled ?? true, t.sort_order ?? 100,
+        t.autosend ?? false, t.enabled ?? true,
+        // Пустая строка из формы = «кода нет». В базе должен лежать NULL:
+        // уникальный индекс частичный, и несколько '' его нарушат.
+        t.shortcut || null,
+        t.sort_order ?? 100,
       ],
     );
     return res.status(201).json(rows[0]);
@@ -573,6 +586,13 @@ router.post('/templates', manage, async (req: ExpressRequest, res, next) => {
     // Понятное сообщение вместо текста нарушения уникального индекса:
     // администратор видит его прямо в форме.
     if ((e as any)?.code === '23505') {
+      // Два разных нарушения уникальности: ключ темы и код шаблона.
+      // Общее сообщение про ключ на дубле кода уводит в сторону —
+      // администратор правит ключ, а виноват код.
+      const dup = String((e as any)?.constraint || '');
+      if (dup.includes('shortcut')) {
+        return next(new HttpError(409, 'Этот код уже занят другим шаблоном — выберите свободный', 'duplicate_shortcut'));
+      }
       return next(new HttpError(409, 'Тема с таким ключом уже есть — выберите другой ключ', 'duplicate_topic'));
     }
     return next(e);
@@ -587,7 +607,9 @@ router.put('/templates/:id', manage, async (req: ExpressRequest, res, next) => {
     const values: unknown[] = [req.params.id, req.auth!.company_id];
     for (const [k, v] of Object.entries(t)) {
       if (v === undefined) continue;
-      values.push(v);
+      // Пустой код из формы означает «снять код», а не «код = пустая
+      // строка»: частичный уникальный индекс не допустит двух таких.
+      values.push(k === 'shortcut' ? (v || null) : v);
       fields.push(`${k} = $${values.length}`);
     }
     if (!fields.length) throw new HttpError(400, 'Нечего менять');
@@ -595,17 +617,69 @@ router.put('/templates/:id', manage, async (req: ExpressRequest, res, next) => {
     const { rows } = await pool.query(
       `UPDATE ai.reply_templates SET ${fields.join(', ')}
         WHERE id = $1 AND company_id = $2
-       RETURNING id, topic, title, matcher, body, autosend, enabled, sort_order, updated_at`,
+       RETURNING id, topic, title, matcher, body, autosend, enabled, shortcut, sort_order, updated_at`,
       values,
     );
     if (!rows[0]) throw new HttpError(404, 'Шаблон не найден');
     return res.json(rows[0]);
   } catch (e) {
     if ((e as any)?.code === '23505') {
+      // Два разных нарушения уникальности: ключ темы и код шаблона.
+      // Общее сообщение про ключ на дубле кода уводит в сторону —
+      // администратор правит ключ, а виноват код.
+      const dup = String((e as any)?.constraint || '');
+      if (dup.includes('shortcut')) {
+        return next(new HttpError(409, 'Этот код уже занят другим шаблоном — выберите свободный', 'duplicate_shortcut'));
+      }
       return next(new HttpError(409, 'Тема с таким ключом уже есть — выберите другой ключ', 'duplicate_topic'));
     }
     return next(e);
   }
+});
+
+/**
+ * GET /api/salons/ai/shortcut/:code — текст и части по коду быстрого шаблона.
+ *
+ * Зовёт канал (instagram-service), когда менеджер набрал код в поле ответа.
+ * Отдаёт и готовый текст, и разложенные части: у шаблона вступления про
+ * ноги в теле есть фотографии, и отправить его одной строкой нельзя.
+ *
+ * Выключенные темы здесь доступны намеренно: `enabled` управляет
+ * АВТОМАТИКОЙ, а не правом менеджера отправить текст руками. Заготовка без
+ * текста отдаётся с пометкой — иначе клиенту уйдёт «(текст не заполнен)».
+ */
+router.get('/shortcut/:code', serviceOrUser, async (req: ExpressRequest, res, next) => {
+  try {
+    const code = String(req.params.code || '');
+    if (!/^[0-9]{1,8}$/.test(code)) throw new HttpError(400, 'Код шаблона — только цифры');
+
+    const { rows } = await pool.query(
+      `SELECT topic, title, body FROM ai.reply_templates
+        WHERE company_id = $1 AND shortcut = $2`,
+      [req.auth!.company_id, code],
+    );
+    const t = rows[0];
+    if (!t) throw new HttpError(404, `Шаблона с кодом ${code} нет`, 'shortcut_not_found');
+
+    const parts = parseParts(t.body ?? '');
+    // Цены в тексте — из прайса: сумма, написанная в шаблоне руками, это
+    // второй источник правды, который разъезжается с прайсом молча.
+    const catalog = await loadZoneCatalog(req.auth!.company_id);
+    const rendered: ReplyPart[] = parts.map(p => (
+      p.type === 'text' ? { ...p, text: renderPrices(p.text, catalog) } : p
+    ));
+
+    return res.json({
+      ok: true,
+      topic: t.topic,
+      title: t.title,
+      // Текст для подстановки в поле ответа — все текстовые части подряд.
+      text: rendered.flatMap(p => (p.type === 'text' ? [p.text] : [])).join('\n\n'),
+      parts: rendered,
+      images: rendered.filter(p => p.type === 'image').length,
+      filled: !/^\(текст не заполнен/.test(String(t.body || '').trim()),
+    });
+  } catch (e) { return next(e); }
 });
 
 /** DELETE /api/salons/ai/templates/:id */

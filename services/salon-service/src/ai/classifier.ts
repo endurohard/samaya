@@ -105,6 +105,7 @@ const SERVICE_TOPICS = [
   // Как вариант ответа модели его показывать нельзя — размеченная рыба
   // уйдёт клиенту вместо ответа.
   process.env.AI_LEGS_INTRO_TOPIC || 'legs_intro',
+  process.env.AI_LEGS_METHOD_TOPIC || 'legs_method',
 ];
 
 export async function loadTemplates(companyId: string): Promise<Template[]> {

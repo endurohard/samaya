@@ -8332,6 +8332,7 @@ import {
         <div class="ai-tpl-card${mode === 'off' ? ' is-off' : ''}">
           <div class="ai-tpl-card-head">
             <span class="ai-tpl-card-title">${escapeHtml(t.title)}</span>
+            ${t.shortcut ? `<span class="pill pill-mute" title="Код для быстрой отправки из переписки">код ${escapeHtml(String(t.shortcut))}</span>` : ''}
             <span class="ai-mode-tag is-${mode}"><span class="ai-mode-dot is-${mode}" aria-hidden="true"></span>${modeLbl}</span>
             <span class="ai-tpl-card-actions">
             ${confirming ? `
@@ -8403,6 +8404,8 @@ import {
     document.getElementById('aiTplAutosend').checked = !!t?.autosend;
     document.getElementById('aiTplEnabled').checked = t ? !!t.enabled : true;
     document.getElementById('aiTplOrder').value = t?.sort_order ?? 100;
+    const sc = document.getElementById('aiTplShortcut');
+    if (sc) sc.value = t?.shortcut || '';
     const mode = t ? aiTplMode(t) : 'draft';
     document.querySelectorAll('input[name="aiTplMode"]').forEach((r) => { r.checked = r.value === mode; });
     const ft = document.getElementById('aiTplFormTitle');
@@ -8503,6 +8506,9 @@ import {
       body: document.getElementById('aiTplBody').value.trim(),
       autosend: document.getElementById('aiTplAutosend').checked,
       enabled: document.getElementById('aiTplEnabled').checked,
+      // Пустое поле = снять код. Отправляем именно пустую строку: сервер
+      // переводит её в NULL, а undefined в PUT означал бы «не менять».
+      shortcut: (document.getElementById('aiTplShortcut')?.value || '').trim(),
       sort_order: Number(document.getElementById('aiTplOrder').value) || 100,
     };
     // Ключ темы в запрос не кладём: при создании его генерирует сервер из
@@ -8513,6 +8519,9 @@ import {
       aiTplSetMsg('Опишите подробнее, когда применять тему — от этого зависит точность', 'error'); return;
     }
     if (!payload.body) { aiTplSetMsg('Напишите текст ответа', 'error'); return; }
+    if (payload.shortcut && !/^[0-9]{1,8}$/.test(payload.shortcut)) {
+      aiTplSetMsg('Код быстрого шаблона — только цифры (например 000)', 'error'); return;
+    }
 
     aiTplSetMsg('Сохраняю…');
     const r = id
@@ -15845,16 +15854,77 @@ function waAttachChatToClient(phoneDigits, row) {
     await sendIgMedia(file);
   });
 
+  // ── Быстрые шаблоны по коду ──
+  // Менеджер пишет в поле ответа «000» и нажимает «Отправить» — уходит
+  // готовый текст шаблона. Коды только цифровые: обычное сообщение клиенту
+  // из одних цифр не состоит, а буквенный код срабатывал бы на словах.
+  //
+  // Отправку делает сервис (/api/instagram/send-shortcut), а не подстановка
+  // текста в поле: у части шаблонов в теле есть фотографии (схемы зон ног),
+  // и они уходят отдельными сообщениями.
+  const IG_SHORTCUT_RE = /^[0-9]{1,8}$/;
+
+  async function sendIgShortcut(code) {
+    const status = document.getElementById('igChatStatus');
+    if (!_igThread) return false;
+    if (status) { status.textContent = `Отправляю шаблон ${code}…`; status.className = 'ig-chat-status'; }
+    const r = await apiCall('POST', '/api/instagram/send-shortcut', { thread_id: _igThread, code });
+    if (!r.ok) {
+      const why = r.data?.error || ('код ' + r.status);
+      if (status) { status.textContent = 'Не отправлено: ' + why; status.className = 'ig-chat-status is-warn'; }
+      toast('Не отправлено: ' + why);
+      return false;
+    }
+    const imgs = r.data?.images ? `, фото: ${r.data.images}` : '';
+    if (status) {
+      status.textContent = `Отправлен шаблон «${r.data?.title || code}» (сообщений: ${r.data?.sent || 1}${imgs})`;
+      status.className = 'ig-chat-status is-ok';
+    }
+    await loadIgMessages();
+    return true;
+  }
+
+  /**
+   * Подсказка под полем: какой шаблон уйдёт по набранному коду.
+   *
+   * Без неё менеджер узнаёт о промахе только после отправки клиенту —
+   * а отозвать сообщение в Direct нельзя.
+   */
+  function igShortcutHint() {
+    const input = document.getElementById('igChatInput');
+    const status = document.getElementById('igChatStatus');
+    if (!input || !status) return;
+    const v = input.value.trim();
+    if (!IG_SHORTCUT_RE.test(v)) {
+      if (status.dataset.hint === '1') { status.textContent = ''; status.className = 'ig-chat-status'; delete status.dataset.hint; }
+      return;
+    }
+    const t = aiTemplates.find(x => String(x.shortcut || '') === v);
+    status.dataset.hint = '1';
+    // Пустой список — не повод утверждать, что кода нет: у менеджера может
+    // не быть прав на чтение шаблонов, и ложное «кода нет» остановило бы
+    // его от отправки работающего шаблона. Проверит сервер.
+    const unknown = aiTemplates.length && !t;
+    status.className = 'ig-chat-status' + (unknown ? ' is-warn' : '');
+    status.textContent = t
+      ? `Код ${v} → «${t.title}». Отправить — Enter.`
+      : (unknown ? `Кода ${v} нет среди шаблонов` : `Шаблон по коду ${v} — отправить Enter`);
+  }
+
   document.getElementById('igChatSend')?.addEventListener('click', async () => {
     const input = document.getElementById('igChatInput');
     const btn = document.getElementById('igChatSend');
-    if (!input?.value.trim()) return;
+    const value = input?.value.trim();
+    if (!value) return;
     if (btn) btn.disabled = true;
-    const ok = await sendIg(input.value);
+    const ok = IG_SHORTCUT_RE.test(value)
+      ? await sendIgShortcut(value)
+      : await sendIg(value);
     if (ok) input.value = '';
     if (btn) btn.disabled = false;
   });
 
+  document.getElementById('igChatInput')?.addEventListener('input', igShortcutHint);
   document.getElementById('igChatInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('igChatSend')?.click(); }
   });
@@ -15899,6 +15969,12 @@ function waAttachChatToClient(phoneDigits, row) {
       void loadWaUnlinked();
       void loadIgSession();
       void loadIgThreads();
+      // Шаблоны нужны подсказке по коду в поле ответа: без них менеджер
+      // набирает «000» и видит «кода нет» на существующем шаблоне. Раздел
+      // переписки и настройки ассистента — разные экраны, и загрузка
+      // только в настройках оставляла список пустым именно там, где им
+      // пользуются.
+      if (!aiTemplates.length) void loadAiTemplates();
     } else if (_igTimer) {
       // Уходим из раздела — гасим опрос диалога: иначе он продолжает
       // стучаться в сервис из любого другого экрана до перезагрузки страницы.

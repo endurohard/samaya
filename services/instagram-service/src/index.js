@@ -12,11 +12,15 @@ import {
   searchThreads, mediaOf, pool, saveOutgoingMedia, signMediaPath, signedMediaPath,
 } from './store.js';
 import { Campaign, PACES, spin, spinVariants, humanize } from './campaign.js';
+import { sendParts, threadClientId } from './parts.js';
 
 const PORT = Number(process.env.PORT || 3010);
 // Публичный адрес CRM: по нему Meta забирает исходящие вложения. Без него
 // отправка фото невозможна — Graph API принимает медиа только ссылкой.
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+// Шаблоны ответов живут в salon-service — туда же ходим за текстом по коду.
+const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || '';
 const monitor = new Monitor(ig);
 // Кампания отправляет через официальный API, а браузер держит запасным путём —
 // тот же порядок, что в одиночной отправке /api/instagram/send.
@@ -442,6 +446,64 @@ app.post('/api/instagram/send-media', requireSend, express.raw({
     return res.json({ ok: true, message_id: r.messageId });
   } catch (e) {
     console.error('[IG][send-media]', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Быстрый шаблон по коду: менеджер пишет в поле ответа «000» вместо того,
+// чтобы набирать текст заново.
+//
+// Отправка идёт ЗДЕСЬ, а не подстановкой текста во фронте, потому что у
+// части шаблонов в теле есть фотографии (схемы зон): текстом их не
+// подставишь, а отправлять приходится несколькими сообщениями подряд.
+app.post('/api/instagram/send-shortcut', requireSend, async (req, res) => {
+  try {
+    const threadId = String(req.body?.thread_id || '').trim();
+    const code = String(req.body?.code || '').trim();
+    if (!threadId) return res.status(400).json({ error: 'нужен thread_id' });
+    if (!/^[0-9]{1,8}$/.test(code)) return res.status(400).json({ error: 'код шаблона — только цифры' });
+
+    const r = await fetch(`${SALON_URL}/api/salons/ai/shortcut/${code}`, {
+      headers: { Authorization: `Bearer ${INTERNAL_TOKEN}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const tpl = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return res.status(r.status === 404 ? 404 : 502)
+        .json({ error: tpl?.message || tpl?.error || `шаблон ${code} недоступен` });
+    }
+    // Заготовка без текста: отправлять «(текст не заполнен)» клиенту нельзя,
+    // и промолчать тоже — менеджер должен понять, почему ничего не ушло.
+    if (tpl.filled === false) {
+      return res.status(409).json({
+        error: `Шаблон «${tpl.title}» ещё не заполнен — впишите текст в Настройках → Ассистент`,
+        code: 'template_empty',
+      });
+    }
+    if (!Array.isArray(tpl.parts) || !tpl.parts.length) {
+      return res.status(409).json({ error: `Шаблон «${tpl.title}» пуст` });
+    }
+
+    const clientId = await threadClientId(threadId);
+    const sent = await sendParts(threadId, tpl.parts, clientId);
+    if (!sent.ok) {
+      return res.status(502).json({ error: sent.error, sent: sent.sent, title: tpl.title });
+    }
+
+    // Подпись автора ставим на первую текстовую часть: за одним аккаунтом
+    // работают посменно, и по истории должно быть видно, кто отвечал.
+    const firstText = tpl.parts.find(p => p.type === 'text')?.text;
+    if (req.user?.id && firstText) {
+      await markAuthor(threadId, firstText, { id: req.user.id, name: await authorName(req.user.id) })
+        .catch(e => console.warn('[IG][шаблон] автор не записан:', e.message));
+    }
+    // Отправили вручную — черновик ИИ больше не актуален.
+    await clearDraft(threadId).catch(() => {});
+
+    console.log(`[IG] шаблон «${tpl.title}» (код ${code}) отправлен в ${threadId}: ${sent.sent} сообщ.`);
+    return res.json({ ok: true, title: tpl.title, sent: sent.sent, images: tpl.images });
+  } catch (e) {
+    console.error('[IG][send-shortcut]', e.message);
     return res.status(500).json({ error: e.message });
   }
 });
