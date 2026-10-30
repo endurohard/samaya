@@ -1,7 +1,11 @@
 import { Router } from 'express';
+import express from 'express';
+import path from 'node:path';
+import fsp from 'node:fs/promises';
 import type { Request as ExpressRequest } from 'express';
 import { z } from 'zod';
 import { pool } from '../db';
+import { config } from '../config';
 import { notifyNeedsReply, sendTelegram, telegramTarget, tgDispatcher } from '../ai/telegram';
 import { rememberNotification } from '../ai/telegram-replies';
 import { authenticate, requireRole, requirePermission, HttpError } from '../middleware';
@@ -600,7 +604,14 @@ router.get('/templates', view, async (req: ExpressRequest, res, next) => {
         ORDER BY sort_order, title`,
       [req.auth!.company_id],
     );
-    return res.json({ items: rows });
+    // Сколько фотографий в теле: подсказка под полем ответа показывает это
+    // менеджеру до отправки, а разбирать разметку на клиенте — вторая копия
+    // парсера, которая разъедется с первой.
+    const items = rows.map(r => ({
+      ...r,
+      images: parseParts(r.body ?? '').filter(p => p.type === 'image').length,
+    }));
+    return res.json({ items });
   } catch (e) { return next(e); }
 });
 
@@ -681,6 +692,93 @@ router.put('/templates/:id', manage, async (req: ExpressRequest, res, next) => {
     return next(e);
   }
 });
+
+/**
+ * GET /api/salons/ai/asset/:name — файл картинки шаблона.
+ *
+ * Отдаём каналам (instagram/whatsapp-service): картинка живёт здесь, рядом с
+ * шаблоном, а не копируется в каждый сервис. Доступ сервисный — тот же
+ * внутренний токен, что у /shortcut.
+ */
+router.get('/asset/:name', serviceOrUser, async (req: ExpressRequest, res, next) => {
+  try {
+    const name = String(req.params.name || '');
+    // Имя приходит из тела шаблона, который правит владелец: путь
+    // складывается из внешних данных, и «../» увёл бы чтение в /etc.
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) throw new HttpError(400, 'Недопустимое имя файла');
+
+    const dir = path.join(config.MEDIA_DIR, 'ai-templates');
+    for (const ext of ['jpg', 'jpeg', 'png', 'webp']) {
+      const abs = path.join(dir, `${name}.${ext}`);
+      if (!abs.startsWith(path.resolve(dir))) continue;
+      try {
+        await fsp.access(abs);
+        res.type(ext === 'jpg' ? 'image/jpeg' : `image/${ext}`);
+        return res.sendFile(abs);
+      } catch { /* пробуем следующее расширение */ }
+    }
+    throw new HttpError(404, `Картинка «${name}» не найдена`);
+  } catch (e) { return next(e); }
+});
+
+/**
+ * POST /api/salons/ai/templates/:id/image — добавить фотографию в шаблон.
+ *
+ * Файл кладётся рядом с остальными медиа салона, а в тело шаблона дописывается
+ * строка «--- фото: имя». Почему не ссылка: шаблон живёт годами, а подписанные
+ * ссылки на вложения протухают за минуты — имя файла переживает и перевыпуск
+ * токенов, и переезд на другой сервер.
+ *
+ * Имя генерируем сами из id шаблона и времени: администратор не должен думать
+ * про латиницу и уникальность, а кириллица в имени сломала бы путь.
+ */
+router.post('/templates/:id/image', manage,
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: '25mb' }),
+  async (req: ExpressRequest, res, next) => {
+    try {
+      const buf = req.body as Buffer;
+      if (!Buffer.isBuffer(buf) || !buf.length) {
+        throw new HttpError(400, 'Файл не получен. Поддерживаются JPG, PNG, WEBP');
+      }
+      const ct = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      const EXT: Record<string, string> = {
+        'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+      };
+      const ext = EXT[ct];
+      if (!ext) throw new HttpError(415, 'Поддерживаются JPG, PNG, WEBP');
+
+      const { rows } = await pool.query(
+        `SELECT id, body FROM ai.reply_templates WHERE id = $1 AND company_id = $2`,
+        [req.params.id, req.auth!.company_id],
+      );
+      if (!rows[0]) throw new HttpError(404, 'Шаблон не найден');
+
+      const name = `tpl-${String(rows[0].id).slice(0, 8)}-${Date.now().toString(36)}`;
+      const dir = path.join(config.MEDIA_DIR, 'ai-templates');
+      await fsp.mkdir(dir, { recursive: true });
+      // Пишем во временный файл и переименовываем: при обрыве на диске не
+      // останется половины картинки, которую потом отправят клиенту.
+      const abs = path.join(dir, `${name}.${ext}`);
+      await fsp.writeFile(`${abs}.tmp`, buf);
+      await fsp.rename(`${abs}.tmp`, abs);
+
+      // Дописываем в КОНЕЦ тела: порядок частей — это смысл сообщения, и
+      // вставлять фото в середину за администратора нельзя. Переставить он
+      // может строками прямо в поле текста.
+      const body = String(rows[0].body ?? '').replace(/\s*$/, '')
+        + `\n--- фото: ${name}`;
+      const upd = await pool.query(
+        `UPDATE ai.reply_templates SET body = $3
+          WHERE id = $1 AND company_id = $2
+        RETURNING id, topic, title, matcher, body, autosend, enabled, shortcut, sort_order, updated_at`,
+        [req.params.id, req.auth!.company_id, body],
+      );
+      return res.json({
+        ...upd.rows[0],
+        images: parseParts(body).filter(p => p.type === 'image').length,
+      });
+    } catch (e) { return next(e); }
+  });
 
 /** DELETE /api/salons/ai/templates/:id */
 router.delete('/templates/:id', manage, async (req: ExpressRequest, res, next) => {

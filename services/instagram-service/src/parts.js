@@ -19,6 +19,11 @@ import { saveOutgoingMedia, signMediaPath, saveMessages, upsertThread } from './
 
 const ASSETS_DIR = path.resolve(fileURLToPath(new URL('../assets', import.meta.url)));
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+// Картинки, загруженные администратором в админке, живут в salon-service:
+// там же, где сам шаблон. Копировать их в образ каждого канала нельзя —
+// добавленная через админку картинка иначе появилась бы только после выката.
+const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
+const SALON_TOKEN = process.env.SALON_INTERNAL_TOKEN || process.env.INTERNAL_TOKEN || '';
 
 // Пауза между сообщениями одной связки. Четыре сообщения подряд за
 // миллисекунды Meta считает рассылкой, а клиент — ботом.
@@ -41,6 +46,28 @@ function assetPath(name) {
 }
 
 /**
+ * Достать картинку: сначала из образа, потом из salon-service.
+ *
+ * Два источника, потому что это разные по природе файлы: схемы зон ног
+ * версионируются вместе с кодом и обязаны работать на чистом сервере, а
+ * картинки, добавленные администратором в админке, появляются между
+ * выкатами и в образ попасть не могут.
+ */
+async function assetBytes(name) {
+  const local = assetPath(name);
+  if (local) return { buf: await fsp.readFile(local.abs), mime: local.mime };
+
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(String(name || ''))) return null;
+  const r = await fetch(`${SALON_URL}/api/salons/ai/asset/${encodeURIComponent(name)}`, {
+    headers: { Authorization: `Bearer ${SALON_TOKEN}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok) return null;
+  const mime = String(r.headers.get('content-type') || '').split(';')[0].trim() || 'image/jpeg';
+  return { buf: Buffer.from(await r.arrayBuffer()), mime };
+}
+
+/**
  * Отправить одну картинку из assets.
  *
  * Файл каждый раз кладётся в outbox заново: подпись ссылки живёт 15 минут,
@@ -48,14 +75,13 @@ function assetPath(name) {
  * отправки, а не когда он понадобится.
  */
 async function sendAsset(threadId, name) {
-  const found = assetPath(name);
-  if (!found) return { ok: false, error: `картинка «${name}» не найдена в assets` };
+  const found = await assetBytes(name);
+  if (!found) return { ok: false, error: `картинка «${name}» не найдена` };
   if (!/^https:\/\//i.test(PUBLIC_BASE_URL)) {
     return { ok: false, error: 'Meta скачивает вложение только по https — задайте PUBLIC_BASE_URL' };
   }
 
-  const buf = await fsp.readFile(found.abs);
-  const saved = await saveOutgoingMedia(buf, found.mime);
+  const saved = await saveOutgoingMedia(found.buf, found.mime);
   const { token } = signMediaPath(saved.rel);
   const r = await sendMediaMessage(threadId, `${PUBLIC_BASE_URL}/api/instagram/public/${token}`, 'image');
   if (!r.ok) return r;

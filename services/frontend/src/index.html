@@ -3058,7 +3058,47 @@
             </div>
 
             </div><!-- /waBroadcastWrap -->
+
           </div><!-- /msgTabWhatsapp -->
+
+          <!-- Шаблоны быстрых ответов прямо в разделе «Сообщения».
+               Менеджер пользуется кодами здесь, здесь же должен их и
+               править: уход в Настройки → Ассистент посреди диалога с
+               клиентом означает потерянную мысль и потерянного клиента. -->
+          <div class="card ai-sc-card">
+            <div class="card-head">
+              <h2 class="card-title">Шаблоны по кодам</h2>
+              <span class="counter" id="scCounter">0</span>
+              <div class="card-head-actions">
+                <button type="button" class="btn-ghost btn-sm" id="scToggle" aria-expanded="false">Показать</button>
+              </div>
+            </div>
+            <div class="card-body" id="scBody" hidden>
+              <div class="hint">Наберите код в поле ответа клиенту и нажмите Enter — уйдёт этот текст вместе с фотографиями.</div>
+              <div id="scList" class="data-list"></div>
+
+              <div id="scForm" class="ai-sc-form" hidden>
+                <div class="ai-sc-form-head">
+                  <strong id="scFormTitle">Шаблон</strong>
+                  <span class="hint" id="scFormCode"></span>
+                </div>
+                <input type="hidden" id="scId">
+                <label for="scText">Текст</label>
+                <textarea id="scText" rows="8" maxlength="2000"
+                          placeholder="Текст, который уйдёт клиенту"></textarea>
+                <div class="hint">Строка <code>--- фото: имя</code> — это отдельное фото-сообщение. Порядок строк = порядок сообщений клиенту.</div>
+                <div id="scImages" class="ai-sc-images"></div>
+                <div class="ai-sc-actions">
+                  <input type="file" id="scFile" hidden accept="image/jpeg,image/png,image/webp">
+                  <button type="button" class="btn-ghost btn-sm" id="scAddPhoto">+ Фото</button>
+                  <button type="button" class="btn-primary btn-sm" id="scSave">Сохранить</button>
+                  <button type="button" class="btn-ghost btn-sm" id="scCancel">Закрыть</button>
+                  <span id="scMsg" class="hint"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </section>
 
         <!-- View: AI ассистент -->

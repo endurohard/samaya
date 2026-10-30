@@ -7784,6 +7784,10 @@ import {
 
   let aiActiveTab = 'templates';
   let aiTemplates = [];
+  // Код быстрого шаблона: менеджер пишет его в поле ответа вместо текста.
+  // Только цифры — обычное сообщение клиенту из одних цифр не состоит, а
+  // буквенный код срабатывал бы на обычном слове.
+  const SHORTCUT_RE = /^[0-9]{1,8}$/;
   // Какой шаблон ждёт подтверждения удаления. Inline вместо confirm():
   // админку открывают во встроенном браузере VS Code, где браузерные
   // диалоги заблокированы и кнопка выглядит мёртвой.
@@ -9333,8 +9337,17 @@ async function sendWaInbox() {
   const text = String(input?.value || '').trim();
   if (!text || !_waChatPhone) return;
   if (btn) btn.disabled = true;
-  if (status) { status.textContent = 'Отправляю…'; status.className = 'wa-inbox-status'; }
-  const r = await apiCall('POST', '/api/whatsapp/send', { phone: '+' + _waChatPhone, message: text });
+  // Сообщение из одних цифр — код быстрого шаблона, а не текст клиенту.
+  // Отправляет сервис: у части шаблонов в теле есть фотографии, их
+  // подстановкой текста в поле не отправишь.
+  const isCode = SHORTCUT_RE.test(text);
+  if (status) {
+    status.textContent = isCode ? `Отправляю шаблон ${text}…` : 'Отправляю…';
+    status.className = 'wa-inbox-status';
+  }
+  const r = isCode
+    ? await apiCall('POST', '/api/whatsapp/send-shortcut', { phone: '+' + _waChatPhone, code: text })
+    : await apiCall('POST', '/api/whatsapp/send', { phone: '+' + _waChatPhone, message: text });
   if (btn) btn.disabled = false;
   if (!r.ok) {
     // Причину показываем под полем, а не только тостом: тост легко пропустить,
@@ -9343,8 +9356,45 @@ async function sendWaInbox() {
     return;
   }
   if (input) input.value = '';
-  if (status) { status.textContent = ''; }
+  if (status) {
+    if (isCode) {
+      const imgs = r.data?.images ? `, фото: ${r.data.images}` : '';
+      status.textContent = `Отправлен шаблон «${r.data?.title || text}» (сообщений: ${r.data?.sent || 1}${imgs})`;
+      status.className = 'wa-inbox-status is-ok';
+    } else {
+      status.textContent = '';
+    }
+  }
   await Promise.all([openWaChat(_waChatPhone, true), loadWaChats()]);
+}
+
+/**
+ * Подсказка под полем: какой шаблон уйдёт по набранному коду.
+ *
+ * Без неё менеджер узнаёт о промахе только после отправки клиенту — а
+ * отозвать отправленное в WhatsApp нельзя.
+ */
+function waInboxShortcutHint() {
+  const input = document.getElementById('waInboxInput');
+  const status = document.getElementById('waInboxStatusLine');
+  if (!input || !status) return;
+  const v = String(input.value || '').trim();
+  if (!SHORTCUT_RE.test(v)) {
+    if (status.dataset.hint === '1') {
+      status.textContent = ''; status.className = 'wa-inbox-status';
+      delete status.dataset.hint;
+    }
+    return;
+  }
+  const t = aiTemplates.find(x => String(x.shortcut || '') === v);
+  status.dataset.hint = '1';
+  // Пустой список — не повод утверждать, что кода нет: шаблоны могли ещё
+  // не загрузиться. Проверит сервер.
+  const unknown = aiTemplates.length && !t;
+  status.className = 'wa-inbox-status' + (unknown ? ' is-warn' : '');
+  status.textContent = t
+    ? `Код ${v} → «${t.title}»${t.images ? ` (фото: ${t.images})` : ''}. Отправить — Enter.`
+    : (unknown ? `Кода ${v} нет среди шаблонов` : `Шаблон по коду ${v} — отправить Enter`);
 }
 
 function startWaInbox() {
@@ -9376,6 +9426,7 @@ document.getElementById('waInboxForm')?.addEventListener('submit', (e) => {
   e.preventDefault();
   void sendWaInbox();
 });
+document.getElementById('waInboxInput')?.addEventListener('input', waInboxShortcutHint);
 // Поиск перезапрашивает список с сервера. Задержка 300 мс, чтобы не слать
 // запрос на каждую букву.
 let _waSearchTimer = null;
@@ -15884,6 +15935,157 @@ function waAttachChatToClient(phoneDigits, row) {
     await sendIgMedia(file);
   });
 
+
+  // ── Шаблоны по кодам прямо в разделе «Сообщения» ──
+  // Менеджер пользуется кодами здесь, здесь же их и правит: уход в
+  // Настройки → Ассистент посреди диалога с клиентом означает потерянную
+  // мысль. Это та же таблица шаблонов, просто другой вход в неё.
+  function scRender() {
+    const list = document.getElementById('scList');
+    const counter = document.getElementById('scCounter');
+    const withCode = aiTemplates.filter(t => t.shortcut);
+    if (counter) counter.textContent = String(withCode.length);
+    if (!list) return;
+    if (!withCode.length) {
+      list.innerHTML = '<div class="empty">Шаблонов с кодами пока нет. Их можно завести в Настройках → Ассистент.</div>';
+      return;
+    }
+    // Сортируем по длине кода, потом по самому коду: «0, 1, 2 … 00, 11 …»
+    // читается как список кодов, а алфавитный порядок перемешал бы их.
+    withCode.sort((a, b) => String(a.shortcut).length - String(b.shortcut).length
+      || String(a.shortcut).localeCompare(String(b.shortcut)));
+    list.innerHTML = withCode.map(t => `
+      <div class="ai-sc-row" data-id="${escapeHtml(t.id)}">
+        <span class="ai-sc-code">${escapeHtml(String(t.shortcut))}</span>
+        <span class="ai-sc-title">${escapeHtml(t.title)}</span>
+        ${t.images ? `<span class="pill pill-mute">фото: ${t.images}</span>` : ''}
+        <button type="button" class="btn-ghost btn-xs sc-edit">Изменить</button>
+      </div>`).join('');
+  }
+
+  function scOpen(id) {
+    const t = aiTemplates.find(x => x.id === id);
+    if (!t) return;
+    document.getElementById('scId').value = t.id;
+    document.getElementById('scText').value = t.body || '';
+    const ft = document.getElementById('scFormTitle');
+    if (ft) ft.textContent = t.title;
+    const fc = document.getElementById('scFormCode');
+    if (fc) fc.textContent = `код ${t.shortcut}`;
+    document.getElementById('scForm').hidden = false;
+    scMsg('');
+    scRenderImages();
+    document.getElementById('scText').focus({ preventScroll: true });
+  }
+
+  function scMsg(text, kind) {
+    const el = document.getElementById('scMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'hint' + (kind === 'error' ? ' is-error' : (kind === 'ok' ? ' is-ok' : ''));
+  }
+
+  /** Список фотографий шаблона с возможностью убрать. */
+  function scRenderImages() {
+    const box = document.getElementById('scImages');
+    const body = document.getElementById('scText')?.value || '';
+    if (!box) return;
+    const names = [...body.matchAll(/^\s*---\s*фото:\s*(.+)$/gim)].map(m => m[1].trim());
+    if (!names.length) { box.innerHTML = ''; return; }
+    box.innerHTML = names.map(n => `
+      <span class="ai-sc-img">
+        ${escapeHtml(n)}
+        <button type="button" class="ai-sc-img-del" data-name="${escapeHtml(n)}" aria-label="Убрать фото ${escapeHtml(n)}">×</button>
+      </span>`).join('');
+  }
+
+  document.getElementById('scToggle')?.addEventListener('click', (e) => {
+    const body = document.getElementById('scBody');
+    if (!body) return;
+    const show = body.hidden;
+    body.hidden = !show;
+    e.currentTarget.textContent = show ? 'Скрыть' : 'Показать';
+    e.currentTarget.setAttribute('aria-expanded', String(show));
+    // Список шаблонов грузим при первом раскрытии: в разделе сообщений он
+    // нужен и подсказке по коду, но тянуть его при каждом входе незачем.
+    if (show && !aiTemplates.length) void loadAiTemplates().then(scRender);
+    else if (show) scRender();
+  });
+
+  document.getElementById('scList')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.sc-edit');
+    if (btn) scOpen(btn.closest('.ai-sc-row')?.dataset.id);
+  });
+
+  document.getElementById('scCancel')?.addEventListener('click', () => {
+    document.getElementById('scForm').hidden = true;
+  });
+
+  document.getElementById('scText')?.addEventListener('input', scRenderImages);
+
+  document.getElementById('scImages')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ai-sc-img-del');
+    if (!btn) return;
+    const ta = document.getElementById('scText');
+    if (!ta) return;
+    // Убираем строку разметки, а сам файл не трогаем: он может быть нужен
+    // другому шаблону, да и вернуть фото тогда можно одной строкой.
+    const name = btn.dataset.name;
+    ta.value = ta.value.split(/\r?\n/)
+      .filter(l => !new RegExp(`^\\s*---\\s*фото:\\s*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i').test(l))
+      .join('\n');
+    scRenderImages();
+    scMsg('Фото убрано из шаблона. Нажмите «Сохранить».');
+  });
+
+  document.getElementById('scAddPhoto')?.addEventListener('click', () => {
+    document.getElementById('scFile')?.click();
+  });
+
+  document.getElementById('scFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const id = document.getElementById('scId')?.value;
+    if (!file || !id) return;
+    if (file.size > 25 * 1024 * 1024) { scMsg('Файл больше 25 МБ', 'error'); return; }
+
+    // Фото загружаем СРАЗУ на сервер, а не копим в форме: иначе «Сохранить»
+    // стало бы единственным шансом не потерять файл, а при ошибке сети он
+    // пропал бы вместе с набранным текстом.
+    scMsg('Загружаю фото…');
+    try {
+      const res = await fetch(`/api/salons/ai/templates/${encodeURIComponent(id)}/image`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type, Authorization: `Bearer ${store.access}` },
+        body: file,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { scMsg(data?.message || data?.error || `Не удалось: код ${res.status}`, 'error'); return; }
+      // Сервер дописал строку «--- фото: имя» в конец тела — показываем его
+      // ответ, а не свою догадку о том, что получилось.
+      document.getElementById('scText').value = data.body || '';
+      scRenderImages();
+      scMsg('Фото добавлено в конец шаблона', 'ok');
+      await loadAiTemplates();
+      scRender();
+    } catch (err) {
+      scMsg(String(err?.message || err), 'error');
+    }
+  });
+
+  document.getElementById('scSave')?.addEventListener('click', async () => {
+    const id = document.getElementById('scId')?.value;
+    const body = document.getElementById('scText')?.value.trim();
+    if (!id) return;
+    if (!body) { scMsg('Текст не может быть пустым', 'error'); return; }
+    scMsg('Сохраняю…');
+    const r = await apiCall('PUT', `/api/salons/ai/templates/${id}`, { body });
+    if (!r.ok) { scMsg(r.data?.error || r.data?.message || 'Не удалось сохранить', 'error'); return; }
+    scMsg('Сохранено', 'ok');
+    await loadAiTemplates();
+    scRender();
+  });
+
   // ── Быстрые шаблоны по коду ──
   // Менеджер пишет в поле ответа «000» и нажимает «Отправить» — уходит
   // готовый текст шаблона. Коды только цифровые: обычное сообщение клиенту
@@ -15892,8 +16094,6 @@ function waAttachChatToClient(phoneDigits, row) {
   // Отправку делает сервис (/api/instagram/send-shortcut), а не подстановка
   // текста в поле: у части шаблонов в теле есть фотографии (схемы зон ног),
   // и они уходят отдельными сообщениями.
-  const IG_SHORTCUT_RE = /^[0-9]{1,8}$/;
-
   async function sendIgShortcut(code) {
     const status = document.getElementById('igChatStatus');
     if (!_igThread) return false;
@@ -15925,7 +16125,7 @@ function waAttachChatToClient(phoneDigits, row) {
     const status = document.getElementById('igChatStatus');
     if (!input || !status) return;
     const v = input.value.trim();
-    if (!IG_SHORTCUT_RE.test(v)) {
+    if (!SHORTCUT_RE.test(v)) {
       if (status.dataset.hint === '1') { status.textContent = ''; status.className = 'ig-chat-status'; delete status.dataset.hint; }
       return;
     }
@@ -15947,7 +16147,7 @@ function waAttachChatToClient(phoneDigits, row) {
     const value = input?.value.trim();
     if (!value) return;
     if (btn) btn.disabled = true;
-    const ok = IG_SHORTCUT_RE.test(value)
+    const ok = SHORTCUT_RE.test(value)
       ? await sendIgShortcut(value)
       : await sendIg(value);
     if (ok) input.value = '';
