@@ -9345,9 +9345,22 @@ async function sendWaInbox() {
     status.textContent = isCode ? `Отправляю шаблон ${text}…` : 'Отправляю…';
     status.className = 'wa-inbox-status';
   }
+  // Шаблон с фотографиями уходит несколькими сообщениями и занимает
+  // десятки секунд. Без счётчика это выглядит зависанием, и менеджер
+  // жмёт «Отправить» второй раз — клиент получает текст дважды.
+  let waited = 0;
+  const tick = setInterval(() => {
+    waited += 1;
+    if (status && waited > 3) {
+      status.textContent = isCode
+        ? `Отправляю шаблон ${text}… ${waited} с`
+        : `Отправляю… ${waited} с`;
+    }
+  }, 1000);
   const r = isCode
     ? await apiCall('POST', '/api/whatsapp/send-shortcut', { phone: '+' + _waChatPhone, code: text })
     : await apiCall('POST', '/api/whatsapp/send', { phone: '+' + _waChatPhone, message: text });
+  clearInterval(tick);
   if (btn) btn.disabled = false;
   if (!r.ok) {
     // Причину показываем под полем, а не только тостом: тост легко пропустить,

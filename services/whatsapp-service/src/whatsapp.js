@@ -12,6 +12,11 @@ const SESSION_DIR = process.env.WHATSAPP_SESSION_DIR
   || path.join(__dirname, '../data/session');
 const CHROMIUM_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium';
 const TEST_MODE = process.env.WHATSAPP_TEST_MODE === 'true';
+// Предельный срок одной операции с браузером. Без него зависший шаг
+// puppeteer блокирует очередь навсегда: отправка «в процессе», входящие не
+// читаются, в логе пусто. 120 с — с запасом на открытие чата и загрузку
+// медиа, но заметно меньше терпения менеджера у экрана.
+const QUEUE_TASK_TIMEOUT_MS = Number(process.env.WHATSAPP_TASK_TIMEOUT_MS || 120_000);
 const SOCKS_PROXY = process.env.WHATSAPP_SOCKS_PROXY || '';
 
 // Белый список получателей — предохранитель для боевой сессии.
@@ -108,16 +113,41 @@ class WhatsAppManager {
 
   // Сериализация операций с единственной страницей. Каждая задача ждёт завершения
   // предыдущей; ошибка одной задачи не рвёт цепочку для следующих.
-  _enqueue(fn) {
+  //
+  // У каждой задачи ОБЯЗАТЕЛЕН предельный срок. Любой шаг puppeteer может
+  // зависнуть без ошибки (клик не долетел, страница перерисовывается), и
+  // тогда очередь встаёт навсегда: отправка висит «в процессе», монитор не
+  // читает входящие, а в логе ни строки — ни успеха, ни ошибки. Поймано на
+  // боевой отправке шаблона: задача провисела 15 минут и не отпустила
+  // очередь. Таймаут не отменяет саму операцию в браузере (puppeteer так
+  // не умеет), но освобождает очередь и даёт внятную ошибку наверх.
+  _enqueue(fn, opts = {}) {
+    const limitMs = Number(opts.timeoutMs || QUEUE_TASK_TIMEOUT_MS);
+    const label = opts.label || 'операция';
     // _busy взводим на всё время работы с page: проверка живости в этот момент
     // видит промежуточное состояние DOM (идёт переключение чата) и принимает
     // его за разлогин. Занятый сеанс и так доказывает, что он жив.
     const wrapped = async () => {
       this._busy = true;
+      const started = Date.now();
+      let timer = null;
       try {
-        return await fn();
+        return await Promise.race([
+          fn(),
+          new Promise((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`${label}: не уложилась в ${Math.round(limitMs / 1000)} с — страница не отвечает`)),
+              limitMs,
+            );
+          }),
+        ]);
       } finally {
+        if (timer) clearTimeout(timer);
         this._busy = false;
+        const ms = Date.now() - started;
+        // Долгие операции печатаем всегда: по ним видно деградацию ДО того,
+        // как она превратится в зависание.
+        if (ms > 15_000) console.warn(`[WA][очередь] ${label}: ${Math.round(ms / 1000)} с`);
       }
     };
     const run = this._queue.then(() => wrapped(), () => wrapped());
@@ -452,7 +482,7 @@ class WhatsAppManager {
     // Все операции с this.page строго последовательны — см. _enqueue.
     return this._enqueue(async () => {
       if (!this.isReady || !this.page) throw new Error('WhatsApp not ready');
-      console.log(`[WA] Sending to ${clean}…`);
+      console.log(`[WA] Sending to ${clean}… (${message.length} симв.)`);
 
       // Сначала пробуем открыть уже существующий чат кликом по списку. Ссылка
       // /send?phone= у аккаунта с ограничением «нельзя начинать новые чаты»
@@ -476,18 +506,49 @@ class WhatsAppManager {
       await input.click();
       await new Promise(r => setTimeout(r, 300));
 
-      // Многострочный текст: перевод строки — Shift+Enter, иначе каждая строка
-      // ушла бы отдельным сообщением.
-      const lines = message.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        await this.page.keyboard.type(lines[i]);
-        if (i < lines.length - 1) {
-          await this.page.keyboard.down('Shift');
-          await this.page.keyboard.press('Enter');
-          await this.page.keyboard.up('Shift');
-        }
-      }
+      // Текст вставляем ОДНИМ событием вставки, а не печатаем посимвольно.
+      //
+      // Посимвольная печать — это одно событие клавиатуры на символ: на
+      // коротком ответе незаметно, а на шаблоне в 850+ символов с семью
+      // абзацами она занимает минуты и в итоге подвешивает очередь целиком
+      // (поймано на боевой отправке: задача провисела 15 минут без единой
+      // строки в логе). Вставка через буфер обмена отрабатывает мгновенно
+      // и сохраняет переводы строк внутри одного сообщения — WhatsApp
+      // трактует вставленный \n как перенос, а не как «отправить».
+      await this.page.evaluate((text) => {
+        const el = document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer [contenteditable="true"]',
+        );
+        if (!el) throw new Error('поле ввода исчезло перед вставкой');
+        el.focus();
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        el.dispatchEvent(new ClipboardEvent('paste', {
+          clipboardData: dt, bubbles: true, cancelable: true,
+        }));
+      }, message);
       await new Promise(r => setTimeout(r, 400));
+
+      // Проверяем, что текст действительно попал в поле: если сборка
+      // WhatsApp не приняла событие вставки, молчаливый откат на печать
+      // лучше, чем отправка пустого сообщения.
+      const typed = await this.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        return (el?.textContent || '').trim().length;
+      }, COMPOSE_SELECTOR).catch(() => 0);
+      if (typed < Math.min(20, message.trim().length)) {
+        console.warn('[WA] вставка не сработала — печатаю посимвольно');
+        const lines = message.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          await this.page.keyboard.type(lines[i]);
+          if (i < lines.length - 1) {
+            await this.page.keyboard.down('Shift');
+            await this.page.keyboard.press('Enter');
+            await this.page.keyboard.up('Shift');
+          }
+        }
+        await new Promise(r => setTimeout(r, 400));
+      }
 
       // Отправка кнопкой: Enter в некоторых сборках только переносит строку.
       let sent = false;
@@ -510,7 +571,7 @@ class WhatsAppManager {
 
       console.log(`[WA] Sent to ${clean}`);
       return { success: true, phone: clean };
-    });
+    }, { label: `отправка ${clean}` });
   }
 
   // Отправка фото/видео с подписью. Отдельный метод, а не флаг в sendMessage:
@@ -613,7 +674,9 @@ class WhatsAppManager {
 
       console.log(`[WA] Media sent to ${clean}`);
       return { success: true, phone: clean, media: true };
-    });
+      // Медиа ждёт дольше текста: файл грузится в WhatsApp, и на крупном
+      // видео полторы минуты — норма, а не зависание.
+    }, { label: `отправка медиа ${clean}`, timeoutMs: 180_000 });
   }
 
   // Разведка структуры страницы: по ней пишутся селекторы монитора. WhatsApp
