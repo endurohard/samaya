@@ -338,6 +338,51 @@ router.post('/notify-media', serviceOrUser, async (req: ExpressRequest, res, nex
   } catch (e) { return next(e); }
 });
 
+/**
+ * GET /api/salons/ai/shortcut/:code — текст и части по коду быстрого шаблона.
+ *
+ * Зовёт канал (instagram-service), когда менеджер набрал код в поле ответа.
+ * Отдаёт и готовый текст, и разложенные части: у шаблона вступления про
+ * ноги в теле есть фотографии, и отправить его одной строкой нельзя.
+ *
+ * Выключенные темы здесь доступны намеренно: `enabled` управляет
+ * АВТОМАТИКОЙ, а не правом менеджера отправить текст руками. Заготовка без
+ * текста отдаётся с пометкой — иначе клиенту уйдёт «(текст не заполнен)».
+ */
+router.get('/shortcut/:code', serviceOrUser, async (req: ExpressRequest, res, next) => {
+  try {
+    const code = String(req.params.code || '');
+    if (!/^[0-9]{1,8}$/.test(code)) throw new HttpError(400, 'Код шаблона — только цифры');
+
+    const { rows } = await pool.query(
+      `SELECT topic, title, body FROM ai.reply_templates
+        WHERE company_id = $1 AND shortcut = $2`,
+      [req.auth!.company_id, code],
+    );
+    const t = rows[0];
+    if (!t) throw new HttpError(404, `Шаблона с кодом ${code} нет`, 'shortcut_not_found');
+
+    const parts = parseParts(t.body ?? '');
+    // Цены в тексте — из прайса: сумма, написанная в шаблоне руками, это
+    // второй источник правды, который разъезжается с прайсом молча.
+    const catalog = await loadZoneCatalog(req.auth!.company_id);
+    const rendered: ReplyPart[] = parts.map(p => (
+      p.type === 'text' ? { ...p, text: renderPrices(p.text, catalog) } : p
+    ));
+
+    return res.json({
+      ok: true,
+      topic: t.topic,
+      title: t.title,
+      // Текст для подстановки в поле ответа — все текстовые части подряд.
+      text: rendered.flatMap(p => (p.type === 'text' ? [p.text] : [])).join('\n\n'),
+      parts: rendered,
+      images: rendered.filter(p => p.type === 'image').length,
+      filled: !/^\(текст не заполнен/.test(String(t.body || '').trim()),
+    });
+  } catch (e) { return next(e); }
+});
+
 // Всё остальное — только для вошедшего пользователя.
 router.use(authenticate);
 // Доступ по праву, а не по роли: шаблонами ответов занимается маркетолог
@@ -635,51 +680,6 @@ router.put('/templates/:id', manage, async (req: ExpressRequest, res, next) => {
     }
     return next(e);
   }
-});
-
-/**
- * GET /api/salons/ai/shortcut/:code — текст и части по коду быстрого шаблона.
- *
- * Зовёт канал (instagram-service), когда менеджер набрал код в поле ответа.
- * Отдаёт и готовый текст, и разложенные части: у шаблона вступления про
- * ноги в теле есть фотографии, и отправить его одной строкой нельзя.
- *
- * Выключенные темы здесь доступны намеренно: `enabled` управляет
- * АВТОМАТИКОЙ, а не правом менеджера отправить текст руками. Заготовка без
- * текста отдаётся с пометкой — иначе клиенту уйдёт «(текст не заполнен)».
- */
-router.get('/shortcut/:code', serviceOrUser, async (req: ExpressRequest, res, next) => {
-  try {
-    const code = String(req.params.code || '');
-    if (!/^[0-9]{1,8}$/.test(code)) throw new HttpError(400, 'Код шаблона — только цифры');
-
-    const { rows } = await pool.query(
-      `SELECT topic, title, body FROM ai.reply_templates
-        WHERE company_id = $1 AND shortcut = $2`,
-      [req.auth!.company_id, code],
-    );
-    const t = rows[0];
-    if (!t) throw new HttpError(404, `Шаблона с кодом ${code} нет`, 'shortcut_not_found');
-
-    const parts = parseParts(t.body ?? '');
-    // Цены в тексте — из прайса: сумма, написанная в шаблоне руками, это
-    // второй источник правды, который разъезжается с прайсом молча.
-    const catalog = await loadZoneCatalog(req.auth!.company_id);
-    const rendered: ReplyPart[] = parts.map(p => (
-      p.type === 'text' ? { ...p, text: renderPrices(p.text, catalog) } : p
-    ));
-
-    return res.json({
-      ok: true,
-      topic: t.topic,
-      title: t.title,
-      // Текст для подстановки в поле ответа — все текстовые части подряд.
-      text: rendered.flatMap(p => (p.type === 'text' ? [p.text] : [])).join('\n\n'),
-      parts: rendered,
-      images: rendered.filter(p => p.type === 'image').length,
-      filled: !/^\(текст не заполнен/.test(String(t.body || '').trim()),
-    });
-  } catch (e) { return next(e); }
 });
 
 /** DELETE /api/salons/ai/templates/:id */
