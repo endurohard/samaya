@@ -540,6 +540,12 @@ services:
       # её «переезд» на голландский адрес сервера — типовая причина
       # чекпоинта. Выходить надо местным адресом.
       INSTAGRAM_SOCKS_PROXY: ${INSTAGRAM_SOCKS_PROXY:-}
+      # Отдельный мост для СКАЧИВАНИЯ вложений. Домен lookaside.fbsbx.com,
+      # с которого Meta отдаёт файлы Direct, через VLESS не открывается
+      # вовсе (TLS рвётся), а через прямой мост отвечает. Без этого 96%
+      # вложений оставались без файла, а в переписке висела подпись
+      # «вложение не сохранено».
+      INSTAGRAM_MEDIA_PROXY: ${INSTAGRAM_MEDIA_PROXY:-http://host.docker.internal:1180}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DEFAULT_COMPANY_ID: ${DEFAULT_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
       # Белый список ников (через запятую, без @). Задан — отправка идёт

@@ -167,28 +167,64 @@ export async function upsertThread(t) {
 // Системные HTTP(S)_PROXY в контейнере указывают на 127.0.0.1:1080, то есть
 // на localhost САМОГО контейнера, где ничего не слушает: по ним скачивание
 // падало с «fetch failed». Мост живёт на host.docker.internal.
-let mediaDispatcher;
-let mediaDispatcherReady = false;
-async function dispatcherFor() {
-  if (mediaDispatcherReady) return mediaDispatcher;
-  mediaDispatcherReady = true;
+/**
+ * Маршрут для СКАЧИВАНИЯ вложений — отдельный от маршрута к Graph API.
+ *
+ * Вложения Direct Meta отдаёт с lookaside.fbsbx.com, и этот домен через
+ * VLESS-мост (которым идут вызовы Graph API) не открывается вовсе: TLS
+ * рвётся с «socket disconnected before secure TLS connection». Через
+ * прямой мост он отвечает штатно. Замерено на бою: 1181 — обрыв TLS,
+ * 1180 — HTTP 400 (то есть соединение есть).
+ *
+ * Симптом, если этого не знать: 1196 вложений из 1240 без файла, в логе
+ * однообразное «fetch failed», а в переписке вместо фото подпись
+ * «вложение не сохранено» — выглядит как протухшие ссылки Meta, хотя
+ * ссылки живые и дело в маршруте.
+ *
+ * Берём ДВА диспетчера и пробуем по очереди: домены вложений у Meta
+ * меняются, и жёсткая привязка одного моста к одному домену сломается
+ * молча при следующей смене.
+ */
+let mediaDispatchers = null;
+async function dispatchersFor() {
+  if (mediaDispatchers) return mediaDispatchers;
   try {
     const { ProxyAgent, Agent } = await import('undici');
-    const proxy = process.env.INSTAGRAM_SOCKS_PROXY || '';
-    mediaDispatcher = proxy
-      ? new ProxyAgent(proxy)
-      : new Agent({ connect: { timeout: 10_000 } });
+    const direct = process.env.INSTAGRAM_MEDIA_PROXY || '';
+    const vless = process.env.INSTAGRAM_SOCKS_PROXY || '';
+    const list = [];
+    // Прямой мост первым: именно он работает с lookaside.fbsbx.com.
+    if (direct) list.push({ name: 'прямой', d: new ProxyAgent(direct) });
+    if (vless) list.push({ name: 'vless', d: new ProxyAgent(vless) });
+    if (!list.length) list.push({ name: 'без прокси', d: new Agent({ connect: { timeout: 10_000 } }) });
+    mediaDispatchers = list;
   } catch (e) {
+    // Молчать здесь нельзя: без undici запрос уходит напрямую и упирается
+    // в ENOTFOUND, а выглядит это как пустой ответ Meta.
     console.error('[IG][медиа] undici недоступен:', e.message);
-    mediaDispatcher = undefined;
+    mediaDispatchers = [{ name: 'системный', d: undefined }];
   }
-  return mediaDispatcher;
+  return mediaDispatchers;
 }
 
 async function fetchMedia(igId, threadId, url) {
   try {
-    const dispatcher = await dispatcherFor();
-    const r = await fetch(url, { signal: AbortSignal.timeout(30_000), dispatcher });
+    // Перебираем маршруты: домен вложений доступен не через каждый мост.
+    const routes = await dispatchersFor();
+    let r = null;
+    let lastErr = null;
+    for (const route of routes) {
+      try {
+        r = await fetch(url, { signal: AbortSignal.timeout(30_000), dispatcher: route.d });
+        break;
+      } catch (e) {
+        lastErr = `${route.name}: ${e.cause?.message || e.message}`;
+      }
+    }
+    if (!r) {
+      console.warn(`[IG][медиа] ${igId}: не скачалось ни одним маршрутом (${lastErr})`);
+      return null;
+    }
     if (!r.ok) {
       console.warn(`[IG][медиа] ${igId}: Meta ответила ${r.status}`);
       return null;

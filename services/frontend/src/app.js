@@ -8831,25 +8831,91 @@ function waMediaHtml(m) {
   const url = '/api/whatsapp/media/' + encodeURIComponent(m.wa_id);
   const kind = m.msg_type;
   const mime = m.media_mime || '';
+
+  // ВАЖНО: адрес кладём в data-media, а НЕ в src.
+  //
+  // <img src>, <video src> и <audio src> не отправляют заголовок
+  // Authorization, а файл отдаёт наш сервис за Kong и требует токен. Прямая
+  // ссылка возвращает 401, браузер рисует значок битой картинки, ошибки в
+  // консоли нет — выглядит как «вложения пропали», хотя файл на диске цел.
+  // Настоящий src подставляет waLoadMedia() после fetch с токеном.
   if (kind === 'image' || /^image\//.test(mime)) {
-    // loading=lazy: в переписке бывают десятки фото, грузим по мере прокрутки.
-    return '<a class="wa-media-link" href="' + url + '" target="_blank" rel="noopener">'
-      + '<img class="wa-media-img" src="' + url + '" alt="фото" loading="lazy"></a>';
+    return '<span class="wa-media-link" data-wa-save="' + url + '" role="button" tabindex="0" title="Сохранить">'
+      + '<img class="wa-media-img" data-wa-media="' + url + '" alt="фото"></span>';
   }
   if (kind === 'video' || /^video\//.test(mime)) {
     // У видео со страницы доступен только кадр-превью: сам файл WhatsApp
     // отдаёт после нажатия в своём окне. Показываем кадр с пометкой, а не
     // битый плеер.
-    return '<a class="wa-media-link is-video" href="' + url + '" target="_blank" rel="noopener">'
-      + '<img class="wa-media-img" src="' + url + '" alt="видео" loading="lazy">'
-      + '<span class="wa-media-play" aria-hidden="true">▶</span></a>';
+    return '<span class="wa-media-link is-video" data-wa-save="' + url + '" role="button" tabindex="0" title="Сохранить">'
+      + '<img class="wa-media-img" data-wa-media="' + url + '" alt="видео">'
+      + '<span class="wa-media-play" aria-hidden="true">▶</span></span>';
   }
   if (kind === 'voice' || /^audio\//.test(mime)) {
-    return '<audio class="wa-media-audio" controls preload="none" src="' + url + '"></audio>';
+    return '<audio class="wa-media-audio" controls preload="none" data-wa-media="' + url + '"></audio>';
   }
   const label = kind === 'document' ? (m.media_name || 'документ') : (m.media_name || 'вложение');
-  return '<a class="wa-media" href="' + url + '" target="_blank" rel="noopener">'
-    + escapeHtml(label) + '</a>';
+  return '<span class="wa-media" data-wa-save="' + url + '" role="button" tabindex="0">'
+    + escapeHtml(label) + '</span>';
+}
+
+/**
+ * Подставить вложения WhatsApp, скачав их с токеном.
+ *
+ * Тот же приём, что у вложений Instagram и записей разговоров: тянем файл
+ * через fetch и подставляем blob. Созданные ссылки освобождаем при
+ * следующей отрисовке — иначе за день переписки вкладка наберёт десятки
+ * мегабайт.
+ */
+const _waBlobs = new Map();
+async function waLoadMedia(root) {
+  for (const [, u] of _waBlobs) URL.revokeObjectURL(u);
+  _waBlobs.clear();
+
+  for (const el of root.querySelectorAll('[data-wa-media]')) {
+    const src = el.getAttribute('data-wa-media');
+    try {
+      const res = await fetch(src, { headers: { Authorization: `Bearer ${store.access}` } });
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      const u = URL.createObjectURL(blob);
+      _waBlobs.set(src, u);
+      el.src = u;
+    } catch {
+      // Файла нет или нет доступа — честная подпись вместо битой картинки.
+      const note = document.createElement('span');
+      note.className = 'wa-media-missing';
+      note.textContent = 'вложение недоступно';
+      el.replaceWith(note);
+    }
+  }
+
+  // Сохранение в архив: тем же токеном, с принудительным скачиванием.
+  for (const node of root.querySelectorAll('[data-wa-save]')) {
+    node.addEventListener('click', async () => {
+      const src = node.getAttribute('data-wa-save');
+      try {
+        const res = await fetch(`${src}?download=1`, {
+          headers: { Authorization: `Bearer ${store.access}` },
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        const u = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = u;
+        // Имя берём из заголовка, иначе браузер сохранит файл без расширения.
+        const cd = res.headers.get('content-disposition') || '';
+        const mm = /filename="([^"]+)"/.exec(cd);
+        link.download = mm ? decodeURIComponent(mm[1]) : 'whatsapp-вложение';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(u), 10_000);
+      } catch (err) {
+        toast(`Не удалось скачать вложение (${err.message})`);
+      }
+    });
+  }
 }
 
 async function loadWaChat(silent = false) {
@@ -8927,6 +8993,8 @@ async function loadWaChat(silent = false) {
       );
     }
     list.innerHTML = parts.join('');
+    // Вложения подставляем ПОСЛЕ вставки разметки: до неё элементов ещё нет.
+    void waLoadMedia(list);
     if (atBottom || !silent) list.scrollTop = list.scrollHeight;
   } catch (e) {
     list.innerHTML = '<div class="wa-chat-empty">Не удалось загрузить: ' + escapeHtml(String(e.message || e)) + '</div>';
@@ -9327,6 +9395,7 @@ async function openWaChat(phone, silent = false) {
   }
   if (!items.length) parts.push('<div class="wa-inbox-empty">Сообщений нет</div>');
   thread.innerHTML = parts.join('');
+  void waLoadMedia(thread);
   if (atBottom || !silent) thread.scrollTop = thread.scrollHeight;
 }
 
