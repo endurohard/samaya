@@ -185,6 +185,11 @@ services:
       JEV_HTTP_PROXY: ${JEV_HTTP_PROXY:-http://host.docker.internal:1180}
       # Ответы менеджера из Telegram уходят клиенту через instagram-service.
       INSTAGRAM_SERVICE_URL: ${INSTAGRAM_SERVICE_URL:-http://instagram-service:3010}
+      # …и через whatsapp-service: менеджер отвечает реплаем в той же группе,
+      # и канал определяется уведомлением, а не настройкой.
+      WHATSAPP_SERVICE_URL: ${WHATSAPP_SERVICE_URL:-http://whatsapp-service:3008}
+      WHATSAPP_INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
+      INSTAGRAM_INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}
       # Внутренний токен: по нему instagram-service зовёт /ai/reply, когда
       # пришло сообщение от клиента. Пользовательского JWT у сервиса нет.
       INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}
@@ -449,6 +454,12 @@ services:
       WHATSAPP_MONITOR_CLIENTS_ONLY: ${WHATSAPP_MONITOR_CLIENTS_ONLY:-true}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       INTERNAL_TOKEN: ${WHATSAPP_INTERNAL_TOKEN:-dev_internal_token}
+      # Быстрые шаблоны ответов лежат в salon-service. Токен берём ИМЕННО
+      # instagram'овский: salon-service проверяет входящие сервисные вызовы
+      # по нему одному (serviceOrUser в routes/ai.ts), и свой
+      # WHATSAPP_INTERNAL_TOKEN здесь дал бы 401 на каждый код шаблона.
+      SALON_SERVICE_URL: ${SALON_SERVICE_URL:-http://salon-service:3002}
+      SALON_INTERNAL_TOKEN: ${INSTAGRAM_INTERNAL_TOKEN:-dev_internal_token}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     expose:
       - "3008"

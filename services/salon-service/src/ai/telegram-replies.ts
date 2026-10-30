@@ -19,6 +19,11 @@ import { tgDispatcher } from './telegram';
 const COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '';
 const IG_URL = process.env.INSTAGRAM_SERVICE_URL || 'http://instagram-service:3010';
 const IG_TOKEN = process.env.INSTAGRAM_INTERNAL_TOKEN || process.env.INTERNAL_TOKEN || '';
+const WA_URL = process.env.WHATSAPP_SERVICE_URL || 'http://whatsapp-service:3008';
+const WA_TOKEN = process.env.WHATSAPP_INTERNAL_TOKEN || process.env.INTERNAL_TOKEN || '';
+
+/** Код быстрого шаблона: ответ менеджера из одних цифр. */
+const SHORTCUT_RE = /^[0-9]{1,8}$/;
 
 let timer: NodeJS.Timeout | null = null;
 
@@ -108,27 +113,68 @@ async function deliverMedia(
 
 /** Отправить ответ менеджера в канал клиента. */
 async function deliver(channel: string, threadKey: string, text: string): Promise<string | null> {
-  if (channel !== 'instagram') return 'канал пока не поддержан';
+  const wa = channel === 'whatsapp';
+  if (channel !== 'instagram' && !wa) return 'канал пока не поддержан';
   try {
-    const r = await fetch(`${IG_URL}/api/instagram/send`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Именно X-Internal-Token: authenticate в instagram-service ждёт
-        // внутренний токен в этом заголовке, а Bearer разбирает как JWT
-        // пользователя и отвечает 401 unauthorized.
-        'X-Internal-Token': IG_TOKEN,
+    const r = await fetch(
+      wa ? `${WA_URL}/api/whatsapp/send` : `${IG_URL}/api/instagram/send`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Именно X-Internal-Token: authenticate в сервисах каналов ждёт
+          // внутренний токен в этом заголовке, а Bearer разбирает как JWT
+          // пользователя и отвечает 401 unauthorized.
+          'X-Internal-Token': wa ? WA_TOKEN : IG_TOKEN,
+        },
+        body: JSON.stringify(wa
+          ? { phone: threadKey, message: text }
+          : { thread_id: threadKey, message: text }),
+        signal: AbortSignal.timeout(25_000),
       },
-      body: JSON.stringify({ thread_id: threadKey, message: text }),
-      signal: AbortSignal.timeout(25_000),
-    });
+    );
     if (!r.ok) {
       const b = await r.text().catch(() => '');
-      return `сервис Instagram ответил ${r.status}: ${b.slice(0, 120)}`;
+      return `сервис ${wa ? 'WhatsApp' : 'Instagram'} ответил ${r.status}: ${b.slice(0, 120)}`;
     }
     return null;
   } catch (e) {
     return (e as Error).message;
+  }
+}
+
+/**
+ * Отправить быстрый шаблон по коду, набранному менеджером в Telegram.
+ *
+ * Зовём эндпоинт КАНАЛА, а не собираем текст здесь: у шаблона могут быть
+ * фотографии, и канал уже умеет слать их несколькими сообщениями подряд.
+ * Вторая реализация той же сборки разошлась бы с первой при первой правке.
+ */
+async function deliverShortcut(
+  channel: string, threadKey: string, code: string,
+): Promise<{ why: string | null; title?: string; sent?: number }> {
+  const wa = channel === 'whatsapp';
+  if (channel !== 'instagram' && !wa) return { why: 'канал пока не поддержан' };
+  try {
+    const r = await fetch(
+      wa ? `${WA_URL}/api/whatsapp/send-shortcut` : `${IG_URL}/api/instagram/send-shortcut`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Token': wa ? WA_TOKEN : IG_TOKEN,
+        },
+        body: JSON.stringify(wa
+          ? { phone: threadKey, code }
+          : { thread_id: threadKey, code }),
+        signal: AbortSignal.timeout(90_000), // шаблон с фото уходит дольше
+      },
+    );
+    const b = await r.json().catch(() => ({})) as { error?: string; title?: string; sent?: number };
+    if (!r.ok) return { why: b.error || `сервис ответил ${r.status}` };
+    return { why: null, title: b.title, sent: b.sent };
+  } catch (e) {
+    return { why: (e as Error).message };
   }
 }
 
@@ -157,6 +203,19 @@ async function react(tok: string, chatId: string, messageId: number, ok: boolean
         reply_to_message_id: messageId,
         text: `⚠️ Не отправлено: ${why || 'неизвестная причина'}`,
       }),
+      signal: AbortSignal.timeout(10_000),
+      dispatcher: tgDispatcher,
+    } as RequestInit);
+  } catch { /* подтверждение — не повод ронять цикл */ }
+}
+
+/** Короткая реплика менеджеру в ту же тему. */
+async function note(tok: string, chatId: string, messageId: number, text: string) {
+  try {
+    await fetch(`https://api.telegram.org/bot${tok}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, reply_to_message_id: messageId, text }),
       signal: AbortSignal.timeout(10_000),
       dispatcher: tgDispatcher,
     } as RequestInit);
@@ -226,6 +285,7 @@ async function tick(): Promise<void> {
     if (!link) continue;
 
     let why: string | null = null;
+    let shortcutNote: string | null = null;
     if (hasMedia) {
       // Фото Telegram отдаёт в нескольких размерах — берём последний,
       // он самый крупный.
@@ -239,14 +299,27 @@ async function tick(): Promise<void> {
       // текст и вложение одним запросом.
       const caption = m.caption?.trim();
       if (!why && caption) why = await deliver(link.channel, link.thread_key, caption);
+    } else if (SHORTCUT_RE.test(m.text.trim())) {
+      // Ответ из одних цифр — это код быстрого шаблона, а не текст клиенту.
+      // Обычное сообщение клиенту из одних цифр не состоит, поэтому
+      // распознаём смело; промах виден по ответу бота в теме.
+      const code = m.text.trim();
+      const out = await deliverShortcut(link.channel, link.thread_key, code);
+      why = out.why;
+      if (!why) shortcutNote = `шаблон «${out.title ?? code}»`;
     } else {
       why = await deliver(link.channel, link.thread_key, m.text);
     }
 
     await react(tok, String(m.chat.id), Number(m.message_id), !why, why ?? undefined);
+    // О шаблоне сообщаем отдельной репликой: по одному «👍» менеджер не
+    // поймёт, какой именно текст ушёл клиенту, а отозвать его нельзя.
+    if (!why && shortcutNote) {
+      await note(tok, String(m.chat.id), Number(m.message_id), `✅ Отправлен ${shortcutNote}`);
+    }
     console.log(why
       ? `[tg] ответ в ${link.who || link.thread_key} НЕ отправлен: ${why}`
-      : `[tg] ответ отправлен в ${link.who || link.thread_key}${hasMedia ? ' (вложение)' : ''}`);
+      : `[tg] ответ отправлен в ${link.who || link.thread_key}${hasMedia ? ' (вложение)' : ''}${shortcutNote ? ' — ' + shortcutNote : ''}`);
   }
   if (last !== offset) await setCursor(last);
 }

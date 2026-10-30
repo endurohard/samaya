@@ -8936,10 +8936,18 @@ async function sendWaChat() {
   if (!message || !_waChatState.phone) return;
   if (btn) btn.disabled = true;
   try {
-    const r = await apiCall('POST', '/api/whatsapp/send', { phone: _waChatState.phone, message });
+    // Сообщение из одних цифр — код быстрого шаблона, а не текст клиенту.
+    // Отправляет сервис: у части шаблонов в теле есть фотографии, их
+    // подстановкой текста в поле не отправишь.
+    const isCode = /^[0-9]{1,8}$/.test(message);
+    const r = isCode
+      ? await apiCall('POST', '/api/whatsapp/send-shortcut', { phone: _waChatState.phone, code: message })
+      : await apiCall('POST', '/api/whatsapp/send', { phone: _waChatState.phone, message });
     if (r.ok) {
       if (input) input.value = '';
-      toast('Сообщение отправлено');
+      toast(isCode
+        ? `Отправлен шаблон «${r.data?.title || message}»`
+        : 'Сообщение отправлено');
       await loadWaChat();
     } else {
       // Причину показываем прямо в окне, а не только всплывашкой: тост легко
@@ -9486,6 +9494,28 @@ function waAttachChatToClient(phoneDigits, row) {
     }
   });
   document.getElementById('waChatSend')?.addEventListener('click', () => void sendWaChat());
+
+  // Подсказка под полем: какой шаблон уйдёт по набранному коду. Без неё
+  // менеджер узнаёт о промахе только после отправки клиенту.
+  document.getElementById('waChatInput')?.addEventListener('input', () => {
+    const input = document.getElementById('waChatInput');
+    const status = document.getElementById('waChatStatus');
+    if (!input || !status) return;
+    const v = (input.value || '').trim();
+    if (!/^[0-9]{1,8}$/.test(v)) {
+      if (status.dataset.hint === '1') { status.textContent = ''; status.className = 'wa-chat-status'; delete status.dataset.hint; }
+      return;
+    }
+    const t = aiTemplates.find(x => String(x.shortcut || '') === v);
+    status.dataset.hint = '1';
+    // Пустой список — не повод утверждать, что кода нет: у менеджера может
+    // не быть прав на чтение шаблонов. Проверит сервер.
+    const unknown = aiTemplates.length && !t;
+    status.className = 'wa-chat-status' + (unknown ? ' is-warn' : '');
+    status.textContent = t
+      ? `Код ${v} → «${t.title}». Отправить — Enter.`
+      : (unknown ? `Кода ${v} нет среди шаблонов` : `Шаблон по коду ${v} — отправить Enter`);
+  });
   // Ctrl/Cmd+Enter отправляет — привычно для поля переписки.
   document.getElementById('waChatInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void sendWaChat(); }

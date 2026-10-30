@@ -9,11 +9,17 @@ import { listByClient, mediaOf, linkClientByPhone, digitsOf, saveScraped, newInc
 } from './store.js';
 import { Monitor } from './monitor.js';
 import { authenticate, requireSend } from './auth.js';
+import { sendParts } from './parts.js';
 
 const PORT = Number(process.env.PORT || 3008);
 // Тот же том, что у вложений переписки (store.js): вложения рассылки лежат
 // в подкаталоге broadcast/.
 const MEDIA_DIR = process.env.WHATSAPP_MEDIA_DIR || '/data/media';
+// Шаблоны ответов живут в salon-service — туда же ходим за текстом по коду.
+// Токен ОТДЕЛЬНЫЙ от своего INTERNAL_TOKEN: salon-service проверяет
+// сервисные вызовы по instagram'овскому токену, и свой здесь даёт 401.
+const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
+const SALON_TOKEN = process.env.SALON_INTERNAL_TOKEN || process.env.INTERNAL_TOKEN || '';
 const monitor = new Monitor(wa);
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -205,6 +211,66 @@ app.post('/api/whatsapp/send', requireSend, async (req, res) => {
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// Быстрый шаблон по коду: менеджер пишет в поле ответа «000» вместо того,
+// чтобы набирать текст заново. Тот же механизм, что в Instagram, — шаблоны
+// общие, и держать два разных набора текстов для двух каналов означало бы
+// расхождение при первой же правке.
+app.post('/api/whatsapp/send-shortcut', requireSend, async (req, res) => {
+  try {
+    const phone = String(req.body?.phone || '').trim();
+    const code = String(req.body?.code || '').trim();
+    if (!phone) return res.status(400).json({ error: 'нужен phone' });
+    if (!/^[0-9]{1,8}$/.test(code)) return res.status(400).json({ error: 'код шаблона — только цифры' });
+
+    const r = await fetch(`${SALON_URL}/api/salons/ai/shortcut/${code}`, {
+      headers: { Authorization: `Bearer ${SALON_TOKEN}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const tpl = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return res.status(r.status === 404 ? 404 : 502)
+        .json({ error: tpl?.message || tpl?.error || `шаблон ${code} недоступен` });
+    }
+    // Заготовка без текста: отправлять «(текст не заполнен)» клиенту нельзя,
+    // и промолчать тоже — менеджер должен понять, почему ничего не ушло.
+    if (tpl.filled === false) {
+      return res.status(409).json({
+        error: `Шаблон «${tpl.title}» ещё не заполнен — впишите текст в Настройках → Ассистент`,
+        code: 'template_empty',
+      });
+    }
+    if (!Array.isArray(tpl.parts) || !tpl.parts.length) {
+      return res.status(409).json({ error: `Шаблон «${tpl.title}» пуст` });
+    }
+
+    const sent = await sendParts(wa, phone, tpl.parts);
+    if (!sent.ok) {
+      return res.status(502).json({ error: sent.error, sent: sent.sent, title: tpl.title });
+    }
+
+    // Дочитываем чат и сохраняем — тем же путём, что обычная отправка:
+    // иначе отправленное появится в карточке только со следующим проходом
+    // монитора (до 15 минут), и менеджер решит, что шаблон не ушёл.
+    try {
+      const digits = digitsOf(phone);
+      const read = await wa.readChat(digits, 20, await staffNames());
+      if (read?.items?.length) await saveScraped(digits, read.items);
+      const firstText = tpl.parts.find(p => p.type === 'text')?.text;
+      if (req.user?.id && firstText) {
+        await markAuthor(digits, firstText, { id: req.user.id, name: await authorName(req.user.id) });
+      }
+    } catch (e) {
+      console.error('[WA][шаблон] дочитывание не удалось:', e.message);
+    }
+
+    console.log(`[WA] шаблон «${tpl.title}» (код ${code}) отправлен ${phone}: ${sent.sent} сообщ.`);
+    return res.json({ ok: true, title: tpl.title, sent: sent.sent, images: tpl.images });
+  } catch (e) {
+    console.error('[WA][send-shortcut]', e.message);
+    return res.status(500).json({ error: e.message });
   }
 });
 
