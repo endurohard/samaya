@@ -13,6 +13,8 @@ import {
   PriceOutcome,
 } from '../ai/price-dialog';
 import { looksLikeServiceInterest } from '../ai/price';
+import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
+import type { ReplyPart } from '../ai/parts';
 
 /**
  * Ключ темы, по которой запускается сбор города, веса и зоны.
@@ -98,6 +100,31 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     const companyId = req.auth!.company_id;
     const ch = channel ?? 'instagram';
 
+    /**
+     * Ответ каналу. Единая точка, потому что вступление с фотографиями зон
+     * обязано уехать из ЛЮБОЙ ветки — и когда бот называет цену, и когда
+     * отдаёт разговор администратору. Разложенный по четырём return'ам,
+     * он потерялся бы в той ветке, которую забыли поправить.
+     */
+    const reply_parts: ReplyPart[] = thread_id
+      ? await legsIntroFor({ companyId, channel: ch, threadId: thread_id, text })
+        .catch((e) => {
+          // Сбой вступления не должен превращаться в молчание: обычный
+          // ответ клиенту важнее картинок.
+          console.error('[ai] вступление не собрано:', (e as Error).message);
+          return [] as ReplyPart[];
+        })
+      : [];
+    const respond = (d: Decision) => res.json({
+      ok: d.ok, topic: d.topic, confidence: d.confidence,
+      action: d.action, reply: d.reply, reason: d.reason,
+      // Канал отправляет их ПЕРЕД reply и подтверждает отметкой
+      // (POST /ai/intro-sent) — иначе при выключенном автоответе схемы
+      // зон были бы помечены отправленными, не уйдя клиенту.
+      reply_parts,
+      intro_key: reply_parts.length ? LEGS_INTRO_TOPIC : null,
+    });
+
     // Разговор о цене ведётся отдельно от классификатора: он помнит, что
     // клиент уже назвал город, вес или зону. Проверка стоит ПЕРЕД
     // классификатором, потому что короткие ответы («Москва», «80»,
@@ -132,7 +159,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
               draft: null,
             }).catch(() => {});
           }
-          return res.json(decision);
+          return respond(decision);
         }
       }
     }
@@ -167,7 +194,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
             draft: null,
           }).catch(() => {});
         }
-        return res.json(decision);
+        return respond(decision);
       }
     }
 
@@ -192,7 +219,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
             draft: null,
           }).catch(() => {});
         }
-        return res.json(decision);
+        return respond(decision);
       }
     }
     await logDecision(companyId, d, {
@@ -236,10 +263,31 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       });
     }
 
-    return res.json({
-      ok: d.ok, topic: d.topic, confidence: d.confidence,
-      action: d.action, reply: d.reply, reason: d.reason,
-    });
+    return respond(d);
+  } catch (e) { return next(e); }
+});
+
+/**
+ * POST /api/salons/ai/intro-sent — канал подтвердил отправку вступления.
+ *
+ * Отметка ставится ЗДЕСЬ, а не в момент решения в /reply: там отправки ещё
+ * не было. При выключенном автоответе или отказе Meta отметка «уже
+ * отправляли» заблокировала бы схемы зон навсегда, и клиент не получил бы
+ * их никогда — молча, без единой строки в логе.
+ */
+router.post('/intro-sent', serviceOrUser, async (req: ExpressRequest, res, next) => {
+  try {
+    const { thread_id, channel, intro_key } = z.object({
+      thread_id: z.string().min(1).max(200),
+      channel: z.string().max(32).nullish(),
+      intro_key: z.string().max(64).nullish(),
+    }).parse(req.body);
+
+    await markIntroSent(
+      req.auth!.company_id, channel ?? 'instagram', thread_id,
+      intro_key ?? LEGS_INTRO_TOPIC,
+    );
+    return res.json({ ok: true });
   } catch (e) { return next(e); }
 });
 

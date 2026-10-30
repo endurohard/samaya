@@ -101,6 +101,10 @@ export interface Decision {
  */
 const SERVICE_TOPICS = [
   process.env.AI_PRICE_TEXTS_TOPIC || 'price_quote_texts',
+  // Вступление про липосакцию ног: тексты плюс строки разметки «--- фото:».
+  // Как вариант ответа модели его показывать нельзя — размеченная рыба
+  // уйдёт клиенту вместо ответа.
+  process.env.AI_LEGS_INTRO_TOPIC || 'legs_intro',
 ];
 
 export async function loadTemplates(companyId: string): Promise<Template[]> {

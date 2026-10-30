@@ -9,6 +9,7 @@
 // правке. Сюда возвращается уже готовое решение.
 import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient, threadHasName, threadUsername, channelSettings } from './store.js';
 import { sendMessage, fetchProfile } from './graph.js';
+import { sendParts } from './parts.js';
 
 const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || '';
@@ -81,6 +82,25 @@ async function askAssistant(text, threadId, clientName) {
     // Недоступность ассистента не должна приводить к молчанию: сообщение
     // уже сохранено, администратор увидит его в переписке.
     return { ok: false, reason: `ассистент недоступен: ${e.message}` };
+  }
+}
+
+/** Подтвердить ассистенту, что вступление реально ушло клиенту. */
+async function confirmIntro(threadId, introKey) {
+  try {
+    await fetch(`${SALON_URL}/api/salons/ai/intro-sent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${INTERNAL_TOKEN}`,
+      },
+      body: JSON.stringify({ thread_id: threadId, channel: 'instagram', intro_key: introKey }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e) {
+    // Не подтвердили — вступление уйдёт второй раз на следующем сообщении
+    // про ноги. Это неприятно, но лучше, чем не отправить вовсе.
+    console.warn('[IG] отметка о вступлении не сохранена:', e.message);
   }
 }
 
@@ -198,6 +218,30 @@ export async function handleMessages(items) {
 
     if (d.action === 'skipped') { stats.skipped++; continue; }
 
+    // Вступление с фотографиями зон (круговая липосакция ног). Уходит
+    // ПЕРЕД ответом и независимо от того, отвечает ли бот сам: даже когда
+    // разговор передаётся администратору, клиент должен сразу увидеть,
+    // какие зоны прорабатываются — ради этого вступление и заводилось.
+    //
+    // Общий выключатель канала всё же уважаем: при INSTAGRAM_AUTOREPLY=false
+    // сервис не пишет клиенту ничего, и фотографии здесь не исключение.
+    let introSent = false;
+    if (AUTOREPLY && Array.isArray(d.reply_parts) && d.reply_parts.length) {
+      await sleep(rnd(4000, 12_000));
+      const r = await sendParts(it.threadId, d.reply_parts, clientId);
+      if (r.sent) {
+        // Отметку ставим только после фактической отправки: иначе при
+        // отказе Meta диалог навсегда остался бы помеченным, и схемы зон
+        // не ушли бы уже никогда.
+        introSent = true;
+        await confirmIntro(it.threadId, d.intro_key);
+        console.log(`[IG][ии] вступление отправлено в ${it.threadId} (${r.sent} сообщ.)`);
+      }
+      if (!r.ok) {
+        console.warn(`[IG][ии] вступление не ушло целиком в ${it.threadId}: ${r.error}`);
+      }
+    }
+
     if (d.action !== 'sent' || !AUTOREPLY) {
       if (d.reply) await saveDraft(it.threadId, d.reply, d.action === 'sent');
       stats.drafts++;
@@ -205,8 +249,10 @@ export async function handleMessages(items) {
     }
 
     // Пауза перед автоответом: мгновенная реплика через секунду после
-    // входящего читается как бот и клиентом, и антифродом Meta.
-    await sleep(rnd(4000, 12_000));
+    // входящего читается как бот и клиентом, и антифродом Meta. После
+    // вступления паузу не повторяем — она уже была перед ним, а сообщения
+    // внутри связки разделены своими интервалами.
+    if (!introSent) await sleep(rnd(4000, 12_000));
     const sent = await sendMessage(it.threadId, d.reply);
     if (sent.ok) {
       await clearDraft(it.threadId);
