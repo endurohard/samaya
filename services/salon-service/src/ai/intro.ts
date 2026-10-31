@@ -36,7 +36,26 @@ export function mentionsLegs(text: string): boolean {
 }
 
 /**
- * Прочитать части вступления из шаблона.
+ * Сложить части вступления в порядке, который просил владелец:
+ * СХЕМЫ ЗОН → текст про методику и 7 зон → просьба прислать свои фото.
+ *
+ * Вынесено из loadIntroParts отдельно, чтобы порядок проверялся тестом без
+ * БД: именно он и есть требование владельца, а не деталь реализации.
+ *
+ * Почему не простая склейка «всё из intro, потом method»: текст про
+ * методику заканчивается словами «Выше показали, какие именно 7 зон», и он
+ * обязан идти сразу за картинками. А просьба сфотографироваться должна быть
+ * последней — иначе клиента просят раздеться и прислать фото раньше, чем
+ * объяснили, что за процедура.
+ */
+export function orderIntroParts(ownParts: ReplyPart[], methodParts: ReplyPart[]): ReplyPart[] {
+  const images = ownParts.filter(p => p.type === 'image');
+  const texts = ownParts.filter(p => p.type !== 'image');
+  return [...images, ...methodParts, ...texts];
+}
+
+/**
+ * Прочитать части вступления из шаблонов.
  *
  * Пустой список означает «тема выключена или не заведена» — тогда
  * вступление просто не отправляется, а обычный ответ уходит как раньше.
@@ -54,14 +73,14 @@ export async function loadIntroParts(companyId: string): Promise<ReplyPart[]> {
     // главная, и без неё схемы зон отправлять незачем.
     if (!head || head.enabled === false) return [];
 
-    const parts = parseParts(head.body ?? '');
     const method = by.get(LEGS_METHOD_TOPIC);
     // Вторую часть добавляем только если она включена и заполнена:
     // заготовка-подсказка «(текст не заполнен)» клиенту уйти не должна.
-    if (method && method.enabled !== false) {
-      parts.push(...parseParts(method.body ?? ''));
-    }
-    return parts;
+    const methodParts = method && method.enabled !== false
+      ? parseParts(method.body ?? '')
+      : [];
+
+    return orderIntroParts(parseParts(head.body ?? ''), methodParts);
   } catch (e) {
     // Молчаливый пропуск выглядел бы как «вступление перестало
     // отправляться» без единой подсказки, где искать.

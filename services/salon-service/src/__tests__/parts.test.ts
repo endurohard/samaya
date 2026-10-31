@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseParts } from '../ai/parts';
-import { mentionsLegs } from '../ai/intro';
+import { mentionsLegs, orderIntroParts } from '../ai/intro';
+import type { ReplyPart } from '../ai/parts';
 
 describe('parseParts', () => {
   it('разбирает текст-фото-фото-текст в том же порядке', () => {
@@ -57,5 +58,40 @@ describe('mentionsLegs', () => {
     'Здравствуйте',
   ])('не срабатывает на «%s»', (text) => {
     expect(mentionsLegs(text)).toBe(false);
+  });
+});
+
+describe('orderIntroParts', () => {
+  // Порядок задан владельцем: сначала клиент видит СХЕМЫ ЗОН, потом читает
+  // про методику и 7 зон, и только последним — просьбу прислать свои фото.
+  const own = parseParts([
+    '--- фото: legs-zones-front',
+    '--- фото: legs-zones-back',
+    '--- текст',
+    'Пришлите, пожалуйста, фото ног прямо, сбоку и со спины 🤍',
+  ].join('\n'));
+  const method = parseParts('Уникальная авторская методика… Выше показали, какие именно 7 зон 🤍');
+
+  it('ставит схемы зон первыми, просьбу о фото — последней', () => {
+    const parts = orderIntroParts(own, method);
+    expect(parts.map((p: ReplyPart) => p.type)).toEqual(['image', 'image', 'text', 'text']);
+    expect(parts[0]).toEqual({ type: 'image', asset: 'legs-zones-front' });
+    expect(parts[1]).toEqual({ type: 'image', asset: 'legs-zones-back' });
+    // Текст про 7 зон обязан идти СРАЗУ за картинками: он на них ссылается
+    // словами «Выше показали».
+    expect((parts[2] as { text: string }).text).toContain('Выше показали');
+    expect((parts[3] as { text: string }).text).toContain('Пришлите');
+  });
+
+  it('не теряет и не дублирует части', () => {
+    const parts = orderIntroParts(own, method);
+    expect(parts).toHaveLength(own.length + method.length);
+    const texts = parts.filter((p: ReplyPart) => p.type === 'text').map((p) => (p as { text: string }).text);
+    expect(new Set(texts).size).toBe(texts.length);
+  });
+
+  it('без второй темы отправляет только свои части', () => {
+    const parts = orderIntroParts(own, []);
+    expect(parts.map((p: ReplyPart) => p.type)).toEqual(['image', 'image', 'text']);
   });
 });
