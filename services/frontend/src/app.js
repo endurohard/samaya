@@ -8230,12 +8230,24 @@ import {
     box.innerHTML = aiTestUsers.map((u) => `
       <div class="row-item" style="padding:6px 10px;">
         <div class="row-main"><div class="row-name">@${escapeHtml(u)}</div></div>
+        <button type="button" class="btn-ghost btn-sm ai-test-reset" data-u="${escapeHtml(u)}">Сброс</button>
         <button type="button" class="fin-del-btn ai-test-del" data-u="${escapeHtml(u)}" aria-label="Убрать">×</button>
       </div>`).join('');
     box.querySelectorAll('.ai-test-del').forEach((b) => {
       b.addEventListener('click', () => {
         void saveAiChannel(true, aiTestUsers.filter(x => x !== b.dataset.u));
       });
+    });
+    // Сброс состояния разговора: ассистент забывает названную цену и то,
+    // что уже показывал схемы зон. Нужен, чтобы прогнать сценарий заново
+    // на том же аккаунте — иначе на повторный вопрос приходит готовый
+    // расчёт, а картинки не отправляются вовсе (они раз на диалог).
+    //
+    // Подтверждение — второе нажатие той же кнопки, а не confirm():
+    // браузерные диалоги заблокированы во встроенном браузере VS Code, и
+    // кнопка там выглядела бы мёртвой.
+    box.querySelectorAll('.ai-test-reset').forEach((b) => {
+      b.addEventListener('click', () => { void resetAiTestUser(b); });
     });
   }
 
@@ -8284,6 +8296,61 @@ import {
     if (box) box.hidden = !on;
     void saveAiChannel(on);
   });
+
+  /**
+   * Сброс состояния разговора у тестового аккаунта.
+   *
+   * Подтверждение делается ДВУМЯ нажатиями той же кнопки, а не confirm():
+   * админка открывается во встроенном браузере VS Code, где браузерные
+   * диалоги заблокированы — там кнопка с confirm() выглядит мёртвой.
+   */
+  async function resetAiTestUser(btn) {
+    const msg = document.getElementById('aiTestMsg');
+    const user = btn.dataset.u;
+
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Точно?';
+      btn.classList.add('btn-danger');
+      // Передумал — через 4 секунды кнопка возвращается в обычный вид,
+      // иначе «взведённая» кнопка так и останется ждать случайного клика.
+      btn._t = setTimeout(() => {
+        btn.dataset.armed = '';
+        btn.textContent = 'Сброс';
+        btn.classList.remove('btn-danger');
+      }, 4000);
+      return;
+    }
+
+    clearTimeout(btn._t);
+    btn.dataset.armed = '';
+    btn.classList.remove('btn-danger');
+    btn.textContent = '…';
+    btn.disabled = true;
+
+    const r = await apiCall('POST', '/api/salons/ai/channel/reset', { username: user });
+    btn.disabled = false;
+    btn.textContent = 'Сброс';
+
+    if (!r.ok) {
+      if (msg) {
+        const raw = r.data?.error || '';
+        msg.textContent = (!raw || raw === 'internal' || raw.length < 4)
+          ? 'Не удалось сбросить — попробуйте ещё раз'
+          : raw;
+        setTimeout(() => { msg.textContent = ''; }, 4000);
+      }
+      return;
+    }
+    if (msg) {
+      // Говорим, что именно сброшено: «готово» без подробностей не
+      // отличает «забыли цену» от «диалога вообще не нашли».
+      msg.textContent = r.data?.found
+        ? `@${user}: сброшено (цена ${r.data.cleared?.price || 0}, схемы ${r.data.cleared?.intro || 0})`
+        : `@${user}: переписки ещё не было — сбрасывать нечего`;
+      setTimeout(() => { msg.textContent = ''; }, 5000);
+    }
+  }
 
   async function addAiTestUser() {
     const inp = document.getElementById('aiTestUser');

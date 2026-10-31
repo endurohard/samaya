@@ -1088,6 +1088,95 @@ router.put('/channel', manage, async (req: ExpressRequest, res, next) => {
   }
 });
 
+/**
+ * POST /api/salons/ai/channel/reset — сбросить состояние разговора.
+ *
+ * Нужен для обкатки: ассистент помнит про диалог две вещи, и обе мешают
+ * проверить сценарий второй раз на том же аккаунте.
+ *
+ *  - `ai.price_dialog` — собранные город, вес и зоны плюс отметка о
+ *    названной цене. Живёт сутки, поэтому на повторный вопрос приходит
+ *    готовый расчёт вместо вопросов.
+ *  - `ai.thread_intro` — «схемы зон этому человеку уже показывали». Она
+ *    намеренно без срока: повторная пара одинаковых картинок читается как
+ *    зациклившийся бот. Но при обкатке владельцу нужно увидеть связку
+ *    целиком ещё раз.
+ *
+ * Сбрасываем ТОЛЬКО аккаунты из белого списка обкатки: это проверочные
+ * диалоги владельца. Разрешить произвольный ник значило бы дать кнопку,
+ * которая у живого клиента сотрёт собранные ответы и заставит бота
+ * переспрашивать всё заново, а картинки уйдут повторно.
+ */
+router.post('/channel/reset', manage, async (req: ExpressRequest, res, next) => {
+  try {
+    const { username } = z.object({
+      username: z.string().min(1).max(64),
+    }).parse(req.body);
+
+    const who = username.trim().replace(/^@/, '').toLowerCase();
+    const companyId = req.auth!.company_id;
+
+    const { rows: cfg } = await pool.query<{ test_users: string[] }>(
+      `SELECT test_users FROM ai.channel_settings
+        WHERE company_id = $1 AND channel = 'instagram'`,
+      [companyId],
+    );
+    const allowed = (cfg[0]?.test_users ?? []).map(u => String(u).toLowerCase());
+    if (!allowed.includes(who)) {
+      throw new HttpError(
+        400,
+        'Сбросить можно только аккаунт из списка обкатки — добавьте его в список выше',
+        'not_in_test_list',
+      );
+    }
+
+    // Ник живёт в таблице канала, состояние — в таблицах ассистента, связь
+    // по thread_id. Диалога может не быть вовсе (ник добавили заранее) —
+    // это не ошибка, сбрасывать просто нечего.
+    const { rows: threads } = await pool.query<{ thread_id: string }>(
+      `SELECT thread_id FROM instagram.threads
+        WHERE company_id = $1 AND lower(username) = $2`,
+      [companyId, who],
+    );
+    if (!threads.length) {
+      return res.json({ ok: true, found: false, cleared: { price: 0, intro: 0 } });
+    }
+    const ids = threads.map(t => t.thread_id);
+
+    // Обе таблицы чистим одной транзакцией: половинчатый сброс (цена
+    // забыта, а «картинки показывали» осталось) выглядит как новый баг.
+    const client = await pool.connect();
+    let price = 0;
+    let intro = 0;
+    try {
+      await client.query('BEGIN');
+      const p = await client.query(
+        `DELETE FROM ai.price_dialog
+          WHERE company_id = $1 AND channel = 'instagram' AND thread_id = ANY($2::text[])`,
+        [companyId, ids],
+      );
+      const i = await client.query(
+        `DELETE FROM ai.thread_intro
+          WHERE company_id = $1 AND channel = 'instagram' AND thread_id = ANY($2::text[])`,
+        [companyId, ids],
+      );
+      await client.query('COMMIT');
+      price = p.rowCount ?? 0;
+      intro = i.rowCount ?? 0;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    console.log(`[ai] сброс состояния @${who} (${ids.length} диал.): цена ${price}, вступление ${intro}`);
+    return res.json({ ok: true, found: true, cleared: { price, intro } });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 /** GET /api/salons/ai/log — журнал решений. */
 router.get('/log', viewLog, async (req: ExpressRequest, res, next) => {
   try {
