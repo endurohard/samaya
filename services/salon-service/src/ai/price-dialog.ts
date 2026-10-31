@@ -517,9 +517,17 @@ export async function handleMessage(opts: {
   //
   // Условие узкое: спрашиваем только когда прежние данные ЕСТЬ, а текущих
   // нет, и только если вопрос ещё не задан (иначе он пойдёт по кругу).
+  //
+  // И только если разговор РЕАЛЬНО давний. Без этой проверки бот
+  // переспрашивал подтверждение в том же разговоре через десять секунд:
+  // после выданной цены новый вопрос обнуляет город и вес, и условие
+  // «прошлые есть, текущих нет» снова истинно. Человек только что всё
+  // подтвердил — второй такой вопрос читается как неисправный бот.
+  const freshDialog = prev.askedAt != null || prev.quotedAt != null
+    || prev.confirmAskedAt != null;
   const hasPrior = next.city == null && next.weight == null
     && (prev.priorCity != null || prev.priorWeight != null);
-  if (!ready && hasPrior && !prev.confirmAskedAt) {
+  if (!ready && hasPrior && !prev.confirmAskedAt && !freshDialog) {
     next.confirmAskedAt = new Date();
     // askedAt не ставим: вопросы о городе и весе ещё не задавались, и при
     // ответе «нет» клиент должен получить их полным списком.
