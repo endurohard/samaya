@@ -82,6 +82,35 @@ export function parseAskTemplate(body: string): AskParts {
   };
 }
 
+/**
+ * Собрать первое сообщение опросника только из НУЖНЫХ пунктов.
+ *
+ * Требование владельца: если клиент сразу спросил про липосакцию ног, вес
+ * спрашивать нельзя — цена этой услуги от веса не зависит (фиксированная
+ * 700 000/800 000 ₽). Лишний вопрос выглядит как невнимательность: клиентка
+ * @madina.dii__ так и написала — «А мой вес вы не уточняли».
+ *
+ * Когда нужны все три пункта, возвращаем шаблон ВЦЕЛОМ: владелец правит его
+ * в админке как обычный текст, и там, кроме пунктов, бывают подпись и
+ * пояснения, которые при сборке по частям потерялись бы.
+ */
+export function askOnlyNeeded(
+  parts: AskParts,
+  need: { city: boolean; weight: boolean; zone: boolean },
+): string {
+  if (need.city && need.weight && need.zone) return parts.full;
+
+  const items: string[] = [];
+  if (need.city) items.push(parts.city);
+  if (need.weight) items.push(parts.weight);
+  if (need.zone) items.push(parts.zone);
+  // Спрашивать нечего — пусть решает вызывающий; пустую строку клиенту не
+  // отправляем, поэтому отдаём шаблон целиком как заведомо осмысленный текст.
+  if (!items.length) return parts.full;
+
+  return [parts.greeting, ...items].filter(Boolean).join('\n\n');
+}
+
 interface Zone {
   key: ZoneKey;
   title: string;

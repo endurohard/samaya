@@ -14,7 +14,7 @@ import {
   City, ZoneKey, parseCity, parseWeight, parseZones, weightNeeded,
   buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
-  AskParts, parseAskTemplate,
+  AskParts, parseAskTemplate, askOnlyNeeded,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
   ZoneCatalog, BUILTIN_ZONES, Zone, looksLikeServiceInterest, isPoliteOnly,
   parseConfirmation,
@@ -612,8 +612,18 @@ export async function handleMessage(opts: {
     // на всё одной строкой «Каспийск, 70, живот». Дальше переспрашиваем
     // уже по одному и только то, чего не хватает, — иначе повтор всех
     // трёх пунктов читается так, будто клиента не услышали.
+    //
+    // Но пункт про вес выбрасываем, если зона уже названа и её цена от
+    // веса не зависит: у круговой липосакции ног она фиксированная, и
+    // вопрос о весе выглядит невнимательностью. Клиентка написала об этом
+    // прямо: «А мой вес вы не уточняли» — то есть заметила, что ответ
+    // посчитан без того, что у неё спросили.
     const reply = !prev.askedAt
-      ? parts.full
+      ? askOnlyNeeded(parts, {
+        city: !next.city,
+        weight: needWeight && next.weight == null,
+        zone: zones.length === 0,
+      })
       : askMissing(next, needWeight, parts, texts);
     return { kind: 'ask', reply, reason: null, state: next };
   }
