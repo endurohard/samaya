@@ -282,8 +282,13 @@ async function saveState(
        (company_id, channel, thread_id, city, weight, zones, armpits,
         pubis_belly, quoted_at, asked_at, confirm_asked_at,
         prior_city, prior_weight, prior_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-             $4, $5, CASE WHEN $4 IS NOT NULL OR $5 IS NOT NULL THEN now() END,
+     VALUES ($1,$2,$3,$4::text,$5::numeric,$6,$7,$8,$9,$10,$11,
+             -- Те же $4/$5 идут и в снимок. Явные типы обязательны: один и
+             -- тот же параметр в двух местах списка VALUES Postgres вывести
+             -- не может и падает с «could not determine data type».
+             $4::text, $5::numeric,
+             CASE WHEN $4::text IS NOT NULL OR $5::numeric IS NOT NULL
+                  THEN now() END,
              now())
      ON CONFLICT (company_id, channel, thread_id) DO UPDATE SET
        -- Живое состояние пишем КАК ЕСТЬ, включая NULL: требование владельца
