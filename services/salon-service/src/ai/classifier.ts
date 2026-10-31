@@ -158,33 +158,66 @@ export async function classify(
   criteria.manual_review = 'Сообщение не подходит ни под одну тему, непонятно сформулировано, содержит несколько разных вопросов сразу, или есть любое сомнение.';
 
   let answer: { choice?: string; confidence?: number; probabilities?: Record<string, number> };
-  try {
-    const r = await fetch(`${JEV_URL}/v1/systemone`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${JEV_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: JEV_MODEL,
-        state: `Сообщение клиента в Instagram Direct клиники косметологии: "${message.slice(0, 1500)}"`,
-        questions: { theme: { type: 'choice', criteria } },
-      }),
-      signal: AbortSignal.timeout(JEV_TIMEOUT_MS),
-      // @ts-expect-error — dispatcher не описан в типах DOM fetch,
-      // но поддерживается рантаймом Node (undici).
-      dispatcher: jevAgent,
-    });
-    if (!r.ok) {
-      const body = await r.text().catch(() => '');
-      return fail(`классификатор ответил ${r.status}: ${body.slice(0, 200)}`);
+  const body = JSON.stringify({
+    model: JEV_MODEL,
+    state: `Сообщение клиента в Instagram Direct клиники косметологии: "${message.slice(0, 1500)}"`,
+    questions: { theme: { type: 'choice', criteria } },
+  });
+
+  // Повтор при СЕТЕВОМ сбое: мост до TypeSafe моргает, и одна неудачная
+  // попытка стоит клиенту ответа — сообщение молча уходит в черновик, а в
+  // журнале остаётся «классификатор недоступен: fetch failed». Так за один
+  // вечер без ответа остались «Хочу записаться на ЛЛ» и «Запись».
+  //
+  // Повторяем только обрыв связи и таймаут. Отказ самого сервиса (4xx/5xx)
+  // при повторе ответит то же самое — три одинаковых отказа лишь задержат
+  // передачу администратору, а клиент всё это время ждёт.
+  //
+  // Весь цикл обязан укладываться в таймаут ВЫЗЫВАЮЩЕЙ стороны: канал ждёт
+  // ответа 60 с, поэтому на попытку отводится не полный JEV_TIMEOUT_MS, а
+  // доля от оставшегося бюджета. Иначе вторая попытка обрывается снаружи,
+  // и повтор не успевает ничего дать.
+  const RETRIES = [700, 2000];
+  const BUDGET_MS = Number(process.env.JEV_BUDGET_MS || 50_000);
+  const startedAt = Date.now();
+  let lastErr = '';
+  for (let attempt = 0; ; attempt++) {
+    const left = BUDGET_MS - (Date.now() - startedAt);
+    const perTry = Math.min(JEV_TIMEOUT_MS, Math.max(3_000, left - 1_000));
+    try {
+      const r = await fetch(`${JEV_URL}/v1/systemone`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${JEV_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(perTry),
+        // @ts-expect-error — dispatcher не описан в типах DOM fetch,
+        // но поддерживается рантаймом Node (undici).
+        dispatcher: jevAgent,
+      });
+      if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        return fail(`классификатор ответил ${r.status}: ${text.slice(0, 200)}`);
+      }
+      const json = await r.json() as any;
+      answer = json?.answers?.theme ?? {};
+      if (attempt) console.log(`[AI] классификатор: ответил с попытки ${attempt + 1}`);
+      break;
+    } catch (e) {
+      lastErr = (e as Error).message;
+      const spent = Date.now() - startedAt;
+      // Бюджет исчерпан — повторять бессмысленно: вызывающая сторона уже
+      // почти оборвала запрос, и новая попытка просто не успеет.
+      if (attempt >= RETRIES.length || spent + RETRIES[attempt] + 3_000 > BUDGET_MS) {
+        // Сбой классификатора не должен превращаться в молчание: сообщение
+        // уходит администратору, просто без подсказки по теме.
+        return fail(`классификатор недоступен: ${lastErr}`);
+      }
+      console.warn(`[AI] классификатор недоступен (${lastErr}) — попытка ${attempt + 2} из ${RETRIES.length + 1}`);
+      await new Promise(res => setTimeout(res, RETRIES[attempt]));
     }
-    const json = await r.json() as any;
-    answer = json?.answers?.theme ?? {};
-  } catch (e) {
-    // Сбой классификатора не должен превращаться в молчание: сообщение
-    // уходит администратору, просто без подсказки по теме.
-    return fail(`классификатор недоступен: ${(e as Error).message}`);
   }
 
   const topic = answer.choice ?? null;

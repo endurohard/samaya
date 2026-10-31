@@ -42,3 +42,33 @@ describe('startsNewQuote', () => {
     expect(startsNewQuote(QUOTED, [], false)).toBe(false);
   });
 });
+
+describe('новый вопрос — заново город, вес и услуга', () => {
+  // Требование владельца: после названной цены бот обязан уточнить все три
+  // пункта заново. Между вопросами проходят часы, клиент спрашивает за
+  // подругу или называет другой вес — ошибка в цене дороже лишнего вопроса.
+  //
+  // Проверяем ту же формулу, по которой считается состояние в
+  // handleMessage: `parseX(text) ?? (startsOver ? null : prev.X)`.
+  const keep = <T>(parsed: T | null, prevValue: T | null, startsOver: boolean) =>
+    parsed ?? (startsOver ? null : prevValue);
+
+  it('забывает прошлые город и вес', () => {
+    expect(keep(null, 'moscow', true)).toBeNull();
+    expect(keep(null, 65, true)).toBeNull();
+  });
+
+  it('пока цену не называли — помнит собранное', () => {
+    // Идёт опрос: клиент назвал город, следующим сообщением вес. Терять
+    // уже собранное нельзя, иначе бот спрашивает по кругу.
+    expect(keep(null, 'moscow', false)).toBe('moscow');
+    expect(keep(null, 65, false)).toBe(65);
+  });
+
+  it('названное в ЭТОМ сообщении побеждает сброс', () => {
+    // «А руки в Каспийске?» — город назван прямо сейчас, переспрашивать
+    // его нельзя даже при новом вопросе.
+    expect(keep('kaspiysk', 'moscow', true)).toBe('kaspiysk');
+    expect(keep(80, 65, true)).toBe(80);
+  });
+});

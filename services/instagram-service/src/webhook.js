@@ -105,7 +105,13 @@ async function askAssistant(text, threadId, clientName) {
         Authorization: `Bearer ${INTERNAL_TOKEN}`,
       },
       body: JSON.stringify({ text, thread_id: threadId, channel: 'instagram', client_name: clientName }),
-      signal: AbortSignal.timeout(25_000),
+      // 60 с, а не 25: классификатор при сетевом сбое делает до трёх
+      // попыток (мост до TypeSafe моргает), и на это у него свой бюджет
+      // в 50 с. Прежние 25 с обрывали запрос снаружи посреди второй
+      // попытки — повтор не успевал дать результата, а клиент оставался
+      // без ответа. Webhook от этого не страдает: Meta уже получила 200,
+      // обработка идёт отдельно от ответа ей.
+      signal: AbortSignal.timeout(60_000),
     });
     if (!r.ok) {
       const body = await r.text().catch(() => '');
