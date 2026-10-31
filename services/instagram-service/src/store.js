@@ -390,7 +390,22 @@ export async function saveMessages(threadId, items, clientId) {
       `INSERT INTO instagram.messages
          (ig_id, company_id, thread_id, client_id, from_me, body, msg_type, sent_at,
           media_path, media_name, media_mime, media_size)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8::timestamptz,$9,$10,$11,$12
+       -- Дедуп по окну времени, а не только по хешу ключа.
+       --
+       -- Ключ округляет метку до минуты, и это не спасает на ГРАНИЦЕ
+       -- минуты: один и тот же наш ответ, записанный в 11:33:59 и
+       -- 11:34:00 (отправка связкой и запись в webhook), даёт два разных
+       -- ключа и двоится в переписке. Клиенту при этом уходит одно
+       -- сообщение — расходится только история, и владелец читает это
+       -- как «бот ответил дважды».
+       WHERE NOT EXISTS (
+         SELECT 1 FROM instagram.messages m
+          WHERE m.company_id = $2 AND m.thread_id = $3
+            AND m.from_me = $5 AND m.body = $6
+            AND coalesce($6, '') <> ''
+            AND m.sent_at BETWEEN $8::timestamptz - interval '2 min'
+                              AND $8::timestamptz + interval '2 min')
        ON CONFLICT (ig_id) DO NOTHING`,
       [
         igId, COMPANY_ID, threadId, clientId || null,

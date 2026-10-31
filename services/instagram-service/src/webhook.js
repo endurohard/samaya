@@ -59,6 +59,40 @@ async function notifyMedia(threadId, clientName, kind) {
   }
 }
 
+/**
+ * Позвать человека, когда готовый ответ клиенту доставить не удалось.
+ *
+ * Черновик сам по себе — не доставка: он лежит в переписке, пока туда не
+ * зайдут, а снимается первым же действием администратора и исчезает без
+ * следа. Клиент в это время ждёт ответа, которого уже никогда не будет, и
+ * узнать об этом по базе нельзя. Поэтому недоставленный ответ обязан
+ * поднимать уведомление наружу, в Telegram.
+ */
+async function notifyUndelivered(threadId, clientName, reason, draft) {
+  try {
+    const r = await fetch(`${SALON_URL}/api/salons/ai/notify-media`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${INTERNAL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        thread_id: threadId, channel: 'instagram',
+        client_name: clientName,
+        kind: 'undelivered',
+        reason, draft,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      console.warn(`[IG] уведомление о недоставке не ушло: HTTP ${r.status} ${t.slice(0, 120)}`);
+    }
+  } catch (e) {
+    console.warn('[IG] уведомление о недоставке не ушло:', e.message);
+  }
+}
+
 /** Спросить у ассистента, что ответить. */
 async function askAssistant(text, threadId, clientName) {
   try {
@@ -263,9 +297,15 @@ export async function handleMessages(items) {
       console.log(`[IG][ии] автоответ отправлен в ${it.threadId} (тема ${d.topic})`);
     } else {
       // Не ушло — оставляем черновиком, иначе ответ просто потеряется.
+      // Но черновик видит только тот, кто откроет CRM, и снимается он без
+      // следа — поэтому зовём человека наружу, в Telegram.
       await saveDraft(it.threadId, d.reply, true);
       stats.drafts++;
       console.warn(`[IG][ии] автоответ не ушёл в ${it.threadId}: ${sent.error}`);
+      void notifyUndelivered(
+        it.threadId, who ? '@' + who : null,
+        `ответ не доставлен: ${sent.error}`, d.reply,
+      );
     }
   }
 

@@ -179,7 +179,7 @@ export function parseWebhook(body) {
  * запроса нельзя. Поэтому файл сначала кладётся на диск, а сюда приходит
  * его публичный адрес с временной подписью — см. publicMediaUrl().
  */
-export async function sendMediaMessage(recipientIgsid, fileUrl, kind = 'image') {
+async function sendMediaMessageOnce(recipientIgsid, fileUrl, kind = 'image') {
   const cred = await credentials();
   if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
   if (!cred.igId && !cred.host.includes('graph.instagram.com')) {
@@ -227,7 +227,7 @@ export async function sendMediaMessage(recipientIgsid, fileUrl, kind = 'image') 
   }
 }
 
-export async function sendMessage(recipientIgsid, text) {
+async function sendMessageOnce(recipientIgsid, text) {
   const cred = await credentials();
   if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
   // Для Instagram Login id не нужен — он зашит в токен (путь /me/messages).
@@ -273,6 +273,48 @@ export async function sendMessage(recipientIgsid, text) {
   } catch (e) {
     return { ok: false, error: `сеть: ${e.message}` };
   }
+}
+
+// ── Повтор при сетевом сбое ──
+//
+// Маршрут до Meta идёт через VLESS-мост, и мост моргает: одна неудачная
+// попытка из сотни. Без повтора цена такого моргания — потерянный ответ
+// клиенту: решение в журнале стоит `sent`, ответа в переписке нет, а
+// черновик, в который падал ответ, снимается первым же действием
+// администратора и исчезает без следа. Ровно так пропал ответ о цене
+// липосакции рук в живом диалоге.
+//
+// Повторяем ТОЛЬКО сетевые сбои. Отказ самой Meta (истёкший токен, окно
+// 24 часа, неподходящая ссылка на файл) при повторе ответит то же самое:
+// три одинаковых отказа вместо одного лишь задержат черновик.
+const RETRY_DELAYS = [1500, 4000];
+
+/** Сбой доставки, а не отказ Meta: имеет смысл повторить. */
+function isTransport(r) {
+  return !r.code && /^сеть:/.test(r.error || '');
+}
+
+async function withRetry(what, attempt) {
+  let last = await attempt();
+  if (last.ok) return last;
+  for (let i = 0; i < RETRY_DELAYS.length && isTransport(last); i++) {
+    await new Promise(r => setTimeout(r, RETRY_DELAYS[i]));
+    console.warn(`[IG] ${what}: ${last.error} — попытка ${i + 2} из ${RETRY_DELAYS.length + 1}`);
+    last = await attempt();
+    if (last.ok) {
+      console.log(`[IG] ${what}: прошло с попытки ${i + 2}`);
+      return last;
+    }
+  }
+  return last;
+}
+
+export async function sendMessage(recipientIgsid, text) {
+  return withRetry('отправка текста', () => sendMessageOnce(recipientIgsid, text));
+}
+
+export async function sendMediaMessage(recipientIgsid, fileUrl, kind = 'image') {
+  return withRetry('отправка вложения', () => sendMediaMessageOnce(recipientIgsid, fileUrl, kind));
 }
 
 /**

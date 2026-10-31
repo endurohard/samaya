@@ -304,11 +304,15 @@ router.post('/intro-sent', serviceOrUser, async (req: ExpressRequest, res, next)
 // пока кто-нибудь не откроет переписку.
 router.post('/notify-media', serviceOrUser, async (req: ExpressRequest, res, next) => {
   try {
-    const { thread_id, channel, client_name, kind } = z.object({
+    const { thread_id, channel, client_name, kind, reason, draft } = z.object({
       thread_id: z.string().max(200).nullish(),
       channel: z.string().max(32).nullish(),
       client_name: z.string().max(200).nullish(),
       kind: z.string().max(32).nullish(),
+      // Недоставленный ответ ассистента: канал присылает причину и сам
+      // текст, чтобы менеджер мог отправить его руками, не открывая CRM.
+      reason: z.string().max(400).nullish(),
+      draft: z.string().max(4000).nullish(),
     }).parse(req.body);
 
     const who = client_name || (thread_id ? '#' + thread_id : 'неизвестный');
@@ -316,14 +320,19 @@ router.post('/notify-media', serviceOrUser, async (req: ExpressRequest, res, nex
       image: 'фото', video: 'видео', audio: 'голосовое',
       voice: 'голосовое', share: 'пост', story_mention: 'упоминание в сторис',
     };
+    const undelivered = String(kind ?? '') === 'undelivered';
     const what = KIND[String(kind ?? '')] ?? 'вложение';
 
     const r = await notifyNeedsReply({
       channel: channel ?? 'instagram',
       who,
-      question: `прислал(а) ${what} без текста`,
-      reason: 'вложение — нужен администратор',
-      draft: null,
+      question: undelivered
+        ? 'ответ ассистента НЕ доставлен — клиент ждёт'
+        : `прислал(а) ${what} без текста`,
+      reason: undelivered
+        ? (reason ?? 'доставка не удалась')
+        : 'вложение — нужен администратор',
+      draft: undelivered ? (draft ?? null) : null,
     });
 
     if (r.ok && r.messageId && r.chatId && thread_id) {

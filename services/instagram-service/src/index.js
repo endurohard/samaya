@@ -658,7 +658,15 @@ app.post('/api/instagram/threads/:id/draft', async (req, res) => {
 
 app.delete('/api/instagram/threads/:id/draft', async (req, res) => {
   try {
+    // Снятие черновика логируем: иначе неотправленный ответ ассистента
+    // исчезает бесследно — в базе пусто, исходящего нет, и восстановить,
+    // что ответ вообще существовал, нельзя. Именно так потерялся ответ о
+    // цене в живом диалоге, и разбор занял полдня.
+    const stored = await getDraft(req.params.id).catch(() => null);
     await clearDraft(req.params.id);
+    console.log(`[IG][черновик] отклонён в ${req.params.id}`
+      + (req.user?.id ? ` пользователем ${req.user.id}` : ' (без пользователя)')
+      + `: ${JSON.stringify((stored?.ai_draft || '').slice(0, 80))}`);
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -668,16 +676,54 @@ app.delete('/api/instagram/threads/:id/draft', async (req, res) => {
 // Отправить черновик (возможно отредактированный администратором).
 app.post('/api/instagram/threads/:id/draft/send', requireSend, async (req, res) => {
   try {
-    const stored = await getDraft(req.params.id);
+    const threadId = req.params.id;
+    const stored = await getDraft(threadId);
     const text = String(req.body?.message || stored?.ai_draft || '').trim();
     if (!text) return res.status(400).json({ error: 'черновик пуст' });
-    const result = await ig.sendToThread(req.params.id, text);
-    await clearDraft(req.params.id);
+
+    // Через официальный API, как и обычная отправка. Браузерный путь здесь
+    // был миной: при INSTAGRAM_TEST_MODE=true его заглушка возвращает
+    // {ok:true} НЕ отправив ничего, а дальше черновик стирался — ответ
+    // пропадал молча, и в базе не оставалось следа, что он вообще был.
+    const viaApi = await sendMessage(threadId, text);
+    const noToken = /токен Instagram не сохранён|не записан id аккаунта/.test(viaApi.error || '');
+    let result;
+    if (viaApi.ok) {
+      result = { ok: true, via: 'graph_api', message_id: viaApi.messageId };
+    } else if (!noToken) {
+      // Черновик НЕ снимаем: ответ ещё не доставлен, и снятие потеряло бы
+      // его насовсем.
+      console.warn(`[IG][черновик] отправка не удалась в ${threadId}: ${viaApi.error} — черновик сохранён`);
+      return res.status(502).json({ error: viaApi.error, via: 'graph_api' });
+    } else {
+      result = await ig.sendToThread(threadId, text);
+      if (result?.test_mode) {
+        console.warn(`[IG][черновик] ТЕСТОВЫЙ РЕЖИМ: в ${threadId} ничего не отправлено, черновик сохранён`);
+        return res.status(503).json({
+          error: 'сервис в тестовом режиме (INSTAGRAM_TEST_MODE=true) — сообщение не отправлено',
+        });
+      }
+    }
+
+    try {
+      const clientId = await upsertThread({
+        thread_id: threadId, unread: 0, last_body: text, last_at: new Date(),
+      });
+      await saveMessages(threadId, [{
+        from_me: true, body: text, stamp: new Date().toISOString(),
+      }], clientId);
+    } catch (e) {
+      console.error('[IG][черновик] запись в историю не удалась:', e.message);
+    }
+    // Снимаем ТОЛЬКО после подтверждённой отправки.
+    await clearDraft(threadId);
     if (req.user?.id) {
-      await markAuthor(req.params.id, text, {
+      await markAuthor(threadId, text, {
         id: req.user.id, name: await authorName(req.user.id),
       });
     }
+    console.log(`[IG][черновик] отправлен в ${threadId}`
+      + (req.user?.id ? ` пользователем ${req.user.id}` : ''));
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: err.message });
