@@ -233,13 +233,14 @@ export async function loadState(
   const { rows } = await pool.query(
     `SELECT city, weight, zones, armpits, pubis_belly, quoted_at, asked_at,
             confirm_asked_at,
-            -- Город и вес прошлого разговора: строка та же, но «живой» она
-            -- считается только сутки. За пределами суток поднимаем ТОЛЬКО
-            -- эти два поля и только чтобы спросить, не изменились ли они.
-            CASE WHEN updated_at > now() - ($5 || ' days')::interval
-                 THEN city END  AS prior_city,
-            CASE WHEN updated_at > now() - ($5 || ' days')::interval
-                 THEN weight END AS prior_weight,
+            -- Снимок прошлых данных живёт своей жизнью: отдельные колонки
+            -- и своя отметка prior_at. Считать срок от updated_at нельзя —
+            -- он обновляется на каждом сообщении, и данные жили бы сколько
+            -- угодно, лишь бы клиент продолжал писать.
+            CASE WHEN prior_at > now() - ($5 || ' days')::interval
+                 THEN prior_city END   AS prior_city,
+            CASE WHEN prior_at > now() - ($5 || ' days')::interval
+                 THEN prior_weight END AS prior_weight,
             updated_at > now() - ($4 || ' hours')::interval AS fresh
        FROM ai.price_dialog
       WHERE company_id = $1 AND channel = $2 AND thread_id = $3`,
@@ -279,21 +280,32 @@ async function saveState(
   await pool.query(
     `INSERT INTO ai.price_dialog
        (company_id, channel, thread_id, city, weight, zones, armpits,
-        pubis_belly, quoted_at, asked_at, confirm_asked_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+        pubis_belly, quoted_at, asked_at, confirm_asked_at,
+        prior_city, prior_weight, prior_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+             $4, $5, CASE WHEN $4 IS NOT NULL OR $5 IS NOT NULL THEN now() END,
+             now())
      ON CONFLICT (company_id, channel, thread_id) DO UPDATE SET
-       -- Город и вес не затираем пустыми: это та же строка, из которой мы
-       -- поднимаем их на подтверждение следующие семь дней. Обнулив их
-       -- здесь, мы потеряли бы данные ровно в тот момент, когда разговор
-       -- начинается заново и city/weight ещё не заполнены.
-       city = COALESCE(EXCLUDED.city, ai.price_dialog.city),
-       weight = COALESCE(EXCLUDED.weight, ai.price_dialog.weight),
+       -- Живое состояние пишем КАК ЕСТЬ, включая NULL: требование владельца
+       -- «новый вопрос — уточнить город и вес заново» выполняется только
+       -- если их реально можно очистить. COALESCE здесь молча возвращал
+       -- прежние значения, и цена считалась по неподтверждённым данным.
+       city = EXCLUDED.city,
+       weight = EXCLUDED.weight,
        zones = EXCLUDED.zones,
        armpits = EXCLUDED.armpits,
        pubis_belly = EXCLUDED.pubis_belly,
        quoted_at = EXCLUDED.quoted_at,
        asked_at = EXCLUDED.asked_at,
        confirm_asked_at = EXCLUDED.confirm_asked_at,
+       -- Снимок, наоборот, только пополняется: он нужен, когда живые поля
+       -- пусты. Отметку времени двигаем лишь вместе с новым значением,
+       -- иначе недельный срок продлевался бы каждым сообщением.
+       prior_city = COALESCE(EXCLUDED.city, ai.price_dialog.prior_city),
+       prior_weight = COALESCE(EXCLUDED.weight, ai.price_dialog.prior_weight),
+       prior_at = CASE
+         WHEN EXCLUDED.city IS NOT NULL OR EXCLUDED.weight IS NOT NULL
+           THEN now() ELSE ai.price_dialog.prior_at END,
        updated_at = now()`,
     [
       companyId, channel, threadId, s.city, s.weight, s.zones,
