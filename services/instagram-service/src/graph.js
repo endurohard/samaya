@@ -175,11 +175,18 @@ export function parseWebhook(body) {
 /**
  * Отправить вложение в Direct.
  *
- * Meta принимает медиа ТОЛЬКО по публичной ссылке: загрузить файл телом
- * запроса нельзя. Поэтому файл сначала кладётся на диск, а сюда приходит
- * его публичный адрес с временной подписью — см. publicMediaUrl().
+ * Файл УХОДИТ ТЕЛОМ ЗАПРОСА, а не ссылкой. Ссылочный способ
+ * (payload.url) у подключения через Instagram Login не работает вовсе:
+ * Meta отвечает «Upload failed» (2018007) даже на заведомо доступный
+ * файл со стороннего CDN, причём за файлом не приходит ни одного
+ * запроса — то есть она отказывает, не пытаясь скачать. Загрузка тем же
+ * токеном и аккаунтом проходит с первого раза.
+ *
+ * Поэтому принимаем Buffer, а не URL. Публичная подписанная ссылка
+ * остаётся в сервисе, но нужна уже только для просмотра вложений в
+ * админке.
  */
-async function sendMediaMessageOnce(recipientIgsid, fileUrl, kind = 'image') {
+async function sendMediaMessageOnce(recipientIgsid, file, kind = 'image') {
   const cred = await credentials();
   if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
   if (!cred.igId && !cred.host.includes('graph.instagram.com')) {
@@ -187,41 +194,101 @@ async function sendMediaMessageOnce(recipientIgsid, fileUrl, kind = 'image') {
   }
   const viaInstagramLogin = cred.host.includes('graph.instagram.com');
   const target = viaInstagramLogin ? 'me' : cred.igId;
-  const url = `https://${cred.host}/${cred.version}/${target}/messages`;
-  try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${cred.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+  const type = kind === 'video' ? 'video' : (kind === 'audio' ? 'audio' : 'image');
+
+  // Уже загруженное вложение отправляется по attachment_id — это и есть
+  // причина кэша: схемы зон одни и те же, а загрузка 100 КБ на каждое
+  // сообщение связки заметно её замедляет.
+  const body = file?.attachmentId
+    ? JSON.stringify({
         recipient: { id: String(recipientIgsid) },
-        message: {
-          attachment: {
-            type: kind === 'video' ? 'video' : (kind === 'audio' ? 'audio' : 'image'),
-            payload: { url: fileUrl, is_reusable: false },
-          },
-        },
-      }),
-      signal: AbortSignal.timeout(60_000), // медиа Meta качает сама, это дольше текста
-      dispatcher,
-    });
-    const body = await r.json().catch(() => ({}));
+        message: { attachment: { type, payload: { attachment_id: String(file.attachmentId) } } },
+      })
+    : null;
+
+  try {
+    let r;
+    if (body) {
+      r = await fetch(`https://${cred.host}/${cred.version}/${target}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cred.token}`, 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(60_000),
+        dispatcher,
+      });
+    } else {
+      if (!Buffer.isBuffer(file?.buf) || !file.buf.length) {
+        return { ok: false, error: 'файл вложения пуст' };
+      }
+      const fd = new FormData();
+      fd.append('recipient', JSON.stringify({ id: String(recipientIgsid) }));
+      fd.append('message', JSON.stringify({ attachment: { type, payload: { is_reusable: false } } }));
+      fd.append('filedata', new Blob([file.buf], { type: file.mime || 'image/jpeg' }),
+        file.name || 'file.jpg');
+      r = await fetch(`https://${cred.host}/${cred.version}/${target}/messages`, {
+        method: 'POST',
+        // Content-Type не ставим руками: FormData сам добавит boundary,
+        // без которого Meta не разберёт тело.
+        headers: { Authorization: `Bearer ${cred.token}` },
+        body: fd,
+        signal: AbortSignal.timeout(120_000), // загрузка дольше, чем отправка ссылки
+        dispatcher,
+      });
+    }
+
+    const resBody = await r.json().catch(() => ({}));
     if (!r.ok) {
-      const err = body?.error || {};
+      const err = resBody?.error || {};
       let msg = err.message || `HTTP ${r.status}`;
       if (err.code === 10 || err.error_subcode === 2534022) {
         msg = 'прошло больше 24 часов с сообщения клиента — Instagram не принимает ответ';
       } else if (err.code === 190) {
         msg = 'токен недействителен или истёк — обновите его в Настройках';
-      } else if (/url/i.test(msg)) {
-        // Самая частая причина: Meta не смогла скачать файл по ссылке.
-        msg = `Instagram не смог забрать файл по ссылке: ${msg}`;
+      } else if (err.error_subcode === 2018047 || err.error_subcode === 2018007) {
+        // Отличаем «файл не тот» от «ссылка недоступна»: теперь файл уходит
+        // телом, поэтому причина в самом файле (формат, размер), а не в сети.
+        msg = `Instagram не принял файл: ${msg} (формат или размер)`;
       }
       return { ok: false, error: msg, code: err.code };
     }
-    return { ok: true, messageId: body.message_id || null };
+    return { ok: true, messageId: resBody.message_id || null };
+  } catch (e) {
+    return { ok: false, error: `сеть: ${e.message}` };
+  }
+}
+
+/**
+ * Загрузить файл в Meta один раз и получить attachment_id.
+ *
+ * Нужен для повторно отправляемых картинок (схемы зон): по id сообщение
+ * уходит без загрузки файла. Вызывающий кэширует id сам — здесь только
+ * сетевая часть.
+ */
+export async function uploadAttachment(buf, mime = 'image/jpeg', name = 'file.jpg', kind = 'image') {
+  const cred = await credentials();
+  if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
+  if (!Buffer.isBuffer(buf) || !buf.length) return { ok: false, error: 'файл пуст' };
+  const target = cred.host.includes('graph.instagram.com') ? 'me' : cred.igId;
+  const type = kind === 'video' ? 'video' : (kind === 'audio' ? 'audio' : 'image');
+  try {
+    const fd = new FormData();
+    // is_reusable: true — иначе id живёт только на одну отправку, и кэш
+    // хранил бы недействительные значения.
+    fd.append('message', JSON.stringify({ attachment: { type, payload: { is_reusable: true } } }));
+    fd.append('filedata', new Blob([buf], { type: mime }), name);
+    const r = await fetch(`https://${cred.host}/${cred.version}/${target}/message_attachments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cred.token}` },
+      body: fd,
+      signal: AbortSignal.timeout(120_000),
+      dispatcher,
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || !body?.attachment_id) {
+      const err = body?.error || {};
+      return { ok: false, error: err.message || `HTTP ${r.status}`, code: err.code };
+    }
+    return { ok: true, attachmentId: String(body.attachment_id) };
   } catch (e) {
     return { ok: false, error: `сеть: ${e.message}` };
   }
@@ -313,8 +380,8 @@ export async function sendMessage(recipientIgsid, text) {
   return withRetry('отправка текста', () => sendMessageOnce(recipientIgsid, text));
 }
 
-export async function sendMediaMessage(recipientIgsid, fileUrl, kind = 'image') {
-  return withRetry('отправка вложения', () => sendMediaMessageOnce(recipientIgsid, fileUrl, kind));
+export async function sendMediaMessage(recipientIgsid, file, kind = 'image') {
+  return withRetry('отправка вложения', () => sendMediaMessageOnce(recipientIgsid, file, kind));
 }
 
 /**

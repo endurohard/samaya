@@ -310,6 +310,48 @@ export async function saveOutgoingMedia(buf, mime) {
   return { rel, size: buf.length, mime };
 }
 
+// ── Кэш загруженных в Meta вложений ──
+//
+// Отправка вложения по публичной ссылке у Instagram Login не работает
+// вовсе (Meta отвечает «Upload failed», не пытаясь скачать файл), поэтому
+// файл уходит телом запроса. Схемы зон одни и те же месяцами — загружаем
+// их однажды и дальше отправляем по attachment_id.
+
+/** attachment_id по ключу файла, если он уже загружен. */
+export async function cachedAttachment(assetKey) {
+  if (!COMPANY_ID || !assetKey) return null;
+  const r = await pool.query(
+    `UPDATE instagram.attachment_cache SET used_at = NOW()
+      WHERE company_id = $1 AND asset_key = $2
+      RETURNING attachment_id`,
+    [COMPANY_ID, assetKey],
+  );
+  return r.rows[0]?.attachment_id || null;
+}
+
+/** Запомнить attachment_id загруженного файла. */
+export async function rememberAttachment(assetKey, attachmentId, kind = 'image') {
+  if (!COMPANY_ID || !assetKey || !attachmentId) return 0;
+  const r = await pool.query(
+    `INSERT INTO instagram.attachment_cache (company_id, asset_key, attachment_id, kind)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (company_id, asset_key)
+       DO UPDATE SET attachment_id = EXCLUDED.attachment_id, used_at = NOW()`,
+    [COMPANY_ID, assetKey, String(attachmentId), kind],
+  );
+  return r.rowCount;
+}
+
+/** Забыть id: Meta его больше не принимает (истёк, файл удалён на их стороне). */
+export async function forgetAttachment(assetKey) {
+  if (!COMPANY_ID || !assetKey) return 0;
+  const r = await pool.query(
+    `DELETE FROM instagram.attachment_cache WHERE company_id = $1 AND asset_key = $2`,
+    [COMPANY_ID, assetKey],
+  );
+  return r.rowCount;
+}
+
 // Секрет подписи публичных ссылок. Своего не заводим: JWT_SECRET уже есть у
 // сервиса и обязателен при старте.
 const MEDIA_SIGN_SECRET = process.env.JWT_SECRET || '';

@@ -14,11 +14,13 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sendMessage, sendMediaMessage } from './graph.js';
-import { saveOutgoingMedia, signMediaPath, saveMessages, upsertThread } from './store.js';
+import { sendMessage, sendMediaMessage, uploadAttachment } from './graph.js';
+import {
+  saveOutgoingMedia, saveMessages, upsertThread,
+  cachedAttachment, rememberAttachment, forgetAttachment,
+} from './store.js';
 
 const ASSETS_DIR = path.resolve(fileURLToPath(new URL('../assets', import.meta.url)));
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 // Картинки, загруженные администратором в админке, живут в salon-service:
 // там же, где сам шаблон. Копировать их в образ каждого канала нельзя —
 // добавленная через админку картинка иначе появилась бы только после выката.
@@ -55,7 +57,16 @@ function assetPath(name) {
  */
 async function assetBytes(name) {
   const local = assetPath(name);
-  if (local) return { buf: await fsp.readFile(local.abs), mime: local.mime };
+  if (local) {
+    // mtime и размер входят в ключ кэша attachment_id: заменили схему —
+    // ключ сменился, и клиент получит новую картинку, а не прошлую.
+    const st = await fsp.stat(local.abs);
+    return {
+      buf: await fsp.readFile(local.abs),
+      mime: local.mime,
+      stamp: Math.round(st.mtimeMs),
+    };
+  }
 
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(String(name || ''))) return null;
   const r = await fetch(`${SALON_URL}/api/salons/ai/asset/${encodeURIComponent(name)}`, {
@@ -64,27 +75,59 @@ async function assetBytes(name) {
   });
   if (!r.ok) return null;
   const mime = String(r.headers.get('content-type') || '').split(';')[0].trim() || 'image/jpeg';
-  return { buf: Buffer.from(await r.arrayBuffer()), mime };
+  const buf = Buffer.from(await r.arrayBuffer());
+  // У картинки из админки mtime недоступен — различаем по ETag, а при его
+  // отсутствии кэш для неё просто не переиспользуется (stamp = 0 стабилен,
+  // но тогда ключ держится на размере, чего для правленой картинки мало).
+  const tag = String(r.headers.get('etag') || r.headers.get('last-modified') || '').slice(0, 64);
+  return { buf, mime, stamp: tag || 0 };
 }
 
 /**
  * Отправить одну картинку из assets.
  *
- * Файл каждый раз кладётся в outbox заново: подпись ссылки живёт 15 минут,
- * и переиспользовать прошлую нельзя — Meta скачивает файл в момент
- * отправки, а не когда он понадобится.
+ * Файл уходит ТЕЛОМ запроса, а не ссылкой: ссылочный способ у подключения
+ * через Instagram Login не работает вовсе (Meta отвечает «Upload failed»,
+ * не присылая ни одного запроса за файлом).
+ *
+ * Схемы зон одни и те же месяцами, поэтому id загруженного вложения
+ * кэшируется: связка из трёх сообщений тогда уходит без повторной
+ * загрузки сотни килобайт на каждое фото. Ключ кэша включает размер и
+ * mtime файла — заменили картинку, ключ сменился сам, и старый id не
+ * подставится вместо новой схемы.
  */
 async function sendAsset(threadId, name) {
   const found = await assetBytes(name);
   if (!found) return { ok: false, error: `картинка «${name}» не найдена` };
-  if (!/^https:\/\//i.test(PUBLIC_BASE_URL)) {
-    return { ok: false, error: 'Meta скачивает вложение только по https — задайте PUBLIC_BASE_URL' };
+
+  const key = `${name}|${found.buf.length}|${found.stamp || 0}`;
+  let attachmentId = await cachedAttachment(key).catch(() => null);
+
+  if (!attachmentId) {
+    const up = await uploadAttachment(found.buf, found.mime, `${name}.jpg`, 'image');
+    if (!up.ok) return { ok: false, error: `загрузка картинки «${name}»: ${up.error}` };
+    attachmentId = up.attachmentId;
+    await rememberAttachment(key, attachmentId, 'image')
+      .catch(e => console.warn('[IG][части] id вложения не закэширован:', e.message));
+    console.log(`[IG][части] картинка «${name}» загружена в Meta (id ${attachmentId})`);
   }
 
-  const saved = await saveOutgoingMedia(found.buf, found.mime);
-  const { token } = signMediaPath(saved.rel);
-  const r = await sendMediaMessage(threadId, `${PUBLIC_BASE_URL}/api/instagram/public/${token}`, 'image');
+  let r = await sendMediaMessage(threadId, { attachmentId }, 'image');
+
+  // Закэшированный id Meta может перестать принимать (истёк на её
+  // стороне). Это не повод терять сообщение: забываем id и отправляем
+  // файл телом — следующий вызов загрузит его заново.
+  if (!r.ok && /attachment|upload|invalid/i.test(r.error || '')) {
+    console.warn(`[IG][части] id вложения «${name}» отвергнут (${r.error}) — отправляю файлом`);
+    await forgetAttachment(key).catch(() => {});
+    r = await sendMediaMessage(threadId,
+      { buf: found.buf, mime: found.mime, name: `${name}.jpg` }, 'image');
+  }
   if (!r.ok) return r;
+
+  // Файл кладём на диск, чтобы он был виден в переписке админки:
+  // отправленное вложение должно остаться в истории, как и входящее.
+  const saved = await saveOutgoingMedia(found.buf, found.mime);
   return { ok: true, messageId: r.messageId, saved };
 }
 

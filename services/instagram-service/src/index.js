@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'node:path';
 import ig from './instagram.js';
 import { Monitor } from './monitor.js';
 import { authenticate, requireSend } from './auth.js';
@@ -15,8 +16,9 @@ import { Campaign, PACES, spin, spinVariants, humanize } from './campaign.js';
 import { sendParts, threadClientId } from './parts.js';
 
 const PORT = Number(process.env.PORT || 3010);
-// Публичный адрес CRM: по нему Meta забирает исходящие вложения. Без него
-// отправка фото невозможна — Graph API принимает медиа только ссылкой.
+// Публичный адрес CRM. Для ОТПРАВКИ вложений он больше не нужен — файл
+// уходит телом запроса, потому что ссылочный способ у Instagram Login не
+// работает. Остаётся для подписанных ссылок на просмотр файлов в админке.
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 // Шаблоны ответов живут в salon-service — туда же ходим за текстом по коду.
 const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
@@ -411,16 +413,14 @@ app.post('/api/instagram/send-media', requireSend, express.raw({
     }
 
     const saved = await saveOutgoingMedia(buf, ct);
-    const { token } = signMediaPath(saved.rel);
-    const publicUrl = `${PUBLIC_BASE_URL}/api/instagram/public/${token}`;
-    if (!/^https:\/\//i.test(publicUrl)) {
-      return res.status(500).json({
-        error: 'Meta скачивает вложение только по https — задайте PUBLIC_BASE_URL',
-      });
-    }
 
     const kind = ct.startsWith('video') ? 'video' : (ct.startsWith('audio') ? 'audio' : 'image');
-    const r = await sendMediaMessage(threadId, publicUrl, kind);
+    // Файл уходит телом запроса, а не публичной ссылкой: ссылочный способ
+    // у подключения через Instagram Login не работает вовсе — Meta
+    // отвечает «Upload failed», не присылая ни одного запроса за файлом.
+    // Кэш id здесь не нужен: вложение администратора отправляется однажды.
+    const r = await sendMediaMessage(threadId,
+      { buf, mime: ct, name: path.basename(saved.rel) }, kind);
     if (!r.ok) return res.status(502).json({ error: r.error });
 
     // В историю пишем сразу: иначе администратор не увидит отправленное до
