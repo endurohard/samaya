@@ -17,6 +17,7 @@ import {
   AskParts, parseAskTemplate,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
   ZoneCatalog, BUILTIN_ZONES, Zone, looksLikeServiceInterest, isPoliteOnly,
+  parseConfirmation,
 } from './price';
 
 /** Ключ темы, из шаблона которой берутся приветствие и тексты вопросов. */
@@ -170,6 +171,21 @@ export async function loadZoneCatalog(companyId: string): Promise<ZoneCatalog> {
  */
 const DIALOG_TTL_HOURS = Number(process.env.AI_PRICE_DIALOG_TTL_HOURS || 24);
 
+/**
+ * Сколько дней город и вес хранятся КАК ДАННЫЕ К ПОДТВЕРЖДЕНИЮ.
+ *
+ * Разговор забывается через сутки, но сами по себе город и вес меняются
+ * редко. Владелец просил: вернулся клиент в течение недели — не спрашивать
+ * всё заново, а уточнить, не изменились ли данные, и при «да, верно»
+ * считать по прежним.
+ *
+ * Принципиально, что это НЕ продление TTL разговора: цену по весу
+ * недельной давности называть нельзя, пока человек его не подтвердил.
+ * Поэтому данные поднимаются отдельно и только для вопроса-подтверждения.
+ */
+const CONFIRM_TTL_DAYS = Number(process.env.AI_PRICE_CONFIRM_TTL_DAYS || 7);
+
+
 export interface DialogState {
   city: City | null;
   weight: number | null;
@@ -187,25 +203,62 @@ export interface DialogState {
    * на что жаловался владелец.
    */
   askedAt: Date | null;
+  /**
+   * Когда ассистент спросил «город и вес прежние?».
+   *
+   * Пока отметка стоит, короткая реплика («да», «всё верно», «нет, 80»)
+   * разбирается как ответ на этот вопрос, а не как новый разговор.
+   */
+  confirmAskedAt: Date | null;
+  /**
+   * Город и вес, поднятые из ПРОШЛОГО разговора (до недели назад).
+   *
+   * Лежат отдельно от city/weight намеренно: в расчёт они попадают только
+   * после того, как человек их подтвердил. Иначе ассистент назвал бы цену
+   * по весу недельной давности, которого никто не подтверждал.
+   */
+  priorCity: City | null;
+  priorWeight: number | null;
 }
 
 const EMPTY: DialogState = {
   city: null, weight: null, zones: [], armpits: false,
   pubisBelly: false, quotedAt: null, askedAt: null,
+  confirmAskedAt: null, priorCity: null, priorWeight: null,
 };
 
 export async function loadState(
   companyId: string, channel: string, threadId: string,
 ): Promise<DialogState> {
   const { rows } = await pool.query(
-    `SELECT city, weight, zones, armpits, pubis_belly, quoted_at, asked_at
+    `SELECT city, weight, zones, armpits, pubis_belly, quoted_at, asked_at,
+            confirm_asked_at,
+            -- Город и вес прошлого разговора: строка та же, но «живой» она
+            -- считается только сутки. За пределами суток поднимаем ТОЛЬКО
+            -- эти два поля и только чтобы спросить, не изменились ли они.
+            CASE WHEN updated_at > now() - ($5 || ' days')::interval
+                 THEN city END  AS prior_city,
+            CASE WHEN updated_at > now() - ($5 || ' days')::interval
+                 THEN weight END AS prior_weight,
+            updated_at > now() - ($4 || ' hours')::interval AS fresh
        FROM ai.price_dialog
-      WHERE company_id = $1 AND channel = $2 AND thread_id = $3
-        AND updated_at > now() - ($4 || ' hours')::interval`,
-    [companyId, channel, threadId, String(DIALOG_TTL_HOURS)],
+      WHERE company_id = $1 AND channel = $2 AND thread_id = $3`,
+    [companyId, channel, threadId, String(DIALOG_TTL_HOURS), String(CONFIRM_TTL_DAYS)],
   );
   if (!rows.length) return { ...EMPTY };
   const r = rows[0];
+
+  // Разговор протух (прошло больше суток) — забываем его целиком, но
+  // город и вес оставляем как данные К ПОДТВЕРЖДЕНИЮ: их ассистент
+  // переспросит, а не подставит в расчёт молча.
+  if (!r.fresh) {
+    return {
+      ...EMPTY,
+      priorCity: (r.prior_city as City) ?? null,
+      priorWeight: r.prior_weight == null ? null : Number(r.prior_weight),
+    };
+  }
+
   return {
     city: (r.city as City) ?? null,
     weight: r.weight == null ? null : Number(r.weight),
@@ -214,6 +267,9 @@ export async function loadState(
     pubisBelly: r.pubis_belly === true,
     quotedAt: r.quoted_at ?? null,
     askedAt: r.asked_at ?? null,
+    confirmAskedAt: r.confirm_asked_at ?? null,
+    priorCity: (r.prior_city as City) ?? null,
+    priorWeight: r.prior_weight == null ? null : Number(r.prior_weight),
   };
 }
 
@@ -223,20 +279,25 @@ async function saveState(
   await pool.query(
     `INSERT INTO ai.price_dialog
        (company_id, channel, thread_id, city, weight, zones, armpits,
-        pubis_belly, quoted_at, asked_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+        pubis_belly, quoted_at, asked_at, confirm_asked_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
      ON CONFLICT (company_id, channel, thread_id) DO UPDATE SET
-       city = EXCLUDED.city,
-       weight = EXCLUDED.weight,
+       -- Город и вес не затираем пустыми: это та же строка, из которой мы
+       -- поднимаем их на подтверждение следующие семь дней. Обнулив их
+       -- здесь, мы потеряли бы данные ровно в тот момент, когда разговор
+       -- начинается заново и city/weight ещё не заполнены.
+       city = COALESCE(EXCLUDED.city, ai.price_dialog.city),
+       weight = COALESCE(EXCLUDED.weight, ai.price_dialog.weight),
        zones = EXCLUDED.zones,
        armpits = EXCLUDED.armpits,
        pubis_belly = EXCLUDED.pubis_belly,
        quoted_at = EXCLUDED.quoted_at,
        asked_at = EXCLUDED.asked_at,
+       confirm_asked_at = EXCLUDED.confirm_asked_at,
        updated_at = now()`,
     [
       companyId, channel, threadId, s.city, s.weight, s.zones,
-      s.armpits, s.pubisBelly, s.quotedAt, s.askedAt,
+      s.armpits, s.pubisBelly, s.quotedAt, s.askedAt, s.confirmAskedAt,
     ],
   );
 }
@@ -332,7 +393,7 @@ export async function handleMessage(opts: {
   fresh: boolean;
 }): Promise<PriceOutcome> {
   const { companyId, channel, threadId, text, fresh } = opts;
-  const prev = await loadState(companyId, channel, threadId);
+  let prev = await loadState(companyId, channel, threadId);
 
   // Зона, которой нет в прайсе, и «всё тело» — только через администратора:
   // цену для них ассистент выдумывать не должен.
@@ -350,6 +411,34 @@ export async function handleMessage(opts: {
   }
 
   const newZones = parseZones(text);
+
+  // ── Ответ на вопрос «город и вес прежние?» ──
+  //
+  // Проверяем ДО всего остального: короткое «да» или «нет» само по себе ни
+  // на что не похоже и ушло бы в общий разбор, где «да» считается
+  // вежливостью. Тогда вопрос-подтверждение остался бы без ответа и
+  // задавался по кругу.
+  const confirmation = prev.confirmAskedAt ? parseConfirmation(text) : null;
+  if (confirmation === true) {
+    // Подтвердил — переносим прошлые данные в расчёт и продолжаем обычным
+    // путём: дальше не хватает только зоны, её и спросим (или посчитаем,
+    // если клиент назвал её в том же сообщении).
+    prev = {
+      ...prev,
+      city: parseCity(text) ?? prev.priorCity,
+      weight: parseWeight(text) ?? prev.priorWeight,
+      confirmAskedAt: null,
+    };
+  } else if (confirmation === false) {
+    // Данные изменились — забываем прошлые и спрашиваем заново. Если новые
+    // названы прямо здесь («нет, теперь 80»), они подхватятся ниже.
+    prev = {
+      ...prev,
+      city: null, weight: null,
+      priorCity: null, priorWeight: null,
+      confirmAskedAt: null,
+    };
+  }
 
   // Зоны НЕ накапливаются после уже названной цены.
   //
@@ -373,7 +462,10 @@ export async function handleMessage(opts: {
   // диалогах оказался неверным: между вопросами проходят часы, клиент
   // спрашивает за подругу или называет другой вес, а бот молча считает по
   // старому и выдаёт сумму, которую никто не подтверждал. Ошибка в цене
-  // дороже лишнего вопроса, поэтому спрашиваем все три пункта заново.
+  // дороже лишнего вопроса, поэтому данные переспрашиваются.
+  //
+  // Но в пределах недели — не «с нуля», а подтверждением: см. ниже блок с
+  // confirmAskedAt. Там прежние город и вес предлагаются готовыми.
   //
   // Названное В ЭТОМ ЖЕ сообщении всегда побеждает: «а в Каспийске руки?»
   // не превратится в переспрос города, который клиент только что назвал.
@@ -408,10 +500,45 @@ export async function handleMessage(opts: {
     // списка, хотя про новую услугу не известно вообще ничего.
     // Смена города — не новый разговор, там askedAt сохраняется.
     askedAt: startsOver ? null : prev.askedAt,
+    confirmAskedAt: null,
+    priorCity: prev.priorCity,
+    priorWeight: prev.priorWeight,
   };
 
   const needWeight = zones.length ? weightNeeded(zones, catalog) : true;
   const ready = !!next.city && zones.length > 0 && (!needWeight || next.weight != null);
+
+  // ── Подтверждение прежних данных вместо опроса с нуля ──
+  //
+  // Клиент вернулся в течение недели: город и вес у нас есть, но они из
+  // прошлого разговора и могли измениться. Называть по ним цену молча
+  // нельзя, спрашивать всё заново — лишняя работа для человека, который
+  // уже всё это писал. Поэтому показываем их и просим подтвердить.
+  //
+  // Условие узкое: спрашиваем только когда прежние данные ЕСТЬ, а текущих
+  // нет, и только если вопрос ещё не задан (иначе он пойдёт по кругу).
+  const hasPrior = next.city == null && next.weight == null
+    && (prev.priorCity != null || prev.priorWeight != null);
+  if (!ready && hasPrior && !prev.confirmAskedAt) {
+    next.confirmAskedAt = new Date();
+    // askedAt не ставим: вопросы о городе и весе ещё не задавались, и при
+    // ответе «нет» клиент должен получить их полным списком.
+    await saveState(companyId, channel, threadId, next);
+    const parts: string[] = [];
+    if (prev.priorCity) parts.push(`город — ${CITY_TITLE[prev.priorCity]}`);
+    if (prev.priorWeight != null) {
+      // Вес храним как numeric, и 65.0 в тексте читается как опечатка —
+      // целое показываем без дробной части.
+      const w = Number(prev.priorWeight);
+      parts.push(`вес — ${Number.isInteger(w) ? w : w.toFixed(1)} кг`);
+    }
+    return {
+      kind: 'ask',
+      reply: `${texts.confirmHead}\n\n${parts.join(', ')}\n\n${texts.confirmTail}`,
+      reason: 'уточняем, не изменились ли город и вес',
+      state: next,
+    };
+  }
 
   if (!ready) {
     // Тексты вопросов берём из шаблона темы: владелец правит формулировки в
@@ -440,7 +567,15 @@ export async function handleMessage(opts: {
     // разговор, где оставалось спросить одну зону. Вместо передачи
     // человеку просто повторяем недостающий вопрос.
     const politeOnly = isPoliteOnly(text);
-    if (!learned && !opts.fresh && !looksLikeServiceInterest(text) && !politeOnly) {
+    // Третье исключение — ответ на вопрос «город и вес прежние?».
+    // Подтверждение («да, всё верно») новых данных не приносит: city и
+    // weight переносятся из прошлого разговора ДО этой проверки, поэтому
+    // learned ложно, и разговор ушёл бы администратору ровно в тот момент,
+    // когда клиент всё сделал правильно. Отказ («нет») — тем более ответ:
+    // он очищает данные, и следом надо задать вопросы, а не сдаваться.
+    const answeredConfirm = confirmation !== null;
+    if (!learned && !opts.fresh && !looksLikeServiceInterest(text)
+        && !politeOnly && !answeredConfirm) {
       return {
         kind: 'handover', reply: null,
         reason: 'клиент не отвечает на вопросы о городе, весе и зоне',
@@ -526,6 +661,10 @@ export async function isCollecting(
 ): Promise<boolean> {
   const s = await loadState(companyId, channel, threadId);
   if (s.quotedAt) return false;
+  // Задан вопрос «город и вес прежние?» — короткое «да» или «нет»
+  // принадлежит ему. Без этой строки ответ ушёл бы к классификатору,
+  // вопрос остался бы без обработки и задавался по кругу.
+  if (s.confirmAskedAt) return true;
   // askedAt важнее остальных полей: после первого вопроса о цене мы ещё
   // ничего не знаем, но разговор уже идёт, и ответ «Москва» принадлежит
   // ему, а не классификатору.

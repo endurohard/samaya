@@ -370,6 +370,44 @@ export function isPoliteOnly(text: string): boolean {
     || POLITE_WORD.test(cleaned);
 }
 
+/**
+ * Ответ на вопрос «город и вес прежние?».
+ *
+ * Возвращает `true` — подтвердил, `false` — изменились, `null` — ответ не
+ * про это (клиент написал что-то своё, разбираем обычным путём).
+ *
+ * Почему отдельно от isPoliteOnly: «да» там считается вежливостью, а здесь
+ * это содержательный ответ, от которого зависит, по каким данным назовут
+ * цену. Путать их нельзя — вежливое «ок» в середине опроса не должно
+ * подтверждать вес недельной давности.
+ *
+ * Порядок проверок выстрадан тестами:
+ *
+ *  1. Сначала ЯВНОЕ согласие с отрицанием внутри — «без изменений», «не
+ *     поменялось», «ничего не изменилось». В них есть корень «измен»/
+ *     «поменя», и правило «отрицание сильнее» перевернуло бы смысл на
+ *     противоположный: клиент подтвердил данные, а бот спросил бы заново.
+ *  2. Потом отрицание: в «нет, уже не Москва» есть и «нет», и название
+ *     города, а в «да нет, поменялся» — оба слова сразу.
+ *  3. И только потом согласие.
+ */
+const CONFIRM_SAME = /(^|\s)(без\s*изменен|ничего\s*не\s*(измен|поменя)|не\s*(измен|поменя))/i;
+const CONFIRM_NO = /(^|\s)(нет|не\s*верно|неверно|измен|друг|уже\s*не|поменя|теперь)/i;
+const CONFIRM_YES = /(^|\s)(да|верно|так\s*точно|всё\s*так|все\s*так|всё\s*верно|все\s*верно|правильно|актуальн|подтвержда|остал[а-яё]*\s*(же|так)|то\s*же|те\s*же|прежн)/i;
+
+export function parseConfirmation(text: string): boolean | null {
+  const t = String(text || '')
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\p{Emoji_Modifier}]/gu, ' ')
+    .trim();
+  if (!t) return null;
+  // «+» в переписке означает согласие — встречается чаще, чем «да».
+  if (/^\+$/.test(t)) return true;
+  if (CONFIRM_SAME.test(t)) return true;
+  if (CONFIRM_NO.test(t)) return false;
+  if (CONFIRM_YES.test(t)) return true;
+  return null;
+}
+
 export function looksLikeServiceInterest(text: string): boolean {
   const t = String(text || '').trim();
   if (!t) return false;
@@ -478,6 +516,13 @@ export interface QuoteTexts {
   askOne: string;
   /** Вступление переспроса, когда не хватает нескольких. */
   askMany: string;
+  /**
+   * Вступление вопроса «данные прежние?» — его клиент видит, вернувшись
+   * в течение недели. Текст правится владельцем в админке.
+   */
+  confirmHead: string;
+  /** Завершение того же вопроса: что ответить клиенту. */
+  confirmTail: string;
 }
 
 export const DEFAULT_QUOTE_TEXTS: QuoteTexts = {
@@ -489,6 +534,8 @@ export const DEFAULT_QUOTE_TEXTS: QuoteTexts = {
   ],
   askOne: 'Спасибо! Остался один вопрос:',
   askMany: 'Спасибо! Уточните, пожалуйста:',
+  confirmHead: 'С возвращением! 🤍 В прошлый раз вы указывали:',
+  confirmTail: 'Всё верно? Если данные изменились — напишите новые, и мы пересчитаем.',
 };
 
 /**
@@ -506,7 +553,8 @@ export function parseQuoteTexts(body: string): QuoteTexts {
   const text = (body || '').trim();
   if (!text) return DEFAULT_QUOTE_TEXTS;
 
-  const KEYS = ['заголовок', 'итого', 'хвост', 'переспрос-один', 'переспрос-много'];
+  const KEYS = ['заголовок', 'итого', 'хвост', 'переспрос-один', 'переспрос-много',
+    'подтверждение', 'подтверждение-хвост'];
   const found: Record<string, string> = {};
   let current = '';
   for (const raw of text.split('\n')) {
@@ -529,6 +577,8 @@ export function parseQuoteTexts(body: string): QuoteTexts {
       : DEFAULT_QUOTE_TEXTS.footer,
     askOne: take('переспрос-один', DEFAULT_QUOTE_TEXTS.askOne),
     askMany: take('переспрос-много', DEFAULT_QUOTE_TEXTS.askMany),
+    confirmHead: take('подтверждение', DEFAULT_QUOTE_TEXTS.confirmHead),
+    confirmTail: take('подтверждение-хвост', DEFAULT_QUOTE_TEXTS.confirmTail),
   };
 }
 
