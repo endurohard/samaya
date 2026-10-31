@@ -120,7 +120,9 @@ services:
         paths:
           - /api/whatsapp
         strip_path: false
-        methods: [GET, POST, DELETE, OPTIONS]
+        # HEAD — по той же причине, что у instagram ниже: внешние загрузчики
+        # файлов проверяют ссылку HEAD'ом перед скачиванием.
+        methods: [GET, HEAD, POST, DELETE, OPTIONS]
 
   - name: instagram-service
     url: http://instagram-service:3010
@@ -129,7 +131,12 @@ services:
         paths:
           - /api/instagram
         strip_path: false
-        methods: [GET, POST, DELETE, OPTIONS]
+        # HEAD обязателен: загрузчик вложений Meta сначала проверяет файл
+        # запросом HEAD и только потом качает его. Без метода в списке Kong
+        # не находит маршрут и отвечает 404 — Meta получает его как «файла
+        # нет» и возвращает «Upload failed», из-за чего схемы зон не
+        # доходили до клиента, хотя GET по той же ссылке отдаёт 200.
+        methods: [GET, HEAD, POST, DELETE, OPTIONS]
 
   - name: telephony-service
     url: http://telephony-service:3009
