@@ -542,8 +542,14 @@ export async function handleMessage(opts: {
   // подтвердил — второй такой вопрос читается как неисправный бот.
   const freshDialog = prev.askedAt != null || prev.quotedAt != null
     || prev.confirmAskedAt != null;
+  // Подтверждать имеет смысл только то, что ПОНАДОБИТСЯ для расчёта. Для
+  // круговой липосакции ног вес не нужен вовсе, и строка «в прошлый раз вы
+  // указывали вес — 65 кг. Всё верно?» возвращает ровно тот вопрос, от
+  // которого клиентка уже уставала («А мой вес вы не уточняли»), — только
+  // окольным путём.
+  const priorWeightUseful = needWeight && prev.priorWeight != null;
   const hasPrior = next.city == null && next.weight == null
-    && (prev.priorCity != null || prev.priorWeight != null);
+    && (prev.priorCity != null || priorWeightUseful);
   if (!ready && hasPrior && !prev.confirmAskedAt && !freshDialog) {
     next.confirmAskedAt = new Date();
     // askedAt не ставим: вопросы о городе и весе ещё не задавались, и при
@@ -551,7 +557,7 @@ export async function handleMessage(opts: {
     await saveState(companyId, channel, threadId, next);
     const parts: string[] = [];
     if (prev.priorCity) parts.push(`город — ${CITY_TITLE[prev.priorCity]}`);
-    if (prev.priorWeight != null) {
+    if (priorWeightUseful) {
       // Вес храним как numeric, и 65.0 в тексте читается как опечатка —
       // целое показываем без дробной части.
       const w = Number(prev.priorWeight);
