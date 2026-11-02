@@ -106,6 +106,12 @@ const SERVICE_TOPICS = [
   // уйдёт клиенту вместо ответа.
   process.env.AI_LEGS_INTRO_TOPIC || 'legs_intro',
   process.env.AI_LEGS_METHOD_TOPIC || 'legs_method',
+  // Ручной шаблон с готовым текстом про холку не является отдельным
+  // намерением клиента. Если показать его Jev вместе с общей темой цены,
+  // фраза «Сколько стоит холка» подходит сразу под три варианта, уверенность
+  // падает ниже порога и ответ уходит администратору. Цену холки считает
+  // общий опросник по тому же каталогу, что и остальные зоны.
+  process.env.AI_HOLKA_TOPIC || 'holka_shoulders',
 ];
 
 export async function loadTemplates(companyId: string): Promise<Template[]> {
