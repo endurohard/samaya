@@ -12,7 +12,7 @@ import { authenticate, requireRole, requirePermission, HttpError } from '../midd
 import { classify, logDecision, loadTemplates, render } from '../ai/classifier';
 import type { Decision } from '../ai/classifier';
 import {
-  handleMessage as handlePriceMessage, isCollecting, isCitySwitch, isPriceDialogEnabled,
+  handleMessage as handlePriceMessage, isCollecting, isCitySwitch, loadPriceDialogPolicy,
   resetState as resetPriceState,
   loadZoneCatalog,
   PriceOutcome,
@@ -30,6 +30,14 @@ import type { ReplyPart } from '../ai/parts';
  * боевой темы «Цена лазерной липосакции».
  */
 const PRICE_TOPIC = process.env.AI_PRICE_TOPIC || 'liposakciya_ruk';
+
+function isLipoInterest(text: string): boolean {
+  return looksLikeServiceInterest(text) && (
+      /(^|[^а-яё])(?:липосакц[а-яё]*|лл)(?=$|[^а-яё])/i.test(text)
+      || /^\s*(?:(?:а|и)\s+)?(?:руки|рук|ноги|ног|живот|живота|холка|холки|подбородок|бока|спина|талия|овал лица)\s*[?.!]*\s*$/iu.test(text)
+  );
+}
+
 
 /**
  * Превратить итог разговора о цене в обычное решение ассистента, чтобы
@@ -140,92 +148,42 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // Но выключенная владельцем тема обязана гасить и опросник: иначе
     // выключатель в админке ничего не делает, а ассистент продолжает
     // называть цены.
-    const priceOn = await isPriceDialogEnabled(companyId);
-    if (thread_id && priceOn) {
-      // Смена города после уже названной цены («а в Каспийске?») — тот же
-      // модуль, но условие отдельное: сбор ответов закрыт, а пересчитать по
-      // прайсу другого города надо, не переспрашивая зоны и вес заново.
-      const collecting = await isCollecting(companyId, ch, thread_id)
-        || await isCitySwitch(companyId, ch, thread_id, text);
-      if (collecting) {
-        const out = await handlePriceMessage({
-          companyId, channel: ch, threadId: thread_id, text, fresh: false,
-        });
-        if (out.kind !== 'none') {
-          const decision = priceOutcomeToDecision(out);
-          await logDecision(companyId, decision, {
-            channel: ch, threadId: thread_id, incoming: text,
-          });
-          if (out.kind === 'handover') {
-            void notifyNeedsReply({
-              channel: ch,
-              who: client_name || '#' + thread_id,
-              question: text,
-              reason: out.reason ?? null,
-              draft: null,
-            }).catch(() => {});
-          }
-          return respond(decision);
-        }
-      }
+    const pricePolicy = await loadPriceDialogPolicy(companyId);
+    // Только ответы на поля опроса можно разбирать без классификатора.
+    // Иначе выключенная тема или другая услуга обходила свой шаблон.
+    const slotReply = /^\s*(?:(?:а\s+)?(?:в\s+)?(?:москв[ае]?|каспийск[е]?)|(?:вес\s*)?\d{2,3}(?:[.,]\d)?\s*(?:кг)?|да|нет|верно|всё верно|все верно|\+)\s*[!.?]*\s*$/iu.test(text);
+    const leavesPriceSurvey = /(^|[^а-яё])(?:записаться|запишите|запись)(?=$|[^а-яё])/i.test(text)
+      || /^\s*(?:здравствуйте|здравствуй|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[\s!.,🌹🤍]*$/iu.test(text);
+    const lipoInterest = isLipoInterest(text);
+    const collecting = !!thread_id && pricePolicy.enabled && !leavesPriceSurvey && (
+      await isCollecting(companyId, ch, thread_id)
+      || await isCitySwitch(companyId, ch, thread_id, text)
+    );
+    // Для короткого ответа на уже заданный вопрос классификация не нужна.
+    // Любая новая тема сначала проходит enabled/autosend своего шаблона.
+    let d: Decision;
+    if (collecting && slotReply) {
+      d = { ok: true, topic: PRICE_TOPIC, template: null, confidence: 1,
+        action: 'sent', reply: null, reason: null };
+    } else {
+      d = await classify(companyId, text, client_name);
     }
-
-    const d = await classify(companyId, text, client_name);
-
-    // Классификатор не понял тему, но сообщение похоже на интерес к услуге
-    // («Услуга», «Липосакция», «живот») — ведём в опросник цены, а не в
-    // черновик администратору. Без этого разговор обрывался сразу после
-    // приветствия: бот сам спрашивает «услуга, стоимость или запись?», а
-    // ответ на свой же вопрос разобрать не мог, потому что классификатор
-    // видит одно сообщение без контекста.
-    if (
-      thread_id && priceOn &&
-      (!d.ok || d.topic === 'manual_review') &&
-      looksLikeServiceInterest(text)
-    ) {
+    const fallback = (!d.ok || d.topic === 'manual_review') && lipoInterest;
+    const usePrice = thread_id && pricePolicy.enabled && !leavesPriceSurvey
+      && d.action !== 'skipped' && (d.topic === PRICE_TOPIC || fallback);
+    if (usePrice) {
       const out = await handlePriceMessage({
-        companyId, channel: ch, threadId: thread_id, text, fresh: true,
+        companyId, channel: ch, threadId: thread_id!, text, fresh: !collecting,
       });
       if (out.kind !== 'none') {
-        const decision = priceOutcomeToDecision(out, d.ok ? d : undefined);
-        await logDecision(companyId, decision, {
-          channel: ch, threadId: thread_id, incoming: text,
-        });
-        if (out.kind === 'handover') {
-          void notifyNeedsReply({
-            channel: ch,
-            who: client_name || '#' + thread_id,
-            question: text,
-            reason: out.reason ?? null,
-            draft: null,
-          }).catch(() => {});
+        const base = d;
+        d = priceOutcomeToDecision(out, base);
+        // Общий выключатель автоотправки обязателен и для продолжения,
+        // и для fallback. Решение шаблона «черновик» тоже не повышаем.
+        if (d.action === 'sent' && (!pricePolicy.autosend
+          || (base.topic === PRICE_TOPIC && base.action !== 'sent'))) {
+          d = { ...d, action: 'draft', reason: 'автоотправка выключена — нужен администратор' };
         }
-        return respond(decision);
-      }
-    }
-
-    // Тема цены распознана — запускаем сбор ответов вместо шаблонного
-    // текста. Шаблон остаётся на случай, когда идентификатора диалога нет
-    // (ручная проверка из админки): состояние хранить негде.
-    if (d.ok && d.topic === PRICE_TOPIC && d.action !== 'skipped' && thread_id && priceOn) {
-      const out = await handlePriceMessage({
-        companyId, channel: ch, threadId: thread_id, text, fresh: true,
-      });
-      if (out.kind !== 'none') {
-        const decision = priceOutcomeToDecision(out, d);
-        await logDecision(companyId, decision, {
-          channel: ch, threadId: thread_id, incoming: text,
-        });
-        if (out.kind === 'handover') {
-          void notifyNeedsReply({
-            channel: ch,
-            who: client_name || '#' + thread_id,
-            question: text,
-            reason: out.reason ?? null,
-            draft: null,
-          }).catch(() => {});
-        }
-        return respond(decision);
       }
     }
     await logDecision(companyId, d, {
@@ -832,8 +790,9 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
 
     // Та же развилка, что в /reply: классификатор не понял тему, но
     // сообщение похоже на интерес к услуге — ведём в опросник цены.
-    const priceOn = await isPriceDialogEnabled(companyId);
-    if (priceOn && (!d.ok || d.topic === 'manual_review') && looksLikeServiceInterest(text)) {
+    const pricePolicy = await loadPriceDialogPolicy(companyId);
+    if (pricePolicy.enabled && d.action !== 'skipped'
+      && (!d.ok || d.topic === 'manual_review') && isLipoInterest(text)) {
       // Отдельный канал и одноразовый идентификатор: состояние ляжет в свою
       // строку и тут же удаляется, живые диалоги не затрагиваются.
       const tryThread = 'try-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -845,6 +804,10 @@ router.post('/try', manage, async (req: ExpressRequest, res, next) => {
       await resetPriceState(companyId, 'try', tryThread).catch(() => {});
       if (out.kind !== 'none') {
         const decision = priceOutcomeToDecision(out, d.ok ? d : undefined);
+        if (!pricePolicy.autosend && decision.action === 'sent') {
+          decision.action = 'draft';
+          decision.reason = 'автоотправка выключена — нужен администратор';
+        }
         return res.json({
           ok: true,
           topic: decision.topic,

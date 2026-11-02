@@ -14,7 +14,7 @@ import {
   City, ZoneKey, parseCity, parseWeight, parseZones, weightNeeded,
   buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
-  AskParts, parseAskTemplate, askOnlyNeeded,
+  AskParts, parseAskTemplate, askOnlyNeeded, asksPriceAnew,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
   ZoneCatalog, BUILTIN_ZONES, Zone, looksLikeServiceInterest, isPoliteOnly,
   parseConfirmation,
@@ -76,21 +76,23 @@ export async function loadQuoteTexts(companyId: string): Promise<QuoteTexts> {
  * продолжает вести разговор о цене — выключатель выглядит сломанным.
  * Проверка идёт по той же колонке `enabled`, что и у обычных шаблонов.
  *
- * Отсутствие строки означает, что тему ещё не завели, — тогда опросник
- * работает: так было до появления выключателя, и терять ответы из-за
- * незаполненного справочника нельзя.
+ * Отсутствие строки или ошибка чтения не являются разрешением отвечать.
  */
-export async function isPriceDialogEnabled(companyId: string): Promise<boolean> {
+export async function loadPriceDialogPolicy(companyId: string): Promise<{ enabled: boolean; autosend: boolean }> {
   try {
     const { rows } = await pool.query(
-      `SELECT enabled FROM ai.reply_templates WHERE company_id = $1 AND topic = $2`,
+      `SELECT enabled, autosend FROM ai.reply_templates WHERE company_id = $1 AND topic = $2`,
       [companyId, PRICE_TOPIC],
     );
-    return rows.length ? !!rows[0].enabled : true;
+    return { enabled: rows[0]?.enabled === true, autosend: rows[0]?.autosend === true };
   } catch (e) {
     console.error('[AI][цена] состояние темы не прочитано:', (e as Error).message);
-    return true;
+    return { enabled: false, autosend: false };
   }
+}
+
+export async function isPriceDialogEnabled(companyId: string): Promise<boolean> {
+  return (await loadPriceDialogPolicy(companyId)).enabled;
 }
 
 /**
@@ -185,6 +187,15 @@ const DIALOG_TTL_HOURS = Number(process.env.AI_PRICE_DIALOG_TTL_HOURS || 24);
  */
 const CONFIRM_TTL_DAYS = Number(process.env.AI_PRICE_CONFIRM_TTL_DAYS || 7);
 
+/**
+ * Пауза, после которой общий вопрос о цене считается НОВЫМ разговором.
+ *
+ * Полчаса: в живом опросе ответы идут минутами, а вернувшийся клиент
+ * приходит через часы. Внутри этого окна «ну так сколько?» остаётся
+ * нетерпением и собранные ответы не теряет.
+ */
+const NEW_QUOTE_IDLE_MS = Number(process.env.AI_PRICE_NEW_QUOTE_IDLE_MIN || 30) * 60_000;
+
 
 export interface DialogState {
   city: City | null;
@@ -219,12 +230,21 @@ export interface DialogState {
    */
   priorCity: City | null;
   priorWeight: number | null;
+  /**
+   * Когда по этому диалогу было последнее сообщение.
+   *
+   * Нужна, чтобы отличить живой опрос от возврата клиента. Внутри активного
+   * сбора реплика «а сколько стоит?» — это нетерпение, а не новый вопрос, и
+   * сбрасывать по ней собранные ответы нельзя: опрос пошёл бы по кругу.
+   */
+  updatedAt: Date | null;
 }
 
 const EMPTY: DialogState = {
   city: null, weight: null, zones: [], armpits: false,
   pubisBelly: false, quotedAt: null, askedAt: null,
   confirmAskedAt: null, priorCity: null, priorWeight: null,
+  updatedAt: null,
 };
 
 export async function loadState(
@@ -241,6 +261,7 @@ export async function loadState(
                  THEN prior_city END   AS prior_city,
             CASE WHEN prior_at > now() - ($5 || ' days')::interval
                  THEN prior_weight END AS prior_weight,
+            updated_at,
             updated_at > now() - ($4 || ' hours')::interval AS fresh
        FROM ai.price_dialog
       WHERE company_id = $1 AND channel = $2 AND thread_id = $3`,
@@ -257,6 +278,7 @@ export async function loadState(
       ...EMPTY,
       priorCity: (r.prior_city as City) ?? null,
       priorWeight: r.prior_weight == null ? null : Number(r.prior_weight),
+      updatedAt: r.updated_at ?? null,
     };
   }
 
@@ -271,6 +293,7 @@ export async function loadState(
     confirmAskedAt: r.confirm_asked_at ?? null,
     priorCity: (r.prior_city as City) ?? null,
     priorWeight: r.prior_weight == null ? null : Number(r.prior_weight),
+    updatedAt: r.updated_at ?? null,
   };
 }
 
@@ -395,9 +418,34 @@ function askMissing(
  * спрашивать всё заново.
  */
 export function startsNewQuote(
-  prev: Pick<DialogState, 'quotedAt'>, newZones: ZoneKey[], fresh: boolean,
+  prev: Pick<DialogState, 'quotedAt' | 'updatedAt'>,
+  newZones: ZoneKey[],
+  fresh: boolean,
+  text = '',
+  now: Date = new Date(),
 ): boolean {
-  return fresh || (!!prev.quotedAt && newZones.length > 0);
+  if (fresh) return true;
+  if (prev.quotedAt && newZones.length > 0) return true;
+
+  // Самостоятельный вопрос о цене БЕЗ зоны, пришедший в уже остывший
+  // разговор. Классификатор такое сообщение не видит: пока по диалогу идёт
+  // сбор, всё уходит в опросник напрямую (isCollecting) с fresh = false.
+  //
+  // Боевой случай: вечером клиентка написала «Ноги», города не назвала,
+  // цену не получила. Утром на «Сколько стоит липосакция ?» ассистент
+  // подставил вчерашние ноги, спросил только город и выдал их цену — ответ
+  // на вопрос, которого она не задавала.
+  //
+  // Порог по времени обязателен: та же фраза внутри живого опроса — это
+  // нетерпение («ну так сколько?»), и сброс там отправил бы клиента по
+  // кругу. Зону в тексте тоже проверяем: «а сколько стоит живот?» несёт
+  // новую зону и обрабатывается веткой выше.
+  if (newZones.length === 0 && asksPriceAnew(text)) {
+    const idleMs = prev.updatedAt ? now.getTime() - prev.updatedAt.getTime() : Infinity;
+    if (idleMs > NEW_QUOTE_IDLE_MS) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -434,6 +482,7 @@ export async function handleMessage(opts: {
   }
 
   const newZones = parseZones(text);
+  const catalog = await loadZoneCatalog(companyId);
 
   // ── Ответ на вопрос «город и вес прежние?» ──
   //
@@ -449,7 +498,9 @@ export async function handleMessage(opts: {
     prev = {
       ...prev,
       city: parseCity(text) ?? prev.priorCity,
-      weight: parseWeight(text) ?? prev.priorWeight,
+      // В подтверждении фиксированной зоны вес не показывали, поэтому
+      // «да» подтверждает только город, а не скрытый старый вес.
+      weight: parseWeight(text) ?? (weightNeeded(prev.zones, catalog) ? prev.priorWeight : null),
       confirmAskedAt: null,
     };
   } else if (confirmation === false) {
@@ -474,7 +525,7 @@ export async function handleMessage(opts: {
   // дороже: на вопрос про овал лица клиент получил ноги + руки +
   // подбородок и «Итого: 1 300 000 ₽». Клиника выглядит так, будто
   // навязывает процедуры, а названная сумма не имеет отношения к вопросу.
-  const startsOver = startsNewQuote(prev, newZones, fresh);
+  const startsOver = startsNewQuote(prev, newZones, fresh, text);
   const zones = startsOver
     ? ([...new Set(newZones)] as ZoneKey[])
     : ([...new Set([...prev.zones, ...newZones])] as ZoneKey[]);
@@ -492,8 +543,15 @@ export async function handleMessage(opts: {
   //
   // Названное В ЭТОМ ЖЕ сообщении всегда побеждает: «а в Каспийске руки?»
   // не превратится в переспрос города, который клиент только что назвал.
-  const city = parseCity(text) ?? (startsOver ? null : prev.city);
-  const weight = parseWeight(text) ?? (startsOver ? null : prev.weight);
+  // Новый расчёт не равен новому разговору: при переходе на другую зону
+  // сразу после ответа город уже подтверждён. Используем существующее
+  // окно активности; после паузы прежние данные молча не переносим.
+  const idleMs = prev.updatedAt ? Date.now() - prev.updatedAt.getTime() : Infinity;
+  const continuingZone = newZones.length > 0 && idleMs >= 0 && idleMs <= NEW_QUOTE_IDLE_MS;
+  const resetDetails = (startsOver && !continuingZone)
+    || (confirmation !== true && prev.updatedAt != null && idleMs > NEW_QUOTE_IDLE_MS);
+  const city = parseCity(text) ?? (resetDetails ? null : prev.city);
+  const weight = parseWeight(text) ?? (resetDetails ? null : prev.weight);
 
   // Клиент назвал другой город после уже полученной цены («а в Каспийске?»)
   // — считаем это новым запросом по тем же позициям: снимаем отметку о
@@ -503,8 +561,6 @@ export async function handleMessage(opts: {
 
   // Служебные тексты ответа — из шаблона, владелец правит их в админке.
   const texts = await loadQuoteTexts(companyId);
-  // Прайс — из БД; при пустой таблице вернётся встроенный.
-  const catalog = await loadZoneCatalog(companyId);
 
   const next: DialogState = {
     city,
@@ -526,6 +582,7 @@ export async function handleMessage(opts: {
     confirmAskedAt: null,
     priorCity: prev.priorCity,
     priorWeight: prev.priorWeight,
+    updatedAt: prev.updatedAt,
   };
 
   // До выбора зоны неизвестно, понадобится ли вес. Спрашивать его заранее
@@ -549,8 +606,8 @@ export async function handleMessage(opts: {
   // после выданной цены новый вопрос обнуляет город и вес, и условие
   // «прошлые есть, текущих нет» снова истинно. Человек только что всё
   // подтвердил — второй такой вопрос читается как неисправный бот.
-  const freshDialog = prev.askedAt != null || prev.quotedAt != null
-    || prev.confirmAskedAt != null;
+  const freshDialog = idleMs <= NEW_QUOTE_IDLE_MS && (prev.askedAt != null
+    || prev.quotedAt != null || prev.confirmAskedAt != null);
   // Подтверждать имеет смысл только то, что ПОНАДОБИТСЯ для расчёта. Для
   // круговой липосакции ног вес не нужен вовсе, и строка «в прошлый раз вы
   // указывали вес — 65 кг. Всё верно?» возвращает ровно тот вопрос, от

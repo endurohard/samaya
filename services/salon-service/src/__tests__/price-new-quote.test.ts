@@ -9,46 +9,80 @@ import { describe, it, expect } from 'vitest';
 import { startsNewQuote } from '../ai/price-dialog';
 import type { ZoneKey } from '../ai/price';
 
-const QUOTED = { quotedAt: new Date('2026-10-31T14:21:00Z') };
-const NOT_QUOTED = { quotedAt: null };
+const NOW = new Date('2026-11-01T12:34:00Z');
+const МИНУТА = 60_000;
+// Разговор, по которому цену уже назвали, последняя реплика — только что.
+const QUOTED = {
+  quotedAt: new Date('2026-10-31T14:21:00Z'),
+  updatedAt: new Date(NOW.getTime() - МИНУТА),
+};
+// Сбор ответов идёт прямо сейчас: цены нет, клиент пишет каждую минуту.
+const NOT_QUOTED = { quotedAt: null, updatedAt: new Date(NOW.getTime() - МИНУТА) };
+// Тот же незакрытый сбор, но брошенный вчера вечером.
+const СТЫЛЫЙ = { quotedAt: null, updatedAt: new Date('2026-10-31T19:52:00Z') };
 
 describe('startsNewQuote', () => {
   it('новая зона после названной цены начинает новый расчёт', () => {
-    expect(startsNewQuote(QUOTED, ['chin'] as ZoneKey[], false)).toBe(true);
+    expect(startsNewQuote(QUOTED, ['chin'] as ZoneKey[], false, '', NOW)).toBe(true);
   });
 
   it('повторный вопрос о цене после названной — тоже новый расчёт', () => {
     // «Стоимость» через несколько часов: зоны в тексте нет, но классификатор
     // снова распознал вопрос о цене. Клиент должен получить вопросы, а не
     // прошлый счёт.
-    expect(startsNewQuote(QUOTED, [], true)).toBe(true);
+    expect(startsNewQuote(QUOTED, [], true, '', NOW)).toBe(true);
   });
 
   it('пока цену НЕ называли, зоны накапливаются', () => {
     // Идёт сбор ответов: клиент перечисляет зоны по частям («ноги», потом
     // «и руки») — расчёт обязан собраться целиком. Такие ответы приходят
     // с fresh = false (их пропускает isCollecting, а не классификатор).
-    expect(startsNewQuote(NOT_QUOTED, ['arms'] as ZoneKey[], false)).toBe(false);
+    expect(startsNewQuote(NOT_QUOTED, ['arms'] as ZoneKey[], false, '', NOW)).toBe(false);
   });
 
   it('новый вопрос о цене начинает заново, даже если цену не называли', () => {
-    // Боевой случай 01.11: вечером клиентка написала «Ноги», города не
-    // назвала, цену не получила — зона осталась в состоянии. Утром на
-    // «Сколько стоит липосакция ?» бот не спросил, какая зона интересует,
-    // и выдал цену ног. Самостоятельный вопрос о цене (fresh) обязан
-    // начинать разговор с чистого листа независимо от quotedAt.
-    expect(startsNewQuote(NOT_QUOTED, [], true)).toBe(true);
+    expect(startsNewQuote(NOT_QUOTED, [], true, '', NOW)).toBe(true);
+  });
+
+  it('БОЕВОЙ СЛУЧАЙ: брошенная вчера зона не отвечает за сегодняшний вопрос', () => {
+    // 31.10 19:52 «Ноги» — города не назвала, цену не получила.
+    // 01.11 12:34 «Сколько стоит липосакция ?» — бот подставил вчерашние
+    // ноги, спросил только город и выдал 800 000 ₽ за ноги.
+    //
+    // Классификатор это сообщение не видит (fresh = false): по диалогу шёл
+    // незакрытый сбор, и всё уходило в опросник напрямую.
+    expect(startsNewQuote(СТЫЛЫЙ, [], false, 'Сколько стоит липосакция ?', NOW))
+      .toBe(true);
+  });
+
+  it('«ну так сколько?» внутри живого опроса НЕ сбрасывает ответы', () => {
+    // Нетерпение через минуту после вопроса бота. Сброс здесь отправил бы
+    // клиента по кругу: он уже назвал город и зону.
+    expect(startsNewQuote(NOT_QUOTED, [], false, 'так сколько стоит ?', NOW))
+      .toBe(false);
+  });
+
+  it('вопрос о цене С зоной идёт обычным путём', () => {
+    // «А сколько стоит живот?» — зона есть, её обрабатывает ветка выше;
+    // двойной сброс не нужен.
+    expect(startsNewQuote(СТЫЛЫЙ, ['belly'] as ZoneKey[], false,
+      'А сколько стоит живот ?', NOW)).toBe(false);
+  });
+
+  it('первое сообщение в диалоге: состояния нет — вопрос новый', () => {
+    expect(startsNewQuote({ quotedAt: null, updatedAt: null }, [], false,
+      'Сколько стоит липосакция ?', NOW)).toBe(true);
   });
 
   it('смена города после цены НЕ сбрасывает позиции', () => {
     // «а в Каспийске?» — пересчёт тех же позиций по другому прайсу. Зоны и
     // вес клиент уже назвал, переспрашивать их нельзя.
-    expect(startsNewQuote(QUOTED, [], false)).toBe(false);
+    expect(startsNewQuote(QUOTED, [], false, '', NOW)).toBe(false);
   });
 
   it('вопрос без зоны после цены не сбрасывает позиции', () => {
     // «а когда можно записаться?» — ни зоны, ни нового вопроса о цене.
-    expect(startsNewQuote(QUOTED, [], false)).toBe(false);
+    expect(startsNewQuote(QUOTED, [], false, '', NOW)).toBe(false);
   });
 });
 
