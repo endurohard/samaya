@@ -242,7 +242,9 @@ const ZONE_WORDS: { key: ZoneKey; words: string[]; generic?: string[] }[] = [
   { key: 'holka', words: ['холк', 'загривок', 'вдовий горб', 'горбик'] },
   { key: 'arms', words: ['рук', 'предплеч', 'подмышк'] },
   { key: 'belly', words: ['живот', 'пузо', 'эпигастр'] },
-  { key: 'waist', words: ['тали', 'бок', 'флан'] },
+  // «бок» проверяется отдельной регуляркой в parseZones: простой поиск по
+  // подстроке принимал «лобок» одновременно за талию и лобок.
+  { key: 'waist', words: ['тали', 'флан'] },
   { key: 'galife', words: ['галиф', 'галифэ', 'ушк'] },
   { key: 'pubis', words: ['лобок', 'лобк', 'пубис'] },
   { key: 'shin', words: ['голен', 'икр'] },
@@ -458,7 +460,13 @@ export function parseZones(text: string): ZoneKey[] {
   const t = String(text || '').toLowerCase();
   const found: ZoneKey[] = [];
   for (const { key, words } of ZONE_WORDS) {
-    if (words.some(w => t.includes(w)) && !found.includes(key)) found.push(key);
+    const wordMatched = words.some(w => t.includes(w));
+    // В JavaScript \b не понимает кириллицу, поэтому границы задаём явным
+    // отрицанием русской буквы. Так «бок/бока/на боках» остаются талией,
+    // но «лобок» больше не содержит ложную отдельную зону «бок».
+    const sideMatched = key === 'waist'
+      && /(^|[^а-яё])бок(?:а|и|ов|ами|ах)?(?=$|[^а-яё])/.test(t);
+    if ((wordMatched || sideMatched) && !found.includes(key)) found.push(key);
   }
   // Общие слова — только когда конкретных совпадений не нашлось. «Ног» в
   // «внутренней поверхности ног» не должно добавлять круговую липосакцию:
