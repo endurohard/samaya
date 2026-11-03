@@ -39,6 +39,44 @@ function isLipoInterest(text: string): boolean {
 }
 
 
+/** «+» относится только к последнему доставленному приглашению, не к старому опросу. */
+async function contextualPlusDecision(
+  companyId: string, channel: string, threadId: string, text: string, clientName?: string | null,
+): Promise<Decision | null> {
+  if (channel !== 'instagram' || text.trim() !== '+') return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.topic, l.action, l.reply,
+              l.reply = (SELECT m.body FROM instagram.messages m
+                           WHERE m.thread_id = l.thread_id AND m.from_me
+                             AND m.sent_at >= l.created_at - interval '2 minutes'
+                           ORDER BY m.sent_at DESC LIMIT 1) AS delivered
+         FROM ai.reply_log l
+        WHERE l.company_id = $1 AND l.channel = $2 AND l.thread_id = $3
+          AND l.created_at > now() - interval '30 minutes'
+        ORDER BY l.created_at DESC LIMIT 1`,
+      [companyId, channel, threadId],
+    );
+    const previous = rows[0];
+    if (previous?.topic !== 'price_chin' || previous.action !== 'sent' || !previous.delivered
+      || !/Contour\s+Lift[\s\S]*оставьте\s*[«"“]?\+/iu.test(previous.reply ?? '')) return null;
+    const template = (await loadTemplates(companyId)).find(t => t.topic === 'contour_lift');
+    // Отсутствующий шаблон не разрешает подстановку запасного текста.
+    if (!template) return { ok: true, topic: 'contour_lift', template: null,
+      confidence: 1, action: 'draft', reply: null, reason: 'шаблон темы «contour_lift» не найден' };
+    const common = { ok: true, topic: template.topic, template, confidence: 1 };
+    if (!template.enabled) return { ...common, action: 'skipped', reply: null,
+      reason: `тема «${template.title}» выключена — ответ не отправляется` };
+    return { ...common, action: template.autosend ? 'sent' : 'draft',
+      reply: render(renderPrices(template.body, await loadZoneCatalog(companyId)), clientName),
+      reason: template.autosend ? null : 'тема требует подтверждения администратором' };
+  } catch (e) {
+    console.warn('[ai] контекст приглашения не прочитан:', (e as Error).message);
+    return { ok: true, topic: 'manual_review', template: null, confidence: 0,
+      action: 'draft', reply: null, reason: 'контекст приглашения недоступен — нужен администратор' };
+  }
+}
+
 /**
  * Превратить итог разговора о цене в обычное решение ассистента, чтобы
  * журнал и ответ каналу были такими же, как у шаблонных тем.
@@ -161,8 +199,12 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     );
     // Для короткого ответа на уже заданный вопрос классификация не нужна.
     // Любая новая тема сначала проходит enabled/autosend своего шаблона.
+    const contextual = thread_id
+      ? await contextualPlusDecision(companyId, ch, thread_id, text, client_name) : null;
     let d: Decision;
-    if (collecting && slotReply) {
+    if (contextual) {
+      d = contextual;
+    } else if (collecting && slotReply) {
       d = { ok: true, topic: PRICE_TOPIC, template: null, confidence: 1,
         action: 'sent', reply: null, reason: null };
     } else {
@@ -178,10 +220,11 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       if (out.kind !== 'none') {
         const base = d;
         d = priceOutcomeToDecision(out, base);
-        // Общий выключатель автоотправки обязателен и для продолжения,
-        // и для fallback. Решение шаблона «черновик» тоже не повышаем.
+        // Черновик классификатора может означать низкую уверенность, а не
+        // запрет автоотправки. Табличный опрос уже определил ответ: проверяем
+        // именно флаги ценового шаблона, не подменяя ими action модели.
         if (d.action === 'sent' && (!pricePolicy.autosend
-          || (base.topic === PRICE_TOPIC && base.action !== 'sent'))) {
+          || (base.topic === PRICE_TOPIC && base.template?.autosend === false))) {
           d = { ...d, action: 'draft', reason: 'автоотправка выключена — нужен администратор' };
         }
       }
