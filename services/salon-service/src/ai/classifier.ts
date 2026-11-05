@@ -137,13 +137,6 @@ export async function classify(
   companyId: string,
   text: string,
   clientName?: string | null,
-  /**
-   * Контекст диалога: последняя реплика клиники (бота, менеджера или
-   * автоответа Instagram). Без неё короткий ответ на вопрос клиники
-   * («Круговая», «Живот,талия») не на что опереть, и он уходил в
-   * manual_review.
-   */
-  context?: { previous?: string | null },
 ): Promise<Decision> {
   const fail = (reason: string): Decision => ({
     ok: false, topic: null, template: null, confidence: 0,
@@ -171,18 +164,9 @@ export async function classify(
   criteria.manual_review = 'Сообщение не подходит ни под одну тему, непонятно сформулировано, содержит несколько разных вопросов сразу, или есть любое сомнение.';
 
   let answer: { choice?: string; confidence?: number; probabilities?: Record<string, number> };
-  // Реплика клиники идёт ПОСЛЕ сообщения клиента и явно подписана: тема
-  // выбирается по сообщению клиента, а предыдущий вопрос лишь объясняет,
-  // на что он отвечает. Длина ограничена — шаблоны клиники бывают длинными,
-  // а смысл вопроса обычно в последних строках.
-  const previous = String(context?.previous ?? '').replace(/\s+/g, ' ').trim();
-  const state = `Сообщение клиента в Instagram Direct клиники косметологии: "${message.slice(0, 1500)}"`
-    + (previous
-      ? `\nПеред этим клиника написала клиенту в этом диалоге: "${previous.length > 800 ? '…' + previous.slice(-800) : previous}"`
-      : '');
   const body = JSON.stringify({
     model: JEV_MODEL,
-    state,
+    state: `Сообщение клиента в Instagram Direct клиники косметологии: "${message.slice(0, 1500)}"`,
     questions: { theme: { type: 'choice', criteria } },
   });
 
