@@ -19,6 +19,7 @@ import {
 } from '../ai/price-dialog';
 import { looksLikeServiceInterest, renderPrices } from '../ai/price';
 import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
+import { humanTakeoverReason } from '../ai/human-takeover';
 import { parseParts } from '../ai/parts';
 import type { ReplyPart } from '../ai/parts';
 
@@ -153,29 +154,34 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     const ch = channel ?? 'instagram';
 
     /**
-     * Ответ каналу. Единая точка, потому что вступление с фотографиями зон
-     * обязано уехать из ЛЮБОЙ ветки — и когда бот называет цену, и когда
-     * отдаёт разговор администратору. Разложенный по четырём return'ам,
-     * он потерялся бы в той ветке, которую забыли поправить.
+     * Ответ каналу. Единая точка, чтобы вступление с фотографиями зон
+     * собиралось по ИТОГОВОМУ решению, а не по тексту до него.
+     *
+     * Материалы уходят только вместе с отправленным ответом. Раньше они
+     * уходили из любой ветки, включая передачу администратору, — и клиент,
+     * спросивший про внутреннюю поверхность бедра, получал схемы круговой
+     * процедуры раньше, чем администратор успевал увидеть вопрос.
      */
-    const reply_parts: ReplyPart[] = thread_id
-      ? await legsIntroFor({ companyId, channel: ch, threadId: thread_id, text })
-        .catch((e) => {
-          // Сбой вступления не должен превращаться в молчание: обычный
-          // ответ клиенту важнее картинок.
-          console.error('[ai] вступление не собрано:', (e as Error).message);
-          return [] as ReplyPart[];
-        })
-      : [];
-    const respond = (d: Decision) => res.json({
-      ok: d.ok, topic: d.topic, confidence: d.confidence,
-      action: d.action, reply: d.reply, reason: d.reason,
-      // Канал отправляет их ПЕРЕД reply и подтверждает отметкой
-      // (POST /ai/intro-sent) — иначе при выключенном автоответе схемы
-      // зон были бы помечены отправленными, не уйдя клиенту.
-      reply_parts,
-      intro_key: reply_parts.length ? LEGS_INTRO_TOPIC : null,
-    });
+    const respond = async (d: Decision) => {
+      const reply_parts: ReplyPart[] = thread_id && d.action === 'sent'
+        ? await legsIntroFor({ companyId, channel: ch, threadId: thread_id, text })
+          .catch((e) => {
+            // Сбой вступления не должен превращаться в молчание: обычный
+            // ответ клиенту важнее картинок.
+            console.error('[ai] вступление не собрано:', (e as Error).message);
+            return [] as ReplyPart[];
+          })
+        : [];
+      return res.json({
+        ok: d.ok, topic: d.topic, confidence: d.confidence,
+        action: d.action, reply: d.reply, reason: d.reason,
+        // Канал отправляет их ПЕРЕД reply и подтверждает отметкой
+        // (POST /ai/intro-sent) — иначе при выключенном автоответе схемы
+        // зон были бы помечены отправленными, не уйдя клиенту.
+        reply_parts,
+        intro_key: reply_parts.length ? LEGS_INTRO_TOPIC : null,
+      });
+    };
 
     // Разговор о цене ведётся отдельно от классификатора: он помнит, что
     // клиент уже назвал город, вес или зону. Проверка стоит ПЕРЕД
@@ -189,10 +195,16 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     const pricePolicy = await loadPriceDialogPolicy(companyId);
     // Только ответы на поля опроса можно разбирать без классификатора.
     // Иначе выключенная тема или другая услуга обходила свой шаблон.
-    const slotReply = /^\s*(?:(?:а\s+)?(?:в\s+)?(?:москв[ае]?|каспийск[е]?)|(?:вес\s*)?\d{2,3}(?:[.,]\d)?\s*(?:кг)?|да|нет|верно|всё верно|все верно|\+)\s*[!.?]*\s*$/iu.test(text);
+    const slotRe = /^\s*(?:(?:а\s+)?(?:в\s+)?(?:москв[ае]?|каспийск[е]?)|(?:вес\s*)?\d{2,3}(?:[.,]\d)?\s*(?:кг)?|да|нет|верно|всё верно|все верно|\+)\s*[!.?]*\s*$/iu;
+    // Канал склеивает сообщения, написанные подряд, через перевод строки.
+    // Каждая строка разбирается так, как если бы пришла отдельно: пачка
+    // «Москва» + «65» остаётся ответом на опрос, а строка «живот» в пачке —
+    // интересом к липосакции.
+    const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    const slotReply = slotRe.test(text) || (lines.length > 1 && lines.every(l => slotRe.test(l)));
     const leavesPriceSurvey = /(^|[^а-яё])(?:записаться|запишите|запись)(?=$|[^а-яё])/i.test(text)
       || /^\s*(?:здравствуйте|здравствуй|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[\s!.,🌹🤍]*$/iu.test(text);
-    const lipoInterest = isLipoInterest(text);
+    const lipoInterest = isLipoInterest(text) || (lines.length > 1 && lines.some(isLipoInterest));
     const collecting = !!thread_id && pricePolicy.enabled && !leavesPriceSurvey && (
       await isCollecting(companyId, ch, thread_id)
       || await isCitySwitch(companyId, ch, thread_id, text)
@@ -228,6 +240,17 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
           d = { ...d, action: 'draft', reason: 'автоотправка выключена — нужен администратор' };
         }
       }
+    }
+    // Последняя проверка перед автоответом: в диалоге уже участвует человек.
+    // Стоит после ВСЕХ веток (шаблон, опрос, «+»), чтобы ни одна не обошла её.
+    // Ошибка чтения не разрешает автоответ — безопасный черновик.
+    if (d.action === 'sent' && ch === 'instagram' && thread_id) {
+      const why = await humanTakeoverReason(companyId, thread_id)
+        .catch((e) => {
+          console.warn('[ai] участие администратора не проверено:', (e as Error).message);
+          return 'не удалось проверить, ведёт ли диалог администратор — нужен администратор';
+        });
+      if (why) d = { ...d, action: 'draft', reason: why };
     }
     await logDecision(companyId, d, {
       channel: channel ?? 'instagram',
@@ -270,7 +293,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       });
     }
 
-    return respond(d);
+    return await respond(d);
   } catch (e) { return next(e); }
 });
 

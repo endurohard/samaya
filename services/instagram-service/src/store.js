@@ -770,6 +770,38 @@ export async function markAuthor(threadId, body, author) {
   return r.rowCount;
 }
 
+/** Подпись сообщений бота. Её же ищет salon-service (ai/human-takeover.ts). */
+export const BOT_AUTHOR = 'Ассистент';
+
+/**
+ * Пометить только что отправленное ботом сообщение подписью «Ассистент».
+ *
+ * По подписи salon-service отличает ответы бота от ручных сообщений
+ * менеджера: после ручного сообщения бот перестаёт отвечать сам. Без
+ * пометки собственные материалы бота (вступление про ноги — его нет в
+ * журнале решений) выглядели бы ручными, и бот заглушал бы сам себя.
+ * Заодно в CRM у такого сообщения видно, что его написал ассистент.
+ *
+ * Строка могла появиться раньше из эха Meta — поэтому UPDATE последней
+ * подходящей строки, а не вставка.
+ */
+export async function markBot(threadId, body) {
+  if (!COMPANY_ID || !body) return 0;
+  const r = await pool.query(
+    `UPDATE instagram.messages SET author_name = $1
+      WHERE ig_id = (
+        SELECT ig_id FROM instagram.messages
+         WHERE company_id = $2 AND thread_id = $3
+           AND from_me = TRUE AND author_id IS NULL AND author_name IS NULL
+           AND body = $4
+           AND sent_at > NOW() - INTERVAL '10 minutes'
+         ORDER BY sent_at DESC LIMIT 1
+      )`,
+    [BOT_AUTHOR, COMPANY_ID, threadId, body],
+  );
+  return r.rowCount;
+}
+
 export async function authorName(userId) {
   if (!userId) return null;
   const r = await pool.query(

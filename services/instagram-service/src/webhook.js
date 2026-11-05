@@ -1,15 +1,17 @@
 // Приём сообщений Direct через webhook и ответ по шаблонам.
 //
 // Поток: Meta шлёт уведомление → проверяем подпись → сохраняем в БД →
-// спрашиваем у ассистента тему → отправляем готовый шаблон или оставляем
+// ставим в очередь диалога → после паузы в переписке спрашиваем у
+// ассистента ответ на всю пачку → отправляем готовый шаблон или оставляем
 // черновик администратору.
 //
 // Классификацию делает salon-service, а не этот сервис: шаблоны и журнал
 // живут там, и вторая копия логики разошлась бы с первой при первой же
 // правке. Сюда возвращается уже готовое решение.
-import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient, threadHasName, threadUsername, channelSettings } from './store.js';
+import { upsertThread, saveMessages, saveDraft, clearDraft, findClientByPhone, linkThreadToClient, threadHasName, threadUsername, channelSettings, markBot } from './store.js';
 import { sendMessage, fetchProfile } from './graph.js';
 import { sendParts } from './parts.js';
+import { createThreadQueue, joinTexts } from './queue.js';
 
 const SALON_URL = process.env.SALON_SERVICE_URL || 'http://salon-service:3002';
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || '';
@@ -152,7 +154,7 @@ async function confirmIntro(threadId, introKey) {
  * доставке того же события.
  */
 export async function handleMessages(items) {
-  const stats = { saved: 0, replied: 0, drafts: 0, skipped: 0 };
+  const stats = { saved: 0, queued: 0, drafts: 0, skipped: 0 };
 
   // Режим обкатки берём из БД: владелец переключает его в админке, и
   // настройка должна действовать сразу, без перезапуска контейнера.
@@ -249,73 +251,107 @@ export async function handleMessages(items) {
     // с голым идентификатором вида #1444632931106388, по которому нельзя
     // понять, кто написал, и приходится искать диалог в CRM вручную.
     const who = profile?.username || await threadUsername(it.threadId);
-    const d = await askAssistant(it.text, it.threadId, who ? '@' + who : null);
-    if (!d.ok) {
-      console.warn(`[IG][ии] ${it.threadId}: ${d.reason}`);
-      stats.drafts++;
-      continue;
-    }
-
-    if (d.action === 'skipped') { stats.skipped++; continue; }
-
-    // Вступление с фотографиями зон (круговая липосакция ног). Уходит
-    // ПЕРЕД ответом и независимо от того, отвечает ли бот сам: даже когда
-    // разговор передаётся администратору, клиент должен сразу увидеть,
-    // какие зоны прорабатываются — ради этого вступление и заводилось.
-    //
-    // Общий выключатель канала всё же уважаем: при INSTAGRAM_AUTOREPLY=false
-    // сервис не пишет клиенту ничего, и фотографии здесь не исключение.
-    let introSent = false;
-    if (AUTOREPLY && Array.isArray(d.reply_parts) && d.reply_parts.length) {
-      await sleep(rnd(4000, 12_000));
-      const r = await sendParts(it.threadId, d.reply_parts, clientId);
-      if (r.sent) {
-        // Отметку ставим только после фактической отправки: иначе при
-        // отказе Meta диалог навсегда остался бы помеченным, и схемы зон
-        // не ушли бы уже никогда.
-        introSent = true;
-        await confirmIntro(it.threadId, d.intro_key);
-        console.log(`[IG][ии] вступление отправлено в ${it.threadId} (${r.sent} сообщ.)`);
-      }
-      if (!r.ok) {
-        console.warn(`[IG][ии] вступление не ушло целиком в ${it.threadId}: ${r.error}`);
-      }
-    }
-
-    if (d.action !== 'sent' || !AUTOREPLY) {
-      if (d.reply) await saveDraft(it.threadId, d.reply, d.action === 'sent');
-      stats.drafts++;
-      continue;
-    }
-
-    // Пауза перед автоответом: мгновенная реплика через секунду после
-    // входящего читается как бот и клиентом, и антифродом Meta. После
-    // вступления паузу не повторяем — она уже была перед ним, а сообщения
-    // внутри связки разделены своими интервалами.
-    if (!introSent) await sleep(rnd(4000, 12_000));
-    const sent = await sendMessage(it.threadId, d.reply);
-    if (sent.ok) {
-      await clearDraft(it.threadId);
-      await saveMessages(it.threadId, [{
-        from_me: true, body: d.reply, stamp: new Date().toISOString(),
-      }], clientId);
-      stats.replied++;
-      console.log(`[IG][ии] автоответ отправлен в ${it.threadId} (тема ${d.topic})`);
-    } else {
-      // Не ушло — оставляем черновиком, иначе ответ просто потеряется.
-      // Но черновик видит только тот, кто откроет CRM, и снимается он без
-      // следа — поэтому зовём человека наружу, в Telegram.
-      await saveDraft(it.threadId, d.reply, true);
-      stats.drafts++;
-      console.warn(`[IG][ии] автоответ не ушёл в ${it.threadId}: ${sent.error}`);
-      void notifyUndelivered(
-        it.threadId, who ? '@' + who : null,
-        `ответ не доставлен: ${sent.error}`, d.reply,
-      );
-    }
+    // Ответ готовится не сразу, а по пачке: клиент часто пишет несколькими
+    // сообщениями подряд, и отвечать надо на всё написанное, а не на первую
+    // реплику (см. queue.js).
+    replyQueue.push(it.threadId, { text: it.text, who: who ? '@' + who : null, clientId });
+    stats.queued++;
   }
 
   return stats;
+}
+
+// Пауза после ПОСЛЕДНЕГО сообщения клиента перед ответом. Заменяет прежнюю
+// случайную паузу 4–12 с перед отправкой: мгновенный ответ по-прежнему не
+// уходит, но теперь за время паузы собирается вся пачка, а не отправляется
+// ответ на уже устаревшую реплику.
+const REPLY_DELAY_MS = Number(process.env.INSTAGRAM_REPLY_DELAY_MS || 7000);
+const REPLY_JITTER_MS = Number(process.env.INSTAGRAM_REPLY_JITTER_MS || 4000);
+
+const replyQueue = createThreadQueue({
+  delayMs: REPLY_DELAY_MS,
+  jitterMs: REPLY_JITTER_MS,
+  handle: answerBatch,
+  onError: (e, threadId) => console.error(`[IG][ии] ${threadId}: ответ на пачку не собран:`, e.message),
+});
+
+/** Сколько диалогов ждут ответа ассистента (для /health). */
+export function replyQueueSize() {
+  return replyQueue.size();
+}
+
+/**
+ * Ответить на пачку сообщений одного диалога.
+ *
+ * Вызывается очередью строго по одной пачке на диалог: следующая ждёт, пока
+ * эта не отправлена и не записана, поэтому ассистент всегда видит актуальное
+ * состояние опроса и уже доставленные ответы.
+ */
+async function answerBatch(threadId, batch) {
+  const text = joinTexts(batch.map(b => b.text));
+  if (!text) return;
+  const last = batch[batch.length - 1];
+  const { who, clientId } = last;
+  if (batch.length > 1) console.log(`[IG][ии] ${threadId}: пачка из ${batch.length} сообщ.`);
+
+  const d = await askAssistant(text, threadId, who);
+  if (!d.ok) {
+    console.warn(`[IG][ии] ${threadId}: ${d.reason}`);
+    return;
+  }
+
+  if (d.action === 'skipped') return;
+
+  // Вступление с фотографиями зон (круговая липосакция ног). Ассистент отдаёт
+  // его только вместе с отправляемым ответом и только при autosend шаблона,
+  // поэтому для черновика частей нет. Общий выключатель канала тоже уважаем:
+  // при INSTAGRAM_AUTOREPLY=false сервис не пишет клиенту ничего.
+  let introSent = false;
+  if (AUTOREPLY && d.action === 'sent' && Array.isArray(d.reply_parts) && d.reply_parts.length) {
+    const r = await sendParts(threadId, d.reply_parts, clientId);
+    // Подпись «Ассистент» на текстах вступления: иначе salon-service примет
+    // их за ручные сообщения менеджера и бот заглушит сам себя.
+    for (const p of d.reply_parts.slice(0, r.sent)) {
+      if (p.type === 'text') {
+        await markBot(threadId, p.text).catch(e => console.warn('[IG][ии] подпись вступления:', e.message));
+      }
+    }
+    if (r.sent) {
+      // Отметку ставим только после фактической отправки: иначе при
+      // отказе Meta диалог навсегда остался бы помеченным, и схемы зон
+      // не ушли бы уже никогда.
+      introSent = true;
+      await confirmIntro(threadId, d.intro_key);
+      console.log(`[IG][ии] вступление отправлено в ${threadId} (${r.sent} сообщ.)`);
+    }
+    if (!r.ok) {
+      console.warn(`[IG][ии] вступление не ушло целиком в ${threadId}: ${r.error}`);
+    }
+  }
+
+  if (d.action !== 'sent' || !AUTOREPLY) {
+    if (d.reply) await saveDraft(threadId, d.reply, d.action === 'sent');
+    return;
+  }
+
+  // Между вступлением и ответом — та же пауза, что внутри связки.
+  if (introSent) await sleep(rnd(1500, 3500));
+  const sent = await sendMessage(threadId, d.reply);
+  if (sent.ok) {
+    await clearDraft(threadId);
+    await saveMessages(threadId, [{
+      from_me: true, body: d.reply, stamp: new Date().toISOString(),
+    }], clientId);
+    await markBot(threadId, d.reply).catch(e => console.warn('[IG][ии] подпись ответа:', e.message));
+    console.log(`[IG][ии] автоответ отправлен в ${threadId} (тема ${d.topic})`);
+  } else {
+    // Не ушло — оставляем черновиком, иначе ответ просто потеряется.
+    // Но черновик видит только тот, кто откроет CRM, и снимается он без
+    // следа — поэтому зовём человека наружу, в Telegram.
+    await saveDraft(threadId, d.reply, true);
+    console.warn(`[IG][ии] автоответ не ушёл в ${threadId}: ${sent.error}`);
+    void notifyUndelivered(threadId, who, `ответ не доставлен: ${sent.error}`, d.reply);
+  }
 }
 
 export function autoreplyEnabled() {

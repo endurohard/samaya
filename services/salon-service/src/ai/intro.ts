@@ -63,7 +63,7 @@ export function orderIntroParts(ownParts: ReplyPart[], methodParts: ReplyPart[])
 export async function loadIntroParts(companyId: string): Promise<ReplyPart[]> {
   try {
     const { rows } = await pool.query(
-      `SELECT topic, body, enabled FROM ai.reply_templates
+      `SELECT topic, body, enabled, autosend FROM ai.reply_templates
         WHERE company_id = $1 AND topic = ANY($2::text[])`,
       [companyId, [LEGS_INTRO_TOPIC, LEGS_METHOD_TOPIC]],
     );
@@ -71,7 +71,12 @@ export async function loadIntroParts(companyId: string): Promise<ReplyPart[]> {
     const head = by.get(LEGS_INTRO_TOPIC);
     // Выключить вступление целиком владелец может первой темой: она
     // главная, и без неё схемы зон отправлять незачем.
-    if (!head || head.enabled === false) return [];
+    //
+    // autosend проверяется так же, как у любого шаблона: части уходят клиенту
+    // без участия человека, и при autosend=false их отправлять нельзя. Раньше
+    // смотрели только enabled — и 4 ноября схемы круговой процедуры
+    // автоматически ушли в сотню диалогов при выключенной автоотправке.
+    if (!head || head.enabled === false || head.autosend !== true) return [];
 
     const method = by.get(LEGS_METHOD_TOPIC);
     // Вторую часть добавляем только если она включена и заполнена:
@@ -123,9 +128,8 @@ export async function markIntroSent(
  * Вступление для этого сообщения, если оно нужно.
  *
  * Возвращает только САМО вступление (тексты и фотографии), без ответа
- * ассистента: ответ уходит отдельным полем. При передаче администратору
- * ответа нет вовсе, а схемы зон показать всё равно надо — владелец просил
- * показывать их ПЕРЕД любым разговором о ногах.
+ * ассистента: ответ уходит отдельным полем. Маршрут зовёт эту функцию только
+ * для отправляемого ответа — черновик администратору материалов не несёт.
  */
 export async function legsIntroFor(opts: {
   companyId: string;
