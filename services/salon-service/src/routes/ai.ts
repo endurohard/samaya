@@ -20,6 +20,7 @@ import {
 import { looksLikeServiceInterest, renderPrices } from '../ai/price';
 import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
 import { humanTakeoverReason } from '../ai/human-takeover';
+import { lastClinicMessage } from '../ai/dialog-context';
 import { parseParts } from '../ai/parts';
 import type { ReplyPart } from '../ai/parts';
 
@@ -220,7 +221,14 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       d = { ok: true, topic: PRICE_TOPIC, template: null, confidence: 1,
         action: 'sent', reply: null, reason: null };
     } else {
-      d = await classify(companyId, text, client_name);
+      // Контекст необязателен: сбой чтения не должен мешать ответу.
+      const previous = thread_id
+        ? await lastClinicMessage(companyId, ch, thread_id).catch((e) => {
+          console.warn('[ai] контекст диалога не прочитан:', (e as Error).message);
+          return null;
+        })
+        : null;
+      d = await classify(companyId, text, client_name, { previous });
     }
     const fallback = (!d.ok || d.topic === 'manual_review') && lipoInterest;
     const usePrice = thread_id && pricePolicy.enabled && !leavesPriceSurvey

@@ -276,3 +276,30 @@ describe('/reply: склеенная пачка сообщений', () => {
     expect(mocks.classify).toHaveBeenCalled();
   });
 });
+
+// Jev получает последнюю реплику клиники в диалоге: короткие ответы на
+// вопрос («Круговая», «Живот,талия») без неё уходили в manual_review.
+describe('/reply: контекст диалога для классификатора', () => {
+  async function reply(text: string, channel = 'instagram') {
+    const json = vi.fn(); const next = vi.fn();
+    await replyHandler({ body: { text, thread_id: 'th1', channel }, auth: { company_id: 'test' } }, { json }, next);
+    expect(next).not.toHaveBeenCalled();
+    return json.mock.calls[0][0];
+  }
+  beforeEach(() => { mocks.collecting.mockResolvedValue(false); });
+  it('передаёт последнюю реплику клиники в классификатор', async () => {
+    mocks.query.mockImplementation(async (sql: string) =>
+      String(sql).includes('AS previous') ? { rows: [{ previous: 'О какой процедуре вам подробнее рассказать?' }] } : { rows: [] });
+    await reply('Круговая');
+    expect(mocks.classify.mock.calls[0][3]).toEqual({ previous: 'О какой процедуре вам подробнее рассказать?' });
+  });
+  it('сбой чтения контекста не мешает классификации', async () => {
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('AS previous')) throw new Error('DB unavailable');
+      return { rows: [] };
+    });
+    await reply('Круговая');
+    expect(mocks.classify).toHaveBeenCalled();
+    expect(mocks.classify.mock.calls[0][3]).toEqual({ previous: null });
+  });
+});
