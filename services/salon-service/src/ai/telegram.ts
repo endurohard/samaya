@@ -120,21 +120,25 @@ function esc(s: string): string {
  * Текст вопроса обязателен: по одному имени непонятно, срочное это или нет,
  * и менеджеру пришлось бы открывать CRM, чтобы просто оценить важность.
  */
-export async function notifyNeedsReply(opts: {
+/** Текст уведомления менеджерам. Отдельно — чтобы проверять без сети. */
+export function needsReplyText(opts: {
   channel: string;
   who: string;
   question: string;
   reason?: string | null;
   draft?: string | null;
-}): Promise<{ ok: true; messageId?: number; chatId?: string } | { ok: false; reason: string }> {
+  /** booking — клиент хочет записаться: свой заголовок, чтобы не потерялся. */
+  kind?: 'booking';
+}): string {
   const icon = opts.channel === 'whatsapp' ? '💬' : '📸';
   // Ник оформляем ссылкой на профиль: менеджер открывает переписку прямо
   // из уведомления, а не ищет её по имени в приложении.
   const nick = opts.who.startsWith('@')
     ? `<a href="https://instagram.com/${esc(opts.who.slice(1))}">${esc(opts.who)}</a>`
     : esc(opts.who);
+  const title = opts.kind === 'booking' ? '🗓 <b>Хочет записаться</b>' : '<b>Нужен ответ</b>';
   const lines = [
-    `${icon} <b>Нужен ответ</b> — ${opts.channel === 'instagram' ? nick : esc(opts.who)}`,
+    `${icon} ${title} — ${opts.channel === 'instagram' ? nick : esc(opts.who)}`,
     '',
     esc(String(opts.question || '').slice(0, 400)),
   ];
@@ -145,5 +149,16 @@ export async function notifyNeedsReply(opts: {
   // Подсказка про реплай: без неё возможность ответить прямо здесь
   // остаётся незамеченной, и менеджер по привычке идёт в CRM.
   lines.push('', '<i>Ответьте на это сообщение — текст уйдёт клиенту.</i>');
-  return sendTelegram(opts.channel, lines.join('\n'));
+  return lines.join('\n');
+}
+
+export async function notifyNeedsReply(opts: {
+  channel: string;
+  who: string;
+  question: string;
+  reason?: string | null;
+  draft?: string | null;
+  kind?: 'booking';
+}): Promise<{ ok: true; messageId?: number; chatId?: string } | { ok: false; reason: string }> {
+  return sendTelegram(opts.channel, needsReplyText(opts));
 }

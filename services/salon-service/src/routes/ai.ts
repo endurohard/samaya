@@ -48,6 +48,17 @@ const LL_PRICE_TOPICS = new Set([
     .split(',').map(s => s.trim()).filter(Boolean),
 ]);
 
+/**
+ * Клиент хочет записаться: тема Jev или слова записи в тексте.
+ *
+ * По ним администратор получает отдельное уведомление «Хочет записаться»
+ * при любом решении бота. Слова нужны, потому что Jev относит часть таких
+ * сообщений к другим темам: «Хочу записаться на живот» — к цене или
+ * manual_review.
+ */
+const BOOKING_TOPICS = new Set(['booking', 'urgent']);
+const BOOKING_RE = /(?<![а-яё])(?:запис|запиш)[а-яё]*|свободн[а-яё]*\s+(?:окн|окош|врем|дат|мест|день|дн)|окошк|когда\s+(?:можно|могу|мне)\s+(?:прийти|приехать|подойти|записаться)/iu;
+
 function isLipoInterest(text: string): boolean {
   return looksLikeServiceInterest(text) && (
       /(^|[^а-яё])(?:липосакц[а-яё]*|лл)(?=$|[^а-яё])/i.test(text)
@@ -280,7 +291,12 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // Уведомление менеджерам: всё, что ассистент не отправил сам и не
     // пропустил намеренно, ждёт человека. Шлём ПОСЛЕ ответа каналу —
     // сбой Telegram не должен задерживать обработку входящего.
-    const needsHuman = d.action !== 'sent' && d.action !== 'skipped';
+    //
+    // Желание записаться уведомляет ВСЕГДА, при любом решении: запись ведёт
+    // администратор, и раньше бот сам отвечал «Конечно, запишем…», а
+    // уведомление не уходило вовсе (за 30 дней — 19 раз).
+    const booking = BOOKING_TOPICS.has(d.topic ?? '') || BOOKING_RE.test(text);
+    const needsHuman = booking || (d.action !== 'sent' && d.action !== 'skipped');
     if (needsHuman) {
       const who = client_name || (thread_id ? '#' + thread_id : 'неизвестный');
       void notifyNeedsReply({
@@ -289,6 +305,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
         question: text,
         reason: d.reason ?? null,
         draft: d.reply ?? null,
+        ...(booking ? { kind: 'booking' as const } : {}),
       }).then(async (r) => {
         // Причину пишем всегда: «не настроено» и «бот выгнан из группы» —
         // разные проблемы, а снаружи обе выглядят как тишина в Telegram.

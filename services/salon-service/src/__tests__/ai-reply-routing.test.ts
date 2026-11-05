@@ -326,3 +326,51 @@ describe('/reply: бот ведёт только ценовой разговор
     expect(mocks.notify).toHaveBeenCalled();
   });
 });
+
+// Желание записаться всегда уведомляет администратора отдельным типом
+// уведомления. Раньше бот сам отвечал «Конечно, запишем…» (за 30 дней — 19
+// раз), и уведомление не уходило вовсе: оно было только для черновиков.
+describe('/reply: запрос на запись уведомляет администратора', () => {
+  async function reply(text: string) {
+    const json = vi.fn(); const next = vi.fn();
+    await replyHandler({ body: { text, thread_id: 'test', channel: 'probe', client_name: '@client' }, auth: { company_id: 'test' } }, { json }, next);
+    expect(next).not.toHaveBeenCalled();
+    return json.mock.calls[0][0];
+  }
+  beforeEach(() => { mocks.collecting.mockResolvedValue(false); });
+  it('тема booking-черновик — уведомление с пометкой записи', async () => {
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'booking', template: { id: 'b', enabled: true, autosend: false },
+      confidence: 0.97, action: 'draft', reply: 'Конечно, запишем…', reason: 'тема требует подтверждения администратором' });
+    await reply('Есть свободное окно на этой неделе');
+    expect(mocks.notify).toHaveBeenCalledTimes(1);
+    expect((mocks.notify.mock.calls[0] as any)[0]).toMatchObject({ kind: 'booking', who: '@client' });
+  });
+  it('даже отправленный ботом ответ о записи уведомляет администратора', async () => {
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'booking', template: { id: 'b', enabled: true, autosend: true },
+      confidence: 0.97, action: 'sent', reply: 'Конечно, запишем…', reason: null });
+    const r = await reply('Хочу записаться');
+    expect(r.action).toBe('sent');
+    expect((mocks.notify.mock.calls[0] as any)[0]).toMatchObject({ kind: 'booking' });
+  });
+  it.each(['Хочу записаться на живот', 'Запишите меня на 15 число', 'Когда можно прийти на консультацию'])(
+    'слова записи без темы booking — тоже запись: %s', async text => {
+      mocks.classify.mockResolvedValue({ ok: true, topic: 'manual_review', action: 'draft', confidence: 0.5, reply: null });
+      await reply(text);
+      expect((mocks.notify.mock.calls[0] as any)[0]).toMatchObject({ kind: 'booking' });
+    });
+  it('пропущенная тема с запросом записи всё равно уведомляет', async () => {
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'booking', action: 'skipped', confidence: 0.9, reply: null });
+    await reply('Хочу записаться');
+    expect((mocks.notify.mock.calls[0] as any)[0]).toMatchObject({ kind: 'booking' });
+  });
+  it('спам без записи — без уведомления', async () => {
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'spam', action: 'skipped', confidence: 0.9, reply: null });
+    await reply('Продвижение вашего аккаунта');
+    expect(mocks.notify).not.toHaveBeenCalled();
+  });
+  it('обычный черновик — уведомление без пометки записи', async () => {
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'address', action: 'draft', confidence: 0.9, reply: 'Адрес' });
+    await reply('Где вы находитесь');
+    expect((mocks.notify.mock.calls[0] as any)[0].kind).toBeUndefined();
+  });
+});
