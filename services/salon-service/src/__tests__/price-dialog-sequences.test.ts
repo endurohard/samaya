@@ -90,3 +90,33 @@ describe('последовательности ценового диалога',
     expect(out.reply).not.toContain('Какой город');
   });
 });
+
+// 4 ноября: клиентка получила цену круговой и галифе и переспросила «То есть
+// даже с небольшим весом цена 700?». Классификатор снова увидел вопрос о
+// цене, опрос начался с нуля, и бот спросил город, который она назвала
+// минуту назад, а затем «Какая зона вас интересует?». Решение владельца:
+// нет готового ответа в шаблоне — передаём менеджеру.
+describe('вопрос по только что названной цене', () => {
+  it('уточнение без новых данных уходит администратору, а не в опрос с нуля', async () => {
+    expect((await say('Круговая бедер и отдельно галифе. Вес 54', true)).kind).toBe('ask');
+    expect((await say('Каспийск')).kind).toBe('quote');
+    vi.advanceTimersByTime(2 * 60_000);
+    const out = await say('То есть даже с небольшим весом цена 700?', true);
+    expect(out.kind).toBe('handover');
+    expect(out.reply).toBeNull();
+  });
+  it('новый вес после цены пересчитывает ту же зону без повторного опроса', async () => {
+    expect((await say('Живот Москва 65 кг', true)).kind).toBe('quote');
+    vi.advanceTimersByTime(2 * 60_000);
+    const out = await say('а если будет 80 кг?', true);
+    expect(out.kind).toBe('quote');
+    expect(out.state?.city).toBe('moscow');
+    expect(out.state?.weight).toBe(80);
+    expect(out.state?.zones).toEqual(['belly']);
+  });
+  it('через сутки тот же общий вопрос — снова новый расчёт', async () => {
+    expect((await say('Живот Москва 65 кг', true)).kind).toBe('quote');
+    vi.advanceTimersByTime(25 * 3600_000);
+    expect((await say('Сколько стоит липосакция?', true)).kind).toBe('ask');
+  });
+});

@@ -424,7 +424,15 @@ export function startsNewQuote(
   text = '',
   now: Date = new Date(),
 ): boolean {
-  if (fresh) return true;
+  if (fresh) {
+    // Исключение — уточнение по ТОЛЬКО ЧТО названной цене без новой зоны
+    // («То есть даже с небольшим весом цена 700?», «а если 80 кг?»).
+    // Классификатор видит в нём вопрос о цене, но это продолжение того же
+    // расчёта: сброс заставлял переспрашивать город, названный минуту назад.
+    const sinceQuote = prev.quotedAt ? now.getTime() - prev.quotedAt.getTime() : Infinity;
+    if (newZones.length === 0 && sinceQuote >= 0 && sinceQuote <= NEW_QUOTE_IDLE_MS) return false;
+    return true;
+  }
   if (prev.quotedAt && newZones.length > 0) return true;
 
   // Самостоятельный вопрос о цене БЕЗ зоны, пришедший в уже остывший
@@ -558,6 +566,18 @@ export async function handleMessage(opts: {
   // выданной цене, чтобы расчёт ушёл повторно, уже по прайсу нового города.
   // Без этого состояние осталось бы «цена названа» и ответ не отправился.
   const cityChanged = !!prev.quotedAt && !!city && city !== prev.city;
+
+  // Вопрос по уже названной цене, в котором нет ничего нового для расчёта
+  // (ни зоны, ни другого города, ни другого веса). Пересылать тот же счёт
+  // бессмысленно, а готового ответа на такой вопрос в шаблонах нет —
+  // решение владельца: передаём менеджеру.
+  if (prev.quotedAt && !startsOver && newZones.length === 0 && !cityChanged
+      && weight === prev.weight) {
+    return {
+      kind: 'handover', reply: null,
+      reason: 'вопрос по уже названной цене — нужен администратор',
+    };
+  }
 
   // Служебные тексты ответа — из шаблона, владелец правит их в админке.
   const texts = await loadQuoteTexts(companyId);
