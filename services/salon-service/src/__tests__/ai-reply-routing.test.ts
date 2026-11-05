@@ -276,3 +276,53 @@ describe('/reply: склеенная пачка сообщений', () => {
     expect(mocks.classify).toHaveBeenCalled();
   });
 });
+
+// Решение владельца: бот отвечает только на вопросы о лазерной липосакции —
+// приветствие и вопрос о городе и услуге, вес для весовых услуг, цена. Всё
+// остальное — менеджеру (у прочих шаблонов autosend выключен).
+describe('/reply: бот ведёт только ценовой разговор о ЛЛ', () => {
+  async function reply(text: string) {
+    const json = vi.fn(); const next = vi.fn();
+    await replyHandler({ body: { text, thread_id: 'test', channel: 'probe' }, auth: { company_id: 'test' } }, { json }, next);
+    expect(next).not.toHaveBeenCalled();
+    return json.mock.calls[0][0];
+  }
+  it.each(['Москва, вес 73', 'Живот и руки', 'Каспийск , руки , живот , ноги', 'Москва. Живот.'])(
+    'ответ на вопросы опроса %j разбирает опрос без классификатора', async text => {
+      await reply(text);
+      expect(mocks.price).toHaveBeenCalled();
+      expect(mocks.classify).not.toHaveBeenCalled();
+    });
+  it('телефон посреди опроса идёт классификатору, а не в вес', async () => {
+    await reply('89120363789');
+    expect(mocks.classify).toHaveBeenCalled();
+  });
+  it.each(['price_chin', 'price_belly', 'price_arms', 'arms_interest', 'price_all_zones', 'contour_lift'])(
+    'ценовая тема ЛЛ %s ведётся опросом, а не готовым текстом шаблона', async topic => {
+      mocks.collecting.mockResolvedValue(false);
+      mocks.classify.mockResolvedValue({ ok: true, topic, template: { id: topic, enabled: true, autosend: false },
+        confidence: 0.95, action: 'draft', reply: 'Готовый текст шаблона', reason: 'тема требует подтверждения администратором' });
+      const r = await reply('Сколько стоит?');
+      expect(mocks.price).toHaveBeenCalled();
+      expect(r).toMatchObject({ action: 'sent', reply: 'Какой город?' });
+    });
+  // Тема price — стоимость консультации, рассрочка, другие услуги: это
+  // вопросы к менеджеру, а не к опросу ЛЛ.
+  it('общая тема price (консультация, рассрочка) уходит менеджеру', async () => {
+    mocks.collecting.mockResolvedValue(false);
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'price', template: { id: 'p', enabled: true, autosend: false },
+      confidence: 0.95, action: 'draft', reply: 'Стоимость зависит…', reason: 'тема требует подтверждения администратором' });
+    const r = await reply('А у вас есть рассрочка');
+    expect(mocks.price).not.toHaveBeenCalled();
+    expect(r.action).toBe('draft');
+  });
+  it('не ЛЛ (приветствие без вопроса о ЛЛ) остаётся черновиком менеджеру', async () => {
+    mocks.collecting.mockResolvedValue(false);
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'greeting', template: { id: 'g', enabled: true, autosend: false },
+      confidence: 0.99, action: 'draft', reply: 'Здравствуйте!', reason: 'тема требует подтверждения администратором' });
+    const r = await reply('Добрый день');
+    expect(mocks.price).not.toHaveBeenCalled();
+    expect(r.action).toBe('draft');
+    expect(mocks.notify).toHaveBeenCalled();
+  });
+});

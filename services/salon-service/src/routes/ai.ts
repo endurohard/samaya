@@ -17,7 +17,7 @@ import {
   loadZoneCatalog,
   PriceOutcome,
 } from '../ai/price-dialog';
-import { looksLikeServiceInterest, renderPrices } from '../ai/price';
+import { looksLikeServiceInterest, renderPrices, isSurveyAnswer } from '../ai/price';
 import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
 import { humanTakeoverReason } from '../ai/human-takeover';
 import { parseParts } from '../ai/parts';
@@ -31,6 +31,22 @@ import type { ReplyPart } from '../ai/parts';
  * боевой темы «Цена лазерной липосакции».
  */
 const PRICE_TOPIC = process.env.AI_PRICE_TOPIC || 'liposakciya_ruk';
+
+/**
+ * Темы Jev, означающие вопрос о цене лазерной липосакции.
+ *
+ * Решение владельца: на вопрос о ЛЛ бот отвечает только опросом — город,
+ * услуга, вес для весовых услуг — и ценой по прайсу. Поэтому любая из этих
+ * тем ведётся опросом, а не готовым текстом своего шаблона (у тех autosend
+ * выключен, они остаются менеджеру для ручной отправки). Общая тема `price`
+ * сюда не входит: это консультация, рассрочка и другие услуги — менеджеру.
+ */
+const LL_PRICE_TOPICS = new Set([
+  PRICE_TOPIC,
+  ...(process.env.AI_LL_PRICE_TOPICS
+    || 'price_chin,price_belly,price_arms,arms_interest,price_all_zones,contour_lift')
+    .split(',').map(s => s.trim()).filter(Boolean),
+]);
 
 function isLipoInterest(text: string): boolean {
   return looksLikeServiceInterest(text) && (
@@ -201,7 +217,10 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // «Москва» + «65» остаётся ответом на опрос, а строка «живот» в пачке —
     // интересом к липосакции.
     const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
-    const slotReply = slotRe.test(text) || (lines.length > 1 && lines.every(l => slotRe.test(l)));
+    const slotReply = slotRe.test(text) || (lines.length > 1 && lines.every(l => slotRe.test(l)))
+      // Ответ только из города, веса и зон («Москва, вес 73», «Живот и
+      // руки»): Jev без вопроса клиники отправлял такие в manual_review.
+      || isSurveyAnswer(text);
     const leavesPriceSurvey = /(^|[^а-яё])(?:записаться|запишите|запись)(?=$|[^а-яё])/i.test(text)
       || /^\s*(?:здравствуйте|здравствуй|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[\s!.,🌹🤍]*$/iu.test(text);
     const lipoInterest = isLipoInterest(text) || (lines.length > 1 && lines.some(isLipoInterest));
@@ -223,8 +242,8 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       d = await classify(companyId, text, client_name);
     }
     const fallback = (!d.ok || d.topic === 'manual_review') && lipoInterest;
-    const usePrice = thread_id && pricePolicy.enabled && !leavesPriceSurvey
-      && d.action !== 'skipped' && (d.topic === PRICE_TOPIC || fallback);
+    const usePrice = thread_id && pricePolicy.enabled && !leavesPriceSurvey && !contextual
+      && d.action !== 'skipped' && (LL_PRICE_TOPICS.has(d.topic ?? '') || fallback);
     if (usePrice) {
       const out = await handlePriceMessage({
         companyId, channel: ch, threadId: thread_id!, text, fresh: !collecting,
