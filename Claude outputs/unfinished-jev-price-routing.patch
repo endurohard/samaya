@@ -1,0 +1,146 @@
+diff --git a/services/salon-service/src/__tests__/ai-reply-routing.test.ts b/services/salon-service/src/__tests__/ai-reply-routing.test.ts
+index 012f2e1..80fb541 100644
+--- a/services/salon-service/src/__tests__/ai-reply-routing.test.ts
++++ b/services/salon-service/src/__tests__/ai-reply-routing.test.ts
+@@ -127,6 +127,33 @@ describe('/reply: политика шаблонов', () => {
+     await reply(text);
+     expect(mocks.price).not.toHaveBeenCalled();
+   });
++
++  const priceZones = [
++    ['подбородок', 'chin'], ['контур лифт', 'contour_lift'], ['холка', 'holka'],
++    ['руки', 'arms'], ['живот', 'belly'], ['талия', 'waist'],
++    ['ноги', 'legs_circular'], ['внутренняя поверхность ног', 'inner_legs'],
++    ['галифе', 'galife'], ['лобок', 'pubis'], ['голень', 'shin'], ['ягодицы', 'buttocks'],
++  ] as const;
++  const pricePhrases = [
++    (zone: string) => `почем ${zone}`,
++    (zone: string) => `цена ${zone}`,
++    (zone: string) => `${zone} цена`,
++    (zone: string) => `стоимость ${zone}`,
++    (zone: string) => `сколько стоит ${zone}`,
++    (zone: string) => `${zone} сколько будет`,
++    (zone: string) => `прайс ${zone}`,
++    (zone: string) => `${zone} расценки`,
++    (zone: string) => `во сколько обойдется ${zone}`,
++  ];
++
++  it.each(priceZones)('детерминированно направляет все ценовые формулировки зоны %s (%s)', async (zone) => {
++    mocks.collecting.mockResolvedValue(false);
++    for (const phrase of pricePhrases) {
++      mocks.price.mockClear();
++      await reply(phrase(zone));
++      expect(mocks.price, phrase(zone)).toHaveBeenCalledTimes(1);
++    }
++  });
+ });
+ 
+ describe('/reply: незавершённый опрос не перехватывает другую тему', () => {
+diff --git a/services/salon-service/src/__tests__/price-zone-recognition.test.ts b/services/salon-service/src/__tests__/price-zone-recognition.test.ts
+index ecfb4d9..3a45041 100644
+--- a/services/salon-service/src/__tests__/price-zone-recognition.test.ts
++++ b/services/salon-service/src/__tests__/price-zone-recognition.test.ts
+@@ -19,6 +19,21 @@ const cases: Array<[string, string]> = [
+   ['Уменьшение ягодиц', 'buttocks'],
+ ];
+ 
++const synonyms: Array<[string, string]> = [
++  ['второй подбородок', 'chin'], ['овал лица', 'chin'],
++  ['Contour Lift', 'contour_lift'], ['контурлифт', 'contour_lift'], ['морфеус', 'contour_lift'],
++  ['холка', 'holka'], ['загривок', 'holka'], ['вдовий горб', 'holka'],
++  ['руки', 'arms'], ['предплечья', 'arms'], ['подмышки', 'arms'],
++  ['живот', 'belly'], ['пузо', 'belly'], ['эпигастрий', 'belly'],
++  ['талия', 'waist'], ['бока', 'waist'], ['фланки', 'waist'],
++  ['ноги', 'legs_circular'], ['круговая ног', 'legs_circular'], ['бедра', 'legs_circular'],
++  ['внутренняя поверхность ног', 'inner_legs'], ['между ног', 'inner_legs'],
++  ['галифе', 'galife'], ['ушки', 'galife'],
++  ['лобок', 'pubis'], ['пубис', 'pubis'],
++  ['голень', 'shin'], ['икры', 'shin'],
++  ['ягодицы', 'buttocks'], ['попа', 'buttocks'],
++];
++
+ describe('распознавание всех услуг прайса', () => {
+   it.each(cases)('%s → только %s', (phrase, zone) => {
+     expect(parseZones(phrase)).toEqual([zone]);
+@@ -27,4 +42,8 @@ describe('распознавание всех услуг прайса', () => {
+   it.each(['бок', 'бока', 'на боках', 'убрать бока'])('%s → талия', (phrase) => {
+     expect(parseZones(phrase)).toEqual(['waist']);
+   });
++
++  it.each(synonyms)('синоним %s → только %s', (phrase, zone) => {
++    expect(parseZones(`сколько стоит ${phrase}`)).toEqual([zone]);
++  });
+ });
+diff --git a/services/salon-service/src/ai/price.ts b/services/salon-service/src/ai/price.ts
+index 6972bde..047f33f 100644
+--- a/services/salon-service/src/ai/price.ts
++++ b/services/salon-service/src/ai/price.ts
+@@ -378,7 +378,11 @@ export function parseWeight(text: string): number | null {
+  */
+ const NOT_PRICE = /(ваканс|резюме|сотрудничеств|реклам|продвижен|подписчик|админ[аи]?\b)/i;
+ const SERVICE_WORDS = /(липосакц|липо\b|лазерн|contour|контур\s?лифт|morpheus|услуг|процедур)/i;
+-const PRICE_WORDS = /(цен|стоим|сколько\s+(стоит|будет|обойд)|прайс|почем|почём|во сколько)/i;
++const PRICE_WORDS = /(цен|стоим|сколько\s+(стоит|будет|обойд)|прайс|расценк|почем|почём|во сколько|обойд[а-яё]*)/i;
++// Явно названная другая услуга сильнее совпадения по части тела: «руки» в
++// вопросе об эпиляции — не зона липосакции. Список ограничен услугами,
++// которые реально пересекаются с названиями зон прайса.
++const OTHER_SERVICE_WORDS = /(эпиляц|массаж|увеличен[а-яё]*\s+груд|уменьшен[а-яё]*\s+груд|маммопласт|абдоминопласт|липофилинг|ботокс|филлер)/i;
+ /**
+  * Вопрос о здоровье и ходе процедуры. Формулировки собраны из переписки:
+  * реабилитация, компрессионное бельё, ГВ, беременность, противопоказания,
+@@ -473,12 +477,30 @@ export function looksLikeServiceInterest(text: string): boolean {
+   return !!(parseCity(t) || parseWeight(t) !== null || parseZones(t).length);
+ }
+ 
++/**
++ * Явный ценовой вопрос по зоне из прайса липосакции.
++ *
++ * Этот узкий детерминированный признак нужен только для маршрутизации мимо
++ * неуверенного классификатора. Он не разрешает ответ сам: enabled/autosend и
++ * остальные правила ценового шаблона по-прежнему проверяет общий маршрут.
++ */
++export function isLiposuctionPriceQuestion(text: string): boolean {
++  const t = String(text || '');
++  return looksLikeServiceInterest(t) && PRICE_WORDS.test(t) && parseZones(t).length > 0;
++}
++
+ /** Распознать зоны. Клиент может назвать несколько сразу. */
+ export function parseZones(text: string): ZoneKey[] {
+   const t = String(text || '').toLowerCase();
+   const found: ZoneKey[] = [];
+   for (const { key, words } of ZONE_WORDS) {
+-    const wordMatched = words.some(w => t.includes(w));
++    // Корни должны начинаться на границе русского слова: простой includes
++    // ловил короткие зоны внутри соседних слов. Конец не ограничиваем — так
++    // один корень продолжает покрывать падежи («холка/холки», «руки/рук»).
++    const wordMatched = words.some((w) => {
++      const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++      return new RegExp(`(^|[^а-яё])${escaped}`, 'iu').test(t);
++    });
+     // В JavaScript \b не понимает кириллицу, поэтому границы задаём явным
+     // отрицанием русской буквы. Так «бок/бока/на боках» остаются талией,
+     // но «лобок» больше не содержит ложную отдельную зону «бок».
+diff --git a/services/salon-service/src/routes/ai.ts b/services/salon-service/src/routes/ai.ts
+index 96cc62d..97f8fdb 100644
+--- a/services/salon-service/src/routes/ai.ts
++++ b/services/salon-service/src/routes/ai.ts
+@@ -17,7 +17,7 @@ import {
+   loadZoneCatalog,
+   PriceOutcome,
+ } from '../ai/price-dialog';
+-import { looksLikeServiceInterest, renderPrices } from '../ai/price';
++import { isLiposuctionPriceQuestion, looksLikeServiceInterest, renderPrices } from '../ai/price';
+ import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
+ import { parseParts } from '../ai/parts';
+ import type { ReplyPart } from '../ai/parts';
+@@ -32,10 +32,10 @@ import type { ReplyPart } from '../ai/parts';
+ const PRICE_TOPIC = process.env.AI_PRICE_TOPIC || 'liposakciya_ruk';
+ 
+ function isLipoInterest(text: string): boolean {
+-  return looksLikeServiceInterest(text) && (
++  return isLiposuctionPriceQuestion(text) || (looksLikeServiceInterest(text) && (
+       /(^|[^а-яё])(?:липосакц[а-яё]*|лл)(?=$|[^а-яё])/i.test(text)
+       || /^\s*(?:(?:а|и)\s+)?(?:руки|рук|ноги|ног|живот|живота|холка|холки|подбородок|бока|спина|талия|овал лица)\s*[?.!]*\s*$/iu.test(text)
+-  );
++  ));
+ }
