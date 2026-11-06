@@ -75,6 +75,10 @@ export interface Decision {
   reply: string | null;
   reason: string | null;
   probabilities?: Record<string, number>;
+  /** Цена круговой липосакции ног: перед ней уходят схемы зон и текст про 7 зон. */
+  legsIntro?: boolean;
+  /** Приветствие первого ответа — уходит раньше всего остального. */
+  greeting?: string;
 }
 
 /**

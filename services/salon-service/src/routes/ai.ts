@@ -130,6 +130,10 @@ function priceOutcomeToDecision(out: PriceOutcome, base?: Decision): Decision {
   return {
     ...common, action: 'sent', reply: out.reply,
     reason: out.reason,
+    // Схемы ног — только к ЦЕНЕ круговой: сначала бот узнаёт город, и
+    // только потом шлёт фото, текст про 7 зон и цену этого города.
+    ...(out.kind === 'quote' && out.state?.zones?.includes('legs_circular') ? { legsIntro: true } : {}),
+    ...(out.greeting ? { greeting: out.greeting } : {}),
   };
 }
 
@@ -190,8 +194,8 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
      * процедуры раньше, чем администратор успевал увидеть вопрос.
      */
     const respond = async (d: Decision) => {
-      const intro: ReplyPart[] = thread_id && d.action === 'sent'
-        ? await legsIntroFor({ companyId, channel: ch, threadId: thread_id, text })
+      const intro: ReplyPart[] = thread_id && d.action === 'sent' && d.legsIntro
+        ? await legsIntroFor({ companyId, channel: ch, threadId: thread_id, text, force: true })
           .catch((e) => {
             // Сбой вступления не должен превращаться в молчание: обычный
             // ответ клиенту важнее картинок.
@@ -203,13 +207,18 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
       // Текстом их отправлять нельзя — клиент получил бы служебную строку.
       // Отправляемый ответ уходит частями в порядке шаблона, а в reply
       // остаётся чистый текст: для черновика, журнала и канала без частей.
-      const tplParts = d.reply ? parseParts(d.reply) : [];
+      // Приветствие первого ответа: перед фото — отдельной частью, иначе —
+      // в начале текста.
+      const greet = d.action === 'sent' && d.greeting ? d.greeting : null;
+      const dReply = greet && !intro.length && d.reply ? `${greet}\n\n${d.reply}` : d.reply;
+      const lead: ReplyPart[] = greet && intro.length ? [{ type: 'text', text: greet }, ...intro] : intro;
+      const tplParts = dReply ? parseParts(dReply) : [];
       const hasPhotos = tplParts.some(p => p.type === 'image');
       const replyText = hasPhotos
         ? tplParts.flatMap(p => (p.type === 'text' ? [p.text] : [])).join('\n\n') || null
-        : d.reply;
+        : dReply;
       const replyInParts = hasPhotos && d.action === 'sent';
-      const reply_parts: ReplyPart[] = replyInParts ? [...intro, ...tplParts] : intro;
+      const reply_parts: ReplyPart[] = replyInParts ? [...lead, ...tplParts] : lead;
       return res.json({
         ok: d.ok, topic: d.topic, confidence: d.confidence,
         action: d.action, reply: replyText, reason: d.reason,

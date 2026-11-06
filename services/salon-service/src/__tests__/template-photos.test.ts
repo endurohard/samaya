@@ -52,7 +52,7 @@ describe('шаблон с фото', () => {
   it('вступление про ноги и фото шаблона идут вместе: сначала вступление', async () => {
     const INTRO = [{ type: 'image', asset: 'legs-zones-front' }];
     mocks.intro.mockResolvedValue(INTRO);
-    const r = await reply({ action: 'sent', reply: BODY }, 'ноги');
+    const r = await reply({ action: 'sent', reply: BODY, legsIntro: true }, 'ноги');
     expect(r.reply_parts[0]).toEqual(INTRO[0]);
     expect(r.reply_parts).toHaveLength(5);
     expect(r.intro_key).toBe('legs_intro');

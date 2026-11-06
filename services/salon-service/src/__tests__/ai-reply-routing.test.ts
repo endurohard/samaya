@@ -178,15 +178,56 @@ describe('/reply: вступление про ноги только вместе
     expect(r.reply_parts).toEqual([]);
     expect(r.intro_key).toBeNull();
   });
-  it('отправленный ответ несёт вступление', async () => {
+  // Схемы ног — только вместе с ЦЕНОЙ круговой: сначала бот узнаёт город
+  // (it.izberbash 6 ноября получил фото раньше приветствия и вопроса).
+  const LEGS_QUOTE = { kind: 'quote', reply: 'Цена 700 000 ₽', reason: 'цена',
+    state: { zones: ['legs_circular'] } };
+  it('цена круговой несёт вступление', async () => {
+    mocks.collecting.mockResolvedValue(false);
+    mocks.intro.mockResolvedValue(INTRO);
+    mocks.price.mockResolvedValue(LEGS_QUOTE);
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'liposakciya_ruk',
+      template: { id: 'price', enabled: true, autosend: true }, action: 'sent', confidence: 0.95, reply: 'Опрос' });
+    const r = await reply('Круговая липосакция ног Каспийск');
+    expect(r.action).toBe('sent');
+    expect(r.reply_parts).toEqual(INTRO);
+    expect(r.intro_key).toBe('legs_intro');
+  });
+  it('ответ «Каспийск» на вопрос о городе тоже несёт вступление', async () => {
+    mocks.intro.mockResolvedValue(INTRO);
+    mocks.price.mockResolvedValue(LEGS_QUOTE);
+    const r = await reply('Каспийск');
+    expect(r.reply_parts).toEqual(INTRO);
+  });
+  it('вопрос о городе — без фото', async () => {
     mocks.collecting.mockResolvedValue(false);
     mocks.intro.mockResolvedValue(INTRO);
     mocks.classify.mockResolvedValue({ ok: true, topic: 'liposakciya_ruk',
       template: { id: 'price', enabled: true, autosend: true }, action: 'sent', confidence: 0.95, reply: 'Опрос' });
-    const r = await reply('Круговая липосакция ног');
-    expect(r.action).toBe('sent');
-    expect(r.reply_parts).toEqual(INTRO);
-    expect(r.intro_key).toBe('legs_intro');
+    const r = await reply('Здравствуйте\nЦена лл ног');
+    expect(r.reply).toBe('Какой город?');
+    expect(r.reply_parts).toEqual([]);
+  });
+  it('первый ответ сразу с ценой: приветствие идёт ДО фото', async () => {
+    mocks.collecting.mockResolvedValue(false);
+    mocks.intro.mockResolvedValue(INTRO);
+    mocks.price.mockResolvedValue({ ...LEGS_QUOTE, greeting: 'Здравствуйте 🌹' });
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'liposakciya_ruk',
+      template: { id: 'price', enabled: true, autosend: true }, action: 'sent', confidence: 0.95, reply: 'Опрос' });
+    const r = await reply('Ноги Каспийск');
+    expect(r.reply_parts[0]).toEqual({ type: 'text', text: 'Здравствуйте 🌹' });
+    expect(r.reply_parts.slice(1)).toEqual(INTRO);
+    expect(r.reply).toBe('Цена 700 000 ₽');
+  });
+  it('первый ответ с ценой не про ноги: приветствие в начале текста', async () => {
+    mocks.collecting.mockResolvedValue(false);
+    mocks.price.mockResolvedValue({ kind: 'quote', reply: 'Холка — 200 000 ₽', reason: 'цена',
+      state: { zones: ['holka'] }, greeting: 'Здравствуйте 🌹' });
+    mocks.classify.mockResolvedValue({ ok: true, topic: 'liposakciya_ruk',
+      template: { id: 'price', enabled: true, autosend: true }, action: 'sent', confidence: 0.95, reply: 'Опрос' });
+    const r = await reply('Холка Каспийск');
+    expect(r.reply).toBe('Здравствуйте 🌹\n\nХолка — 200 000 ₽');
+    expect(r.reply_parts).toEqual([]);
   });
 });
 

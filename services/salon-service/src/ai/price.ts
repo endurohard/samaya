@@ -779,36 +779,6 @@ export function buildQuote(opts: {
 }
 
 /**
- * Цена фиксированных зон сразу по обоим городам — когда город не назван.
- *
- * Для круговой липосакции ног вес не нужен, и владелец решил называть цену
- * сразу, без вопроса о городе: клиент видит обе суммы и выбирает свою.
- * Город подставляется в заголовок шаблона словами «Каспийск и Москва».
- */
-export function buildBothCitiesQuote(opts: {
-  zones: ZoneKey[];
-  texts?: QuoteTexts;
-  catalog?: ZoneCatalog;
-}): { text: string } | null {
-  const catalog = opts.catalog ?? BUILTIN_ZONES;
-  const t = opts.texts ?? DEFAULT_QUOTE_TEXTS;
-  const cities: City[] = ['kaspiysk', 'moscow'];
-  const parts: string[] = [t.header.replace('{city}', cities.map(c => CITY_TITLE[c]).join(' и ')), ''];
-  for (const zone of opts.zones) {
-    const z = catalog.get(zone);
-    if (!z) return null;
-    const prices = cities.map(c => zonePrice(zone, c, null, catalog));
-    if (prices.some(p => p == null)) return null;
-    parts.push(`🔴 ${z.title.charAt(0).toUpperCase()}${z.title.slice(1)}:`);
-    cities.forEach((c, i) => parts.push(`     ${CITY_TITLE[c]} — ${formatMoney(prices[i]!)}`));
-    if (z.note) parts.push(`     ${z.note}`);
-  }
-  parts.push('');
-  for (const line of t.footer) parts.push(line);
-  return { text: parts.join('\n') };
-}
-
-/**
  * Подставить цены из прайса в текст шаблона.
  *
  * Зачем: цены, написанные прямо в теле шаблона, — это второй источник

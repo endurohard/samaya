@@ -139,9 +139,11 @@ export async function legsIntroFor(opts: {
   channel: string;
   threadId: string;
   text: string;
+  /** true — вызывающий сам знает, что речь о ногах (цена круговой после «Каспийск»). */
+  force?: boolean;
 }): Promise<ReplyPart[]> {
-  const { companyId, channel, threadId, text } = opts;
-  if (!mentionsLegs(text)) return [];
+  const { companyId, channel, threadId, text, force } = opts;
+  if (!force && !mentionsLegs(text)) return [];
   // Не подавляем повтор по ai.thread_intro: владелец требует заново показать
   // обе схемы и описание при каждом новом сообщении про круговую ЛЛ ног.
   // Метка остаётся журналом фактической отправки, но больше не выключателем.

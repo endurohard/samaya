@@ -12,7 +12,7 @@
 import { pool } from '../db';
 import {
   City, ZoneKey, parseCity, parseWeight, parseZones, weightNeeded,
-  buildQuote, buildBothCitiesQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
+  buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate, askOnlyNeeded, asksPriceAnew,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
@@ -360,6 +360,12 @@ export interface PriceOutcome {
   reply: string | null;
   reason: string | null;
   state?: DialogState;
+  /**
+   * Приветствие для первого ответа в разговоре, если он сразу с ценой
+   * («Ноги Москва»). Отдельным полем, а не в тексте цены: при цене круговой
+   * перед ценой уходят фото, и здороваться надо ДО них.
+   */
+  greeting?: string;
 }
 
 /**
@@ -463,6 +469,9 @@ export function startsNewQuote(
  * handleMessage НЕ решает, относится ли сообщение к теме цены — это задача
  * вызывающей стороны (см. shouldHandle).
  */
+/** Через сколько бот здоровается заново, если клиент вернулся. */
+const GREET_AGAIN_MS = 6 * 3600_000;
+
 export async function handleMessage(opts: {
   companyId: string;
   channel: string;
@@ -473,6 +482,12 @@ export async function handleMessage(opts: {
 }): Promise<PriceOutcome> {
   const { companyId, channel, threadId, text, fresh } = opts;
   let prev = await loadState(companyId, channel, threadId);
+  // Первый ответ бота в разговоре: вопросов ещё не задавали, цену не
+  // называли, или с прошлого раза прошло больше 6 часов. Ему нужно
+  // приветствие — иначе клиент на «Здравствуйте, цена ног?» получал сразу
+  // фото и цену (it.izberbash, 6 ноября).
+  const firstReply = !prev.updatedAt || Date.now() - prev.updatedAt.getTime() > GREET_AGAIN_MS
+    || (!prev.askedAt && !prev.quotedAt && !prev.confirmAskedAt);
 
   // Зона, которой нет в прайсе, и «всё тело» — только через администратора:
   // цену для них ассистент выдумывать не должен.
@@ -622,25 +637,6 @@ export async function handleMessage(opts: {
   const needWeight = weightNeeded(zones, catalog);
   const ready = !!next.city && zones.length > 0 && (!needWeight || next.weight != null);
 
-  // ── Ноги без города: сразу цена круговой по обоим городам ──
-  //
-  // Решение владельца (6 ноября): на вопрос про ноги клиент получает схемы,
-  // текст про 7 зон и цену круговой — без вопроса о городе и без «Всё
-  // верно?». Вес для ног не нужен, а две суммы короче, чем лишний вопрос.
-  // Только для одних ног: с весовой зоной («ноги и живот») идёт обычный опрос.
-  if (!next.city && zones.length > 0 && zones.every(z => z === 'legs_circular')) {
-    const both = buildBothCitiesQuote({ zones, texts, catalog });
-    if (both) {
-      next.quotedAt = new Date();
-      await saveState(companyId, channel, threadId, next);
-      return {
-        kind: 'quote', reply: both.text,
-        reason: `цена по прайсу: Каспийск и Москва, ${zones.map(z => zoneTitle(z, catalog)).join(', ')}`,
-        state: next,
-      };
-    }
-  }
-
   // ── Подтверждение прежних данных вместо опроса с нуля ──
   //
   // Клиент вернулся в течение недели: город и вес у нас есть, но они из
@@ -763,8 +759,14 @@ export async function handleMessage(opts: {
   next.quotedAt = new Date();
   await saveState(companyId, channel, threadId, next);
   const zonesText = zones.map(z => zoneTitle(z, catalog)).join(', ');
+  // Приветствие — первая строка шаблона вопросов («Здравствуйте 🌹»): его
+  // правит владелец, и бот здоровается одинаково в обоих сценариях.
+  const greeting = firstReply
+    ? ((await loadAskParts(companyId)).greeting.split('\n').map(s => s.trim()).find(Boolean) ?? '')
+    : '';
   return {
     kind: 'quote', reply: quote.text,
+    ...(greeting ? { greeting } : {}),
     reason: `цена по прайсу: ${CITY_TITLE[next.city!]}, ` +
       `${next.weight != null ? next.weight + ' кг, ' : ''}${zonesText}`,
     state: next,
