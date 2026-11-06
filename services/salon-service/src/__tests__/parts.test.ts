@@ -72,26 +72,21 @@ describe('orderIntroParts', () => {
   ].join('\n'));
   const method = parseParts('Уникальная авторская методика… Выше показали, какие именно 7 зон 🤍');
 
-  it('ставит схемы зон первыми, просьбу о фото — последней', () => {
+  // Решение владельца (6 ноября): на вопрос про ноги автоответ — схемы
+  // зон и текст про 7 зон, затем цена круговой. Текст шаблона-вступления
+  // («Круговая… пришлите фото ног») автоответом больше не уходит: он
+  // остаётся менеджеру под кодом 6.
+  it('схемы зон, затем текст про 7 зон — без текста вступления', () => {
     const parts = orderIntroParts(own, method);
-    expect(parts.map((p: ReplyPart) => p.type)).toEqual(['image', 'image', 'text', 'text']);
+    expect(parts.map((p: ReplyPart) => p.type)).toEqual(['image', 'image', 'text']);
     expect(parts[0]).toEqual({ type: 'image', asset: 'legs-zones-front' });
     expect(parts[1]).toEqual({ type: 'image', asset: 'legs-zones-back' });
-    // Текст про 7 зон обязан идти СРАЗУ за картинками: он на них ссылается
-    // словами «Выше показали».
     expect((parts[2] as { text: string }).text).toContain('Выше показали');
-    expect((parts[3] as { text: string }).text).toContain('Пришлите');
+    expect(JSON.stringify(parts)).not.toContain('Пришлите');
   });
 
-  it('не теряет и не дублирует части', () => {
-    const parts = orderIntroParts(own, method);
-    expect(parts).toHaveLength(own.length + method.length);
-    const texts = parts.filter((p: ReplyPart) => p.type === 'text').map((p) => (p as { text: string }).text);
-    expect(new Set(texts).size).toBe(texts.length);
-  });
-
-  it('без второй темы отправляет только свои части', () => {
+  it('без текста про 7 зон — только схемы', () => {
     const parts = orderIntroParts(own, []);
-    expect(parts.map((p: ReplyPart) => p.type)).toEqual(['image', 'image', 'text']);
+    expect(parts.map((p: ReplyPart) => p.type)).toEqual(['image', 'image']);
   });
 });

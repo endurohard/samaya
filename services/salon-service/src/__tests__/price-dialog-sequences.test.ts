@@ -58,16 +58,15 @@ describe('последовательности ценового диалога',
     expect(out.state?.confirmAskedAt).toBeTruthy();
     expect((await say('Каспийск')).state?.city).toBe('kaspiysk');
   });
-  it('после суток подтверждает прошлый город без ненужного веса для ног', async () => {
+  it('после суток ноги — сразу цена круговой без «Всё верно?», вес не переносится', async () => {
     await say('Живот Москва 65 кг', true);
     vi.advanceTimersByTime(25 * 3600_000);
     const out = await say('Ноги', true);
-    expect(out.kind).toBe('ask');
-    expect(out.state?.confirmAskedAt).toBeTruthy();
+    // Решение владельца 6 ноября: на ноги сразу цена по обоим городам.
+    expect(out.kind).toBe('quote');
+    expect(out.state?.confirmAskedAt).toBeFalsy();
     expect(out.reply).not.toContain('65');
-    const confirmed = await say('Да');
-    expect(confirmed.kind).toBe('quote');
-    expect(confirmed.state?.zones).toEqual(['legs_circular']);
+    expect(out.state?.zones).toEqual(['legs_circular']);
     const weighted = await say('Живот', true);
     expect(weighted.kind).toBe('ask');
     expect(weighted.state?.weight).toBeNull();

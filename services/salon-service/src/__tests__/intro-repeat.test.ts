@@ -46,14 +46,16 @@ const ask = (text = 'На липосакцию ног') => legsIntroFor({
 beforeEach(() => { flags.enabled = true; flags.autosend = true; });
 
 describe('повторное вступление про ноги', () => {
-  it('несмотря на старую отметку возвращает две фотографии и описание', async () => {
+  it('несмотря на старую отметку возвращает две фотографии и текст про 7 зон', async () => {
     const parts = await ask();
 
     expect(parts.filter(p => p.type === 'image')).toEqual([
       { type: 'image', asset: 'legs-zones-front' },
       { type: 'image', asset: 'legs-zones-back' },
     ]);
-    expect(parts.filter(p => p.type === 'text')).toHaveLength(2);
+    // Текст самого вступления автоответом больше не уходит (решение
+    // владельца 6 ноября) — остаётся только текст про 7 зон.
+    expect(parts.filter(p => p.type === 'text')).toHaveLength(1);
   });
 });
 

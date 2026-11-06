@@ -50,8 +50,11 @@ export function mentionsLegs(text: string): boolean {
  */
 export function orderIntroParts(ownParts: ReplyPart[], methodParts: ReplyPart[]): ReplyPart[] {
   const images = ownParts.filter(p => p.type === 'image');
-  const texts = ownParts.filter(p => p.type !== 'image');
-  return [...images, ...methodParts, ...texts];
+  // Тексты самого вступления («Круговая… пришлите фото ног») автоответом не
+  // уходят — решение владельца 6 ноября: на вопрос про ноги клиент получает
+  // схемы, текст про 7 зон и сразу цену круговой. Текст вступления остаётся
+  // в шаблоне для менеджера (быстрый код 6).
+  return [...images, ...methodParts];
 }
 
 /**

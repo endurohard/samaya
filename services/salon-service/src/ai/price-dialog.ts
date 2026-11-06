@@ -12,7 +12,7 @@
 import { pool } from '../db';
 import {
   City, ZoneKey, parseCity, parseWeight, parseZones, weightNeeded,
-  buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
+  buildQuote, buildBothCitiesQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate, askOnlyNeeded, asksPriceAnew,
   QuoteTexts, parseQuoteTexts, DEFAULT_QUOTE_TEXTS,
@@ -621,6 +621,25 @@ export async function handleMessage(opts: {
   // цену. Сначала узнаём зону, затем при необходимости задаём вопрос о весе.
   const needWeight = weightNeeded(zones, catalog);
   const ready = !!next.city && zones.length > 0 && (!needWeight || next.weight != null);
+
+  // ── Ноги без города: сразу цена круговой по обоим городам ──
+  //
+  // Решение владельца (6 ноября): на вопрос про ноги клиент получает схемы,
+  // текст про 7 зон и цену круговой — без вопроса о городе и без «Всё
+  // верно?». Вес для ног не нужен, а две суммы короче, чем лишний вопрос.
+  // Только для одних ног: с весовой зоной («ноги и живот») идёт обычный опрос.
+  if (!next.city && zones.length > 0 && zones.every(z => z === 'legs_circular')) {
+    const both = buildBothCitiesQuote({ zones, texts, catalog });
+    if (both) {
+      next.quotedAt = new Date();
+      await saveState(companyId, channel, threadId, next);
+      return {
+        kind: 'quote', reply: both.text,
+        reason: `цена по прайсу: Каспийск и Москва, ${zones.map(z => zoneTitle(z, catalog)).join(', ')}`,
+        state: next,
+      };
+    }
+  }
 
   // ── Подтверждение прежних данных вместо опроса с нуля ──
   //
