@@ -131,7 +131,7 @@ describe('/reply: политика шаблонов', () => {
 });
 
 describe('/reply: незавершённый опрос не перехватывает другую тему', () => {
-  it.each(['Здравствуйте', 'Хочу записаться', 'Хочу записаться на липосакцию рук'])('%s идёт в шаблон', async text => {
+  it.each(['Хочу записаться', 'Хочу записаться на липосакцию рук'])('%s идёт в шаблон', async text => {
     mocks.classify.mockResolvedValue({ ok: true, topic: 'other_topic', confidence: 1,
       action: 'sent', reply: 'Текст существующего шаблона', reason: null });
     const json = vi.fn();
@@ -372,5 +372,31 @@ describe('/reply: запрос на запись уведомляет админ
     mocks.classify.mockResolvedValue({ ok: true, topic: 'address', action: 'draft', confidence: 0.9, reply: 'Адрес' });
     await reply('Где вы находитесь');
     expect((mocks.notify.mock.calls[0] as any)[0].kind).toBeUndefined();
+  });
+});
+
+// Голое приветствие в ответ на вопрос опроса («Какой город?» → «Здравствуйте»)
+// — не новая тема: за 30 дней 76 таких ответов пришли в первые полчаса после
+// вопроса. Шаблон приветствия («Что вас интересует?») посреди опроса сбивает
+// клиента, поэтому опрос повторяет свой открытый вопрос. Вне опроса
+// приветствие по-прежнему идёт в шаблон.
+describe('/reply: приветствие посреди опроса', () => {
+  async function reply(text: string) {
+    const json = vi.fn(); const next = vi.fn();
+    await replyHandler({ body: { text, thread_id: 'test', channel: 'probe' }, auth: { company_id: 'test' } }, { json }, next);
+    expect(next).not.toHaveBeenCalled();
+    return json.mock.calls[0][0];
+  }
+  it.each(['Здравствуйте', 'Добрый день!', 'Здравствуйте 🌹'])('%j в опросе повторяет вопрос опроса', async text => {
+    const r = await reply(text);
+    expect(mocks.price).toHaveBeenCalled();
+    expect(mocks.classify).not.toHaveBeenCalled();
+    expect(r.reply).toBe('Какой город?');
+  });
+  it('вне опроса приветствие идёт в шаблон', async () => {
+    mocks.collecting.mockResolvedValue(false);
+    await reply('Здравствуйте');
+    expect(mocks.classify).toHaveBeenCalled();
+    expect(mocks.price).not.toHaveBeenCalled();
   });
 });

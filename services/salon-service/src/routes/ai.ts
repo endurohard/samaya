@@ -228,12 +228,16 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // «Москва» + «65» остаётся ответом на опрос, а строка «живот» в пачке —
     // интересом к липосакции.
     const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    // Голое приветствие посреди опроса — не новая тема: опрос повторит свой
+    // открытый вопрос (см. isPoliteOnly в price-dialog). Шаблон приветствия
+    // «Что вас интересует?» в ответ на «Какой город?» сбивал клиента.
+    const greetingOnly = /^\s*(?:здравствуйте|здравствуй|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[\s!.,)🌹🤍❤️]*$/iu.test(text);
     const slotReply = slotRe.test(text) || (lines.length > 1 && lines.every(l => slotRe.test(l)))
       // Ответ только из города, веса и зон («Москва, вес 73», «Живот и
       // руки»): Jev без вопроса клиники отправлял такие в manual_review.
-      || isSurveyAnswer(text);
-    const leavesPriceSurvey = /(^|[^а-яё])(?:записаться|запишите|запись)(?=$|[^а-яё])/i.test(text)
-      || /^\s*(?:здравствуйте|здравствуй|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[\s!.,🌹🤍]*$/iu.test(text);
+      || isSurveyAnswer(text)
+      || greetingOnly;
+    const leavesPriceSurvey = /(^|[^а-яё])(?:записаться|запишите|запись)(?=$|[^а-яё])/i.test(text);
     const lipoInterest = isLipoInterest(text) || (lines.length > 1 && lines.some(isLipoInterest));
     const collecting = !!thread_id && pricePolicy.enabled && !leavesPriceSurvey && (
       await isCollecting(companyId, ch, thread_id)
