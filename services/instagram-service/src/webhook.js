@@ -327,6 +327,20 @@ async function answerBatch(threadId, batch) {
     if (!r.ok) {
       console.warn(`[IG][ии] вступление не ушло целиком в ${threadId}: ${r.error}`);
     }
+    // Шаблон с фото: ответ целиком внутри частей, отдельным сообщением его
+    // не шлём — иначе текст ушёл бы клиенту дважды.
+    if (d.reply_in_parts) {
+      if (r.ok) {
+        await clearDraft(threadId);
+        console.log(`[IG][ии] автоответ с фото отправлен в ${threadId} (тема ${d.topic}, ${r.sent} сообщ.)`);
+      } else {
+        // Ушло не всё — остаток не досылаем (бессмыслица без фото), а
+        // зовём человека: черновик плюс Telegram, как у обычного ответа.
+        if (d.reply) await saveDraft(threadId, d.reply, true);
+        void notifyUndelivered(threadId, who, `ответ с фото не доставлен: ${r.error}`, d.reply);
+      }
+      return;
+    }
   }
 
   if (d.action !== 'sent' || !AUTOREPLY) {

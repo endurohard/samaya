@@ -37,7 +37,9 @@ mock.module('../src/graph.js', {
 });
 mock.module('../src/parts.js', {
   namedExports: {
-    sendParts: async (threadId, parts) => { calls.parts.push(parts); return { ok: true, sent: parts.length }; },
+    sendParts: async (threadId, parts) => { calls.parts.push(parts);
+      if (globalThis.__partsFail) return { ok: false, sent: 0, error: 'Meta 500' };
+      return { ok: true, sent: parts.length }; },
   },
 });
 
@@ -100,4 +102,30 @@ test('разные диалоги отвечают каждый на своё', 
   await handleMessages([msg('Здравствуйте', 'a'), msg('Цена?', 'b')]);
   await settle();
   assert.deepEqual(asked.sort(), ['Здравствуйте', 'Цена?']);
+});
+
+test('шаблон с фото уходит частями, а текст ответа не дублируется', async () => {
+  const parts = [{ type: 'text', text: 'Вот результаты' }, { type: 'image', asset: 'tpl-1' }];
+  assistant = async () => ({ ok: true, action: 'sent', topic: 'results', reply: 'Вот результаты',
+    reply_parts: parts, reply_in_parts: true, intro_key: null });
+  await handleMessages([msg('покажите', 't9')]);
+  // После частей старый код ждал 1,5–3,5 с и слал текст ещё раз — ждём дольше.
+  await sleep(4000);
+  assert.deepEqual(calls.parts, [parts]);
+  assert.deepEqual(calls.send, []);
+  assert.deepEqual(calls.mark, ['Вот результаты']);
+  assert.deepEqual(calls.draft, []);
+});
+
+test('шаблон с фото не ушёл — черновик, а не тишина', async () => {
+  const parts = [{ type: 'image', asset: 'tpl-1' }, { type: 'text', text: 'Подпись' }];
+  assistant = async () => ({ ok: true, action: 'sent', topic: 'results', reply: 'Подпись',
+    reply_parts: parts, reply_in_parts: true, intro_key: null });
+  globalThis.__partsFail = true;
+  await handleMessages([msg('покажите', 't10')]);
+  await settle();
+  globalThis.__partsFail = false;
+  assert.deepEqual(calls.send, []);
+  assert.equal(calls.draft.length, 1);
+  assert.equal(calls.draft[0][1], 'Подпись');
 });

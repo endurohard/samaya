@@ -3172,6 +3172,12 @@
                                   placeholder="Текст уйдёт клиенту дословно."></textarea>
                         <div class="hint">Уходит дословно. <button type="button" class="ai-chip-btn" id="aiTplInsertName">+ {name}</button> — подставится имя клиента, если оно известно.
                         <br>Цену не пишите числом — она разъедется с прайсом. Ставьте метку <code>{цена:chin:каспийск}</code>: ключ зоны берётся со вкладки «Прайс», город — <code>каспийск</code> или <code>москва</code>. Без города подставятся обе суммы.</div>
+                        <div id="aiTplImages" class="ai-sc-images ai-tpl-images"></div>
+                        <div class="ai-sc-actions">
+                          <input type="file" id="aiTplFile" hidden accept="image/jpeg,image/png,image/webp" multiple>
+                          <button type="button" class="btn-ghost btn-sm" id="aiTplAddPhoto">+ Фото</button>
+                          <span class="hint">Каждое фото уходит клиенту отдельным сообщением, в порядке строк <code>--- фото: имя</code> в тексте. Новое фото добавляется в конец — строку можно перенести выше.</span>
+                        </div>
                       </div>
                     </div>
                   </div>

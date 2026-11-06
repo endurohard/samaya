@@ -937,6 +937,15 @@ a.btn-ghost:hover { text-decoration: none; }
 }
 .ai-sc-img-del:hover { color: #991b1b; }
 
+/* Миниатюры фото в форме шаблона ассистента. */
+.ai-tpl-images .ai-sc-img { padding: 4px 6px 4px 4px; border-radius: 10px; }
+.ai-tpl-img-thumb {
+  width: 56px; height: 56px; object-fit: cover; border-radius: 6px;
+  background: var(--bg-muted, #f3f4f6); display: block;
+}
+.ai-tpl-img-name { font-size: 12px; color: var(--text-muted, #6b7280); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-bubble--photo { font-style: italic; opacity: .8; }
+
 .ai-sc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hint.is-error { color: #991b1b; }
 .hint.is-ok { color: #166534; }

@@ -8483,6 +8483,7 @@ import {
     if (ft) ft.textContent = t ? `Шаблон «${t.title}»` : 'Новый шаблон';
     aiTplSyncMode();
     aiTplPreview();
+    aiTplRenderImages();
     // Ключ темы показываем только для справки у существующего шаблона: по нему
     // связан журнал решений, и смена ключа оторвала бы историю от шаблона.
     // У нового его ещё нет — сервер сделает ключ из названия.
@@ -8531,7 +8532,13 @@ import {
     if (inEl) inEl.textContent = ex ? ex[1] : 'Пример вопроса появится, если указать его в «ёлочках» в шаге 2';
     if (inEl) inEl.classList.toggle('is-placeholder', !ex);
     if (outEl) {
-      outEl.textContent = body ? body.replace(/\{name\}/g, 'Амина') : 'Здесь появится ответ';
+      // Строки «--- фото: имя» клиент увидит отдельными фото-сообщениями,
+      // а не текстом — в предпросмотре показываем их значком.
+      const shown = body
+        .replace(/^\s*---\s*фото:\s*(.+)$/gim, '📷 [фото]')
+        .replace(/^\s*---\s*текст\s*$/gim, '')
+        .replace(/\n{3,}/g, '\n\n').trim();
+      outEl.textContent = body ? shown.replace(/\{name\}/g, 'Амина') : 'Здесь появится ответ';
       outEl.classList.toggle('is-placeholder', !body);
     }
     const mode = document.querySelector('input[name="aiTplMode"]:checked')?.value || 'draft';
@@ -8568,7 +8575,13 @@ import {
     if (form) form.hidden = true;
   });
 
-  document.getElementById('aiTplSave')?.addEventListener('click', async () => {
+  document.getElementById('aiTplSave')?.addEventListener('click', () => { void aiTplSubmit(); });
+
+  /**
+   * Сохранить форму шаблона. keepOpen — не закрывать форму: так сохраняем
+   * новый шаблон перед загрузкой фото (файлу нужен id шаблона).
+   */
+  async function aiTplSubmit({ keepOpen = false } = {}) {
     aiTplSyncMode();
     const id = document.getElementById('aiTplId').value;
     const payload = {
@@ -8585,13 +8598,13 @@ import {
     // Ключ темы в запрос не кладём: при создании его генерирует сервер из
     // названия, при правке он неизменен.
 
-    if (!payload.title) { aiTplSetMsg('Укажите название темы', 'error'); return; }
+    if (!payload.title) { aiTplSetMsg('Укажите название темы', 'error'); return null; }
     if (payload.matcher.length < 10) {
-      aiTplSetMsg('Опишите подробнее, когда применять тему — от этого зависит точность', 'error'); return;
+      aiTplSetMsg('Опишите подробнее, когда применять тему — от этого зависит точность', 'error'); return null;
     }
-    if (!payload.body) { aiTplSetMsg('Напишите текст ответа', 'error'); return; }
+    if (!payload.body) { aiTplSetMsg('Напишите текст ответа', 'error'); return null; }
     if (payload.shortcut && !/^[0-9]{1,8}$/.test(payload.shortcut)) {
-      aiTplSetMsg('Код быстрого шаблона — только цифры (например 000)', 'error'); return;
+      aiTplSetMsg('Код быстрого шаблона — только цифры (например 000)', 'error'); return null;
     }
 
     aiTplSetMsg('Сохраняю…');
@@ -8601,12 +8614,114 @@ import {
 
     if (!r.ok) {
       aiTplSetMsg(r.data?.error || r.data?.message || 'Не удалось сохранить', 'error');
-      return;
+      return null;
     }
-    document.getElementById('aiTplForm').hidden = true;
-    toast(id ? 'Шаблон изменён' : 'Шаблон добавлен');
+    if (keepOpen) {
+      document.getElementById('aiTplId').value = r.data?.id || id;
+      aiTplSetMsg('Шаблон сохранён', 'ok');
+    } else {
+      document.getElementById('aiTplForm').hidden = true;
+      toast(id ? 'Шаблон изменён' : 'Шаблон добавлен');
+    }
     await loadAiTemplates();
     void loadAiStatus();
+    return r.data;
+  }
+
+  // ── Фото в шаблоне ассистента ──
+  // Файл уходит на сервер сразу, а сервер дописывает в текст строку
+  // «--- фото: имя». Порядок строк в тексте = порядок сообщений клиенту.
+
+  /** Имена фото из текста шаблона, по порядку. */
+  function aiTplPhotoNames(body) {
+    return [...String(body || '').matchAll(/^\s*---\s*фото:\s*(.+)$/gim)].map(m => m[1].trim());
+  }
+
+  // Миниатюры тянем с токеном: <img src> заголовок авторизации не передаёт.
+  const aiTplThumbCache = new Map();
+  async function aiTplThumb(name) {
+    if (aiTplThumbCache.has(name)) return aiTplThumbCache.get(name);
+    let url = null;
+    try {
+      const r = await fetch(`/api/salons/ai/asset/${encodeURIComponent(name)}`, {
+        headers: { Authorization: `Bearer ${store.access}` },
+      });
+      if (r.ok) url = URL.createObjectURL(await r.blob());
+    } catch (_e) { /* без миниатюры, только имя */ }
+    aiTplThumbCache.set(name, url);
+    return url;
+  }
+
+  function aiTplRenderImages() {
+    const box = document.getElementById('aiTplImages');
+    if (!box) return;
+    const names = aiTplPhotoNames(document.getElementById('aiTplBody')?.value);
+    box.innerHTML = names.map((n, i) => `
+      <span class="ai-sc-img" data-name="${escapeHtml(n)}">
+        <img class="ai-tpl-img-thumb" alt="" data-thumb="${escapeHtml(n)}">
+        <span class="ai-tpl-img-name" title="${escapeHtml(n)}">${i + 1}. ${escapeHtml(n)}</span>
+        <button type="button" class="ai-sc-img-del" data-name="${escapeHtml(n)}" aria-label="Убрать фото ${escapeHtml(n)}">×</button>
+      </span>`).join('');
+    box.querySelectorAll('img[data-thumb]').forEach(async (img) => {
+      const url = await aiTplThumb(img.dataset.thumb);
+      if (url) img.src = url; else img.replaceWith(Object.assign(document.createElement('span'), { className: 'ai-tpl-img-thumb', textContent: '📷' }));
+    });
+  }
+
+  document.getElementById('aiTplBody')?.addEventListener('input', aiTplRenderImages);
+
+  document.getElementById('aiTplImages')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ai-sc-img-del');
+    if (!btn) return;
+    const ta = document.getElementById('aiTplBody');
+    const esc = btn.dataset.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Убираем только строку разметки — файл может использоваться в другом шаблоне.
+    ta.value = ta.value.split(/\r?\n/).filter(l => !new RegExp(`^\\s*---\\s*фото:\\s*${esc}\\s*$`, 'i').test(l)).join('\n');
+    aiTplRenderImages();
+    aiTplPreview();
+    aiTplSetMsg('Фото убрано из текста. Нажмите «Сохранить».');
+  });
+
+  document.getElementById('aiTplAddPhoto')?.addEventListener('click', () => {
+    document.getElementById('aiTplFile')?.click();
+  });
+
+  document.getElementById('aiTplFile')?.addEventListener('change', async (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!files.length) return;
+    const bad = files.find(f => !/^image\/(jpeg|png|webp)$/.test(f.type));
+    if (bad) { aiTplSetMsg(`«${bad.name}»: поддерживаются JPG, PNG, WEBP`, 'error'); return; }
+    const big = files.find(f => f.size > 25 * 1024 * 1024);
+    if (big) { aiTplSetMsg(`«${big.name}» больше 25 МБ`, 'error'); return; }
+
+    // Сначала сохраняем текст формы: сервер дописывает фото к телу из базы,
+    // и несохранённые правки иначе затёрлись бы. Новому шаблону это ещё и
+    // даёт id, к которому привязывается файл.
+    const saved = await aiTplSubmit({ keepOpen: true });
+    if (!saved) return;
+    const id = document.getElementById('aiTplId').value;
+
+    for (const [i, file] of files.entries()) {
+      aiTplSetMsg(`Загружаю фото ${i + 1} из ${files.length}…`);
+      try {
+        const res = await fetch(`/api/salons/ai/templates/${encodeURIComponent(id)}/image`, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type, Authorization: `Bearer ${store.access}` },
+          body: file,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { aiTplSetMsg(data?.message || data?.error || `Не удалось: код ${res.status}`, 'error'); return; }
+        // Показываем тело, которое вернул сервер, а не свою догадку.
+        document.getElementById('aiTplBody').value = data.body || '';
+      } catch (err) {
+        aiTplSetMsg(String(err?.message || err), 'error'); return;
+      }
+    }
+    aiTplRenderImages();
+    aiTplPreview();
+    aiTplSetMsg(files.length > 1 ? `Добавлено фото: ${files.length}` : 'Фото добавлено в конец шаблона', 'ok');
+    await loadAiTemplates();
   });
 
   // ── Проверка на примере ──

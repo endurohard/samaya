@@ -190,7 +190,7 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
      * процедуры раньше, чем администратор успевал увидеть вопрос.
      */
     const respond = async (d: Decision) => {
-      const reply_parts: ReplyPart[] = thread_id && d.action === 'sent'
+      const intro: ReplyPart[] = thread_id && d.action === 'sent'
         ? await legsIntroFor({ companyId, channel: ch, threadId: thread_id, text })
           .catch((e) => {
             // Сбой вступления не должен превращаться в молчание: обычный
@@ -199,14 +199,27 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
             return [] as ReplyPart[];
           })
         : [];
+      // Фото в самом шаблоне («--- фото: имя», добавляются в админке).
+      // Текстом их отправлять нельзя — клиент получил бы служебную строку.
+      // Отправляемый ответ уходит частями в порядке шаблона, а в reply
+      // остаётся чистый текст: для черновика, журнала и канала без частей.
+      const tplParts = d.reply ? parseParts(d.reply) : [];
+      const hasPhotos = tplParts.some(p => p.type === 'image');
+      const replyText = hasPhotos
+        ? tplParts.flatMap(p => (p.type === 'text' ? [p.text] : [])).join('\n\n') || null
+        : d.reply;
+      const replyInParts = hasPhotos && d.action === 'sent';
+      const reply_parts: ReplyPart[] = replyInParts ? [...intro, ...tplParts] : intro;
       return res.json({
         ok: d.ok, topic: d.topic, confidence: d.confidence,
-        action: d.action, reply: d.reply, reason: d.reason,
+        action: d.action, reply: replyText, reason: d.reason,
         // Канал отправляет их ПЕРЕД reply и подтверждает отметкой
         // (POST /ai/intro-sent) — иначе при выключенном автоответе схемы
         // зон были бы помечены отправленными, не уйдя клиенту.
         reply_parts,
-        intro_key: reply_parts.length ? LEGS_INTRO_TOPIC : null,
+        // true — reply уже внутри reply_parts, второй раз его не отправлять.
+        reply_in_parts: replyInParts,
+        intro_key: intro.length ? LEGS_INTRO_TOPIC : null,
       });
     };
 
