@@ -17,7 +17,7 @@ import {
   loadZoneCatalog,
   PriceOutcome,
 } from '../ai/price-dialog';
-import { looksLikeServiceInterest, renderPrices, isSurveyAnswer } from '../ai/price';
+import { looksLikeServiceInterest, renderPrices, isSurveyAnswer, parseZones } from '../ai/price';
 import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
 import { humanTakeoverReason } from '../ai/human-takeover';
 import { parseParts } from '../ai/parts';
@@ -59,7 +59,21 @@ const LL_PRICE_TOPICS = new Set([
 const BOOKING_TOPICS = new Set(['booking', 'urgent']);
 const BOOKING_RE = /(?<![а-яё])(?:запис|запиш)[а-яё]*|свободн[а-яё]*\s+(?:окн|окош|врем|дат|мест|день|дн)|окошк|когда\s+(?:можно|могу|мне)\s+(?:прийти|приехать|подойти|записаться)/iu;
 
+/**
+ * Коротко названная зона из прайса: «А галифе», «Ягодицы», «а голень
+ * сколько?». Список «руки|ноги|живот…» ниже не знал половины прайса, и после
+ * цены ног «А галифе» уходило администратору с «тема не определена»
+ * (it.izberbash, 7 ноября). Здесь — любая распознанная зона, если кроме неё в
+ * сообщении только слова цены и ответа на опрос.
+ */
+function isBareZone(text: string): boolean {
+  if (!parseZones(text).length) return false;
+  const rest = text.replace(/(^|[^а-яё])(?:сколько|стоит|стоимость|цена|цену|по\s+цене|а\s+если)(?=$|[^а-яё])/giu, '$1 ').replace(/[?!.]+/g, ' ');
+  return isSurveyAnswer(rest);
+}
+
 function isLipoInterest(text: string): boolean {
+  if (isBareZone(text)) return true;
   return looksLikeServiceInterest(text) && (
       /(^|[^а-яё])(?:липосакц[а-яё]*|лл)(?=$|[^а-яё])/i.test(text)
       || /^\s*(?:(?:а|и)\s+)?(?:руки|рук|ноги|ног|живот|живота|холка|холки|подбородок|бока|спина|талия|овал лица)\s*[?.!]*\s*$/iu.test(text)

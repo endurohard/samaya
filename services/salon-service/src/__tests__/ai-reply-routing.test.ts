@@ -173,6 +173,8 @@ describe('/reply: вступление про ноги только вместе
     mocks.collecting.mockResolvedValue(false);
     mocks.intro.mockResolvedValue(INTRO);
     mocks.classify.mockResolvedValue({ ok: true, topic: 'manual_review', action: 'draft', confidence: 0.6, reply: null });
+    // Внутренняя поверхность выключена в прайсе: опрос отдаёт её администратору.
+    mocks.price.mockResolvedValue({ kind: 'handover', reply: null, reason: 'названа услуга, которой нет в действующем прайсе — нужен администратор' });
     const r = await reply('внутренняя поверхность бедра');
     expect(r.action).toBe('draft');
     expect(r.reply_parts).toEqual([]);
