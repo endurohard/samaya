@@ -2,7 +2,7 @@
 // (Instagram + WhatsApp, год, ~13 тыс. сообщений клиентов). Каждая фраза
 // ниже — дословно из диалога, где менеджер ответил по этой зоне/городу.
 import { describe, it, expect } from 'vitest';
-import { parseZones, parseCity, isSurveyAnswer } from '../ai/price';
+import { parseZones, parseCity, isSurveyAnswer, hasUnpricedZone } from '../ai/price';
 
 describe('города: опечатки', () => {
   it.each(['Капийск 🥰вес 56 кг', 'Капицск', 'Касиийск, зона живота и бока', 'В карпийске можно узнать пожалуйста',
@@ -55,5 +55,11 @@ describe('не цепляет посторонние слова', () => {
 describe('короткий ответ с опечаткой — ответ на опрос', () => {
   it.each(['Капийск', 'Ляжки', 'Фартук', 'Гольфе', 'Ручки', 'Подборок', 'В маскве'])('%j', t => {
     expect(isSurveyAnswer(t)).toBe(true);
+  });
+});
+
+describe('Morpheus и FaceTite — к администратору', () => {
+  it.each(['И морфиус отдельно оплачивается?', '300тр это будет с Morpheus 8?', 'А фейстайт сколько?'])('%j', t => {
+    expect(hasUnpricedZone(t)).toBe(true);
   });
 });
