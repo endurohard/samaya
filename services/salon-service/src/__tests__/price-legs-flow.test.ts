@@ -45,3 +45,20 @@ describe('ноги: сначала город, потом цена его гор
     expect(out.greeting).toMatch(/^Здравствуйте/);
   });
 });
+
+// it.izberbash 7 ноября: «А ноги?» → схемы, 7 зон, цена Москвы; «А в
+// Каспийске» → бот ЕЩЁ РАЗ прислал обе схемы. Клиент их только что видел —
+// на смену города нужна только цена.
+describe('смена города после цены ног', () => {
+  it('пересчёт по другому городу помечен как пересчёт', async () => {
+    await say('Ноги Москва', true);
+    const out = await say('А в Каспийске');
+    expect(out.kind).toBe('quote');
+    expect(out.reply).toContain('700 000 ₽');
+    expect(out.requote).toBe(true);
+  });
+  it('новый вопрос о ногах — не пересчёт', async () => {
+    const out = await say('Ноги Москва', true);
+    expect(out.requote).toBeFalsy();
+  });
+});

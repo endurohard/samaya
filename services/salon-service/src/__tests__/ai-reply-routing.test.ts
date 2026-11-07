@@ -219,6 +219,13 @@ describe('/reply: вступление про ноги только вместе
     expect(r.reply_parts.slice(1)).toEqual(INTRO);
     expect(r.reply).toBe('Цена 700 000 ₽');
   });
+  it('пересчёт цены ног по другому городу — без фото', async () => {
+    mocks.intro.mockResolvedValue(INTRO);
+    mocks.price.mockResolvedValue({ ...LEGS_QUOTE, requote: true });
+    const r = await reply('А в Каспийске');
+    expect(r.reply).toBe('Цена 700 000 ₽');
+    expect(r.reply_parts).toEqual([]);
+  });
   it('первый ответ с ценой не про ноги: приветствие в начале текста', async () => {
     mocks.collecting.mockResolvedValue(false);
     mocks.price.mockResolvedValue({ kind: 'quote', reply: 'Холка — 200 000 ₽', reason: 'цена',

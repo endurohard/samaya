@@ -366,6 +366,11 @@ export interface PriceOutcome {
    * перед ценой уходят фото, и здороваться надо ДО них.
    */
   greeting?: string;
+  /**
+   * Пересчёт уже названной цены по другому городу («а в Каспийске?»): зоны
+   * те же, клиент только что видел схемы и описание — уходит одна цена.
+   */
+  requote?: boolean;
 }
 
 /**
@@ -767,6 +772,7 @@ export async function handleMessage(opts: {
   return {
     kind: 'quote', reply: quote.text,
     ...(greeting ? { greeting } : {}),
+    ...(cityChanged && newZones.length === 0 ? { requote: true } : {}),
     reason: `цена по прайсу: ${CITY_TITLE[next.city!]}, ` +
       `${next.weight != null ? next.weight + ' кг, ' : ''}${zonesText}`,
     state: next,

@@ -132,7 +132,8 @@ function priceOutcomeToDecision(out: PriceOutcome, base?: Decision): Decision {
     reason: out.reason,
     // Схемы ног — только к ЦЕНЕ круговой: сначала бот узнаёт город, и
     // только потом шлёт фото, текст про 7 зон и цену этого города.
-    ...(out.kind === 'quote' && out.state?.zones?.includes('legs_circular') ? { legsIntro: true } : {}),
+    // На пересчёт по другому городу схемы не повторяем (it.izberbash, 7 ноября).
+    ...(out.kind === 'quote' && !out.requote && out.state?.zones?.includes('legs_circular') ? { legsIntro: true } : {}),
     ...(out.greeting ? { greeting: out.greeting } : {}),
   };
 }
