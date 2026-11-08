@@ -16,7 +16,8 @@ import { pool } from './store.js';
 import { graphCall, credentials } from './graph.js';
 
 const COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '';
-const POSTS_TO_SYNC = Number(process.env.INSTAGRAM_COMMENTS_POSTS || 12);
+// Свежие комментарии приходят и под старыми постами: за 2 дня — под 27 разными.
+const POSTS_TO_SYNC = Number(process.env.INSTAGRAM_COMMENTS_POSTS || 30);
 const PER_POST_LIMIT = Number(process.env.INSTAGRAM_COMMENTS_PER_POST || 200);
 const PRIVATE_REPLY_DAYS = 7;
 

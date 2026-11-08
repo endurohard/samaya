@@ -834,10 +834,11 @@ app.listen(PORT, () => {
 
   ig.initialize().catch(err => console.error('[IG] ошибка инициализации:', err.message));
 
-  // Обход комментариев последних постов: догоняет то, что не пришло вебхуком.
+  // Обход комментариев последних постов: догоняет то, что не пришло вебхуком
+  // (основной путь — подписка на поле comments, включена 08.11.2026).
   // 0 — выключить. Первый проход через минуту после старта, чтобы не мешать
   // разогреву сервиса.
-  const commentsEvery = Number(process.env.INSTAGRAM_COMMENTS_SYNC_MS ?? 300_000);
+  const commentsEvery = Number(process.env.INSTAGRAM_COMMENTS_SYNC_MS ?? 900_000);
   if (commentsEvery > 0) {
     const run = async () => {
       const r = await syncRecentComments().catch(e => ({ ok: false, errors: [e.message] }));
