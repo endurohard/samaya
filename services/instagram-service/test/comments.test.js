@@ -72,3 +72,10 @@ test('наш собственный комментарий сразу счита
   const ins = queries.find(q => /INSERT INTO instagram.comments/.test(q[0]));
   assert.equal(ins[1][7], true);
 });
+
+test('наш ответ в ветке закрывает комментарий клиента', async () => {
+  await C.upsertComment({ comment_id: 'r1', media_id: 'p1', parent_id: 'c1', username: 'balakerimova_zukhra', text: 'Написали вам в директ' });
+  const upd = queries.find(q => /UPDATE instagram.comments SET status = CASE/.test(q[0]));
+  assert.ok(upd, 'родитель обновлён');
+  assert.equal(upd[1][1], 'c1');
+});

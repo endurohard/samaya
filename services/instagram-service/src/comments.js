@@ -48,6 +48,16 @@ export async function upsertComment(c) {
       c.from_id ? String(c.from_id) : null, c.username || null, String(c.text || ''), fromMe, !!c.hidden,
       c.timestamp ? new Date(c.timestamp) : new Date()],
   );
+  // Наш ответ в ветке (в том числе написанный прямо в Instagram) закрывает
+  // комментарий клиента: в «Новых» он больше не нужен.
+  if (fromMe && c.parent_id) {
+    await pool.query(
+      `UPDATE instagram.comments SET status = CASE WHEN status = 'new' THEN 'done' ELSE status END,
+              replied_at = COALESCE(replied_at, $3), updated_at = NOW()
+        WHERE company_id = $1 AND comment_id = $2 AND NOT from_me`,
+      [COMPANY_ID, String(c.parent_id), c.timestamp ? new Date(c.timestamp) : new Date()],
+    ).catch(() => {});
+  }
   return r.rows[0]?.inserted ? 1 : 0;
 }
 
