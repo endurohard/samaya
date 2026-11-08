@@ -13,6 +13,10 @@ import {
   searchThreads, mediaOf, pool, saveOutgoingMedia, signMediaPath, signedMediaPath,
 } from './store.js';
 import { Campaign, PACES, spin, spinVariants, humanize } from './campaign.js';
+import {
+  parseCommentChanges, upsertComment, syncRecentComments, listComments,
+  replyPublic, replyPrivate, setHidden, setStatus,
+} from './comments.js';
 import { sendParts, threadClientId } from './parts.js';
 
 const PORT = Number(process.env.PORT || 3010);
@@ -49,8 +53,19 @@ app.post('/api/instagram/webhook',
     // то же событие повторно. Разбор и ответ клиенту идут после ответа.
     res.sendStatus(200);
 
+    // Комментарии к постам — своё поле вебхука (comments), отдельно от директа.
+    const comments = parseCommentChanges(body);
+    if (comments.length) {
+      let added = 0;
+      for (const c of comments) {
+        added += await upsertComment(c).catch((e) => { console.error('[IG][комментарии] запись:', e.message); return 0; });
+      }
+      console.log(`[IG][комментарии] вебхук: ${comments.length}, новых ${added}`);
+    }
+
     const items = parseWebhook(body);
     if (!items.length) {
+      if (comments.length) return;
       // Молчание без следа выглядит как поломка: запрос дошёл, ответ 200,
       // в логах пусто. Пишем, ЧТО именно пришло, — обычно это событие
       // другого поля (live_comments, messaging_seen), на которое отвечать
@@ -635,6 +650,33 @@ app.post('/api/instagram/campaign/stop', (_req, res) => {
 // ── ИИ-ответчик ──
 
 // Очередь черновиков на проверку администратором.
+// ── Комментарии к постам ──
+const who = async req => (req.user?.id ? (await authorName(req.user.id).catch(() => null)) || 'сотрудник' : null);
+app.get('/api/instagram/comments', async (req, res) => {
+  try { return res.json(await listComments({ status: req.query.status || 'new', limit: req.query.limit, before: req.query.before })); }
+  catch (e) { return res.status(500).json({ error: e.message }); }
+});
+app.post('/api/instagram/comments/sync', async (_req, res) => {
+  try { return res.json(await syncRecentComments()); }
+  catch (e) { return res.status(500).json({ error: e.message }); }
+});
+app.post('/api/instagram/comments/:id/reply', requireSend, async (req, res) => {
+  const r = await replyPublic(req.params.id, req.body?.text, await who(req)).catch(e => ({ ok: false, error: e.message }));
+  return res.status(r.ok ? 200 : 502).json(r);
+});
+app.post('/api/instagram/comments/:id/private', requireSend, async (req, res) => {
+  const r = await replyPrivate(req.params.id, req.body?.text, await who(req)).catch(e => ({ ok: false, error: e.message }));
+  return res.status(r.ok ? 200 : 502).json(r);
+});
+app.post('/api/instagram/comments/:id/hide', requireSend, async (req, res) => {
+  const r = await setHidden(req.params.id, req.body?.hide !== false, await who(req)).catch(e => ({ ok: false, error: e.message }));
+  return res.status(r.ok ? 200 : 502).json(r);
+});
+app.post('/api/instagram/comments/:id/status', async (req, res) => {
+  const r = await setStatus(req.params.id, String(req.body?.status || ''), await who(req)).catch(e => ({ ok: false, error: e.message }));
+  return res.status(r.ok ? 200 : 400).json(r);
+});
+
 app.get('/api/instagram/drafts', async (_req, res) => {
   try {
     return res.json(await pendingDrafts());
@@ -791,6 +833,22 @@ app.listen(PORT, () => {
   }
 
   ig.initialize().catch(err => console.error('[IG] ошибка инициализации:', err.message));
+
+  // Обход комментариев последних постов: догоняет то, что не пришло вебхуком.
+  // 0 — выключить. Первый проход через минуту после старта, чтобы не мешать
+  // разогреву сервиса.
+  const commentsEvery = Number(process.env.INSTAGRAM_COMMENTS_SYNC_MS ?? 300_000);
+  if (commentsEvery > 0) {
+    const run = async () => {
+      const r = await syncRecentComments().catch(e => ({ ok: false, errors: [e.message] }));
+      if (!r.ok || r.inserted || r.errors?.length) {
+        console.log(`[IG][комментарии] обход: постов ${r.posts ?? 0}, комментариев ${r.comments ?? 0}, новых ${r.inserted ?? 0}`
+          + (r.errors?.length ? `, ошибки: ${r.errors.slice(0, 2).join('; ')}` : ''));
+      }
+    };
+    setTimeout(run, 60_000);
+    setInterval(run, commentsEvery);
+  }
   if (process.env.INSTAGRAM_MONITOR === 'true') monitor.start();
   else console.log('[IG] монитор выключен (INSTAGRAM_MONITOR != true)');
 });

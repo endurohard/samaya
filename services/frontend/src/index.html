@@ -2710,7 +2710,25 @@
                   <button type="button" class="btn-ghost btn-sm" id="igLiveToggle">Окно Instagram</button>
                   <button type="button" class="btn-ghost btn-sm" id="igResolveNames">Определить имена</button>
                   <button type="button" class="btn-ghost btn-sm" id="igCampaignToggle">Отправка по списку</button>
+                  <button type="button" class="btn-ghost btn-sm" id="igCommentsToggle">Комментарии <span class="pill pill-mute" id="igCommentsBadge" hidden></span></button>
                 </div>
+              </div>
+
+              <!-- Комментарии к постам. Ответ под постом — публичный; «В
+                   директ» — одно приватное сообщение автору (Instagram
+                   разрешает его в течение 7 дней после комментария). -->
+              <div id="igCommentsWrap" class="ig-comments" hidden>
+                <div class="ig-comments-bar">
+                  <div class="ig-comments-tabs" role="tablist">
+                    <button type="button" class="ig-ctab is-active" data-status="new">Новые <span data-count="new"></span></button>
+                    <button type="button" class="ig-ctab" data-status="done">Обработанные <span data-count="done"></span></button>
+                    <button type="button" class="ig-ctab" data-status="ignored">Без ответа <span data-count="ignored"></span></button>
+                    <button type="button" class="ig-ctab" data-status="all">Все</button>
+                  </div>
+                  <button type="button" class="btn-ghost btn-sm" id="igCommentsSync">Обновить из Instagram</button>
+                  <span class="hint" id="igCommentsMsg"></span>
+                </div>
+                <div id="igCommentsList" class="ig-comments-list"><div class="ig-empty">Загрузка…</div></div>
               </div>
 
               <!-- Ручная кампания: найти по переписке → отметить галочками →

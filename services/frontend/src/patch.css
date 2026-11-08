@@ -952,3 +952,18 @@ a.btn-ghost:hover { text-decoration: none; }
 
 /* Подсказка про код под полем ответа — тем же стилем, что и статус. */
 .wa-inbox-status.is-ok, .ig-chat-status.is-ok { color: #166534; }
+
+/* Комментарии Instagram */
+.ig-comments { border: 1px solid var(--border, #e5e7eb); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+.ig-comments-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.ig-comments-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.ig-ctab { border: 1px solid var(--border, #e5e7eb); background: transparent; border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 13px; color: inherit; }
+.ig-ctab.is-active { background: var(--accent, #7c5cff); border-color: var(--accent, #7c5cff); color: #fff; }
+.ig-comments-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
+.igc-item { border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 8px 10px; }
+.igc-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.igc-head a { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.igc-text { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+.igc-our { font-size: 13px; color: var(--text-muted, #6b7280); margin-left: 8px; }
+.igc-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.igc-input { flex: 1 1 240px; min-width: 180px; }

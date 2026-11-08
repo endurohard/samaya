@@ -16005,6 +16005,110 @@ function waAttachChatToClient(phoneDigits, row) {
     // Кампания могла быть запущена в другой сессии — показываем её состояние.
     if (!wrap.hidden) igCampaignPoll();
   });
+
+  // ── Комментарии к постам ──
+  // Ответ под постом — публичный. «В директ» — одно приватное сообщение
+  // автору комментария (Instagram разрешает его в течение 7 дней). Никаких
+  // prompt/confirm: поле ответа и кнопки прямо в карточке комментария.
+  let _igcStatus = 'new';
+  function igcMsg(text, kind) {
+    const el = document.getElementById('igCommentsMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'hint' + (kind === 'error' ? ' is-error' : (kind === 'ok' ? ' is-ok' : ''));
+  }
+  function igcTime(iso) {
+    try { return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+    catch (_e) { return ''; }
+  }
+  async function loadIgComments() {
+    const list = document.getElementById('igCommentsList');
+    if (!list) return;
+    const r = await apiCall('GET', `/api/instagram/comments?status=${encodeURIComponent(_igcStatus)}&limit=100`);
+    if (!r.ok) { list.innerHTML = `<div class="ig-empty">Не загрузилось: ${escapeHtml(r.data?.error || String(r.status))}</div>`; return; }
+    const counts = r.data?.counts || {};
+    document.querySelectorAll('#igCommentsWrap [data-count]').forEach((el) => {
+      const n = counts[el.dataset.count]; el.textContent = n ? `(${n})` : '';
+    });
+    const badge = document.getElementById('igCommentsBadge');
+    if (badge) { badge.hidden = !counts.new; badge.textContent = String(counts.new || ''); }
+    const items = r.data?.items || [];
+    if (!items.length) { list.innerHTML = '<div class="ig-empty">Комментариев нет</div>'; return; }
+    list.innerHTML = items.map((c) => {
+      const post = c.caption ? escapeHtml(String(c.caption).replace(/\s+/g, ' ').slice(0, 80)) : 'пост';
+      const replies = (c.our_replies || []).map(x => `<div class="igc-our">↳ ${escapeHtml(x.body)}${x.by ? ` <span class="hint">— ${escapeHtml(x.by)}</span>` : ''}</div>`).join('');
+      const marks = [
+        c.hidden ? '<span class="pill pill-mute">скрыт</span>' : '',
+        c.replied_at ? '<span class="pill pill-mute">ответили под постом</span>' : '',
+        c.private_sent_at ? '<span class="pill pill-mute">написали в директ</span>' : '',
+        c.status === 'ignored' ? '<span class="pill pill-mute">без ответа</span>' : '',
+      ].join(' ');
+      return `
+      <div class="igc-item" data-id="${escapeHtml(c.comment_id)}">
+        <div class="igc-head">
+          <b>@${escapeHtml(c.username || 'без ника')}</b>
+          <span class="hint">${igcTime(c.commented_at)}</span>
+          ${c.permalink ? `<a class="hint" href="${escapeHtml(c.permalink)}" target="_blank" rel="noopener">${post}</a>` : `<span class="hint">${post}</span>`}
+          ${marks}
+        </div>
+        <div class="igc-text">${escapeHtml(c.body)}</div>
+        ${replies}
+        <div class="igc-actions">
+          <input type="text" class="igc-input" placeholder="Ответ…" maxlength="1000" aria-label="Текст ответа">
+          <button type="button" class="btn-primary btn-xs" data-act="reply">Ответить под постом</button>
+          <button type="button" class="btn-ghost btn-xs" data-act="private" ${c.can_private ? '' : 'disabled title="Уже писали в директ или прошло больше 7 дней"'}>В директ</button>
+          <button type="button" class="btn-ghost btn-xs" data-act="${c.hidden ? 'unhide' : 'hide'}">${c.hidden ? 'Показать' : 'Скрыть'}</button>
+          ${c.status === 'new'
+            ? '<button type="button" class="btn-ghost btn-xs" data-act="ignored">Без ответа</button>'
+            : '<button type="button" class="btn-ghost btn-xs" data-act="new">Вернуть в новые</button>'}
+          <span class="hint igc-status"></span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('igCommentsToggle')?.addEventListener('click', () => {
+    const wrap = document.getElementById('igCommentsWrap');
+    if (!wrap) return;
+    wrap.hidden = !wrap.hidden;
+    if (!wrap.hidden) void loadIgComments();
+  });
+  document.querySelector('#igCommentsWrap .ig-comments-tabs')?.addEventListener('click', (e) => {
+    const b = e.target.closest('.ig-ctab');
+    if (!b) return;
+    _igcStatus = b.dataset.status;
+    document.querySelectorAll('#igCommentsWrap .ig-ctab').forEach(x => x.classList.toggle('is-active', x === b));
+    void loadIgComments();
+  });
+  document.getElementById('igCommentsSync')?.addEventListener('click', async () => {
+    igcMsg('Забираю комментарии из Instagram…');
+    const r = await apiCall('POST', '/api/instagram/comments/sync');
+    if (!r.ok || r.data?.ok === false) { igcMsg('Не удалось: ' + ((r.data?.errors || [])[0] || r.data?.error || r.status), 'error'); return; }
+    igcMsg(`Постов: ${r.data.posts}, комментариев: ${r.data.comments}, новых: ${r.data.inserted}`, 'ok');
+    void loadIgComments();
+  });
+  document.getElementById('igCommentsList')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const item = btn.closest('.igc-item');
+    const id = item?.dataset.id;
+    const st = item?.querySelector('.igc-status');
+    const text = item?.querySelector('.igc-input')?.value.trim() || '';
+    const act = btn.dataset.act;
+    if ((act === 'reply' || act === 'private') && !text) { if (st) st.textContent = 'Напишите текст ответа'; return; }
+    const path = {
+      reply: ['reply', { text }], private: ['private', { text }],
+      hide: ['hide', { hide: true }], unhide: ['hide', { hide: false }],
+      ignored: ['status', { status: 'ignored' }], new: ['status', { status: 'new' }],
+    }[act];
+    if (!path) return;
+    btn.disabled = true;
+    if (st) st.textContent = 'Отправляю…';
+    const r = await apiCall('POST', `/api/instagram/comments/${encodeURIComponent(id)}/${path[0]}`, path[1]);
+    btn.disabled = false;
+    if (!r.ok || r.data?.ok === false) { if (st) st.textContent = 'Не удалось: ' + (r.data?.error || r.status); return; }
+    toast({ reply: 'Ответ опубликован', private: 'Сообщение ушло в директ', hide: 'Комментарий скрыт', unhide: 'Комментарий снова виден', ignored: 'Отмечено: без ответа', new: 'Возвращён в новые' }[act]);
+    void loadIgComments();
+  });
   document.getElementById('igSearchBtn')?.addEventListener('click', () => { void igSearch(); });
   document.getElementById('igSelectAll')?.addEventListener('click', () => {
     _igPicked = new Set(_igFound.map(t => t.thread_id));

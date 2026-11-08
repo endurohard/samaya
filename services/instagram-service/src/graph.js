@@ -385,6 +385,47 @@ export async function sendMediaMessage(recipientIgsid, file, kind = 'image') {
 }
 
 /**
+ * Произвольный вызов Graph API — для комментариев (чтение, ответ, скрытие,
+ * приватный ответ). Путь относительный: «me/media», «<id>/replies».
+ *
+ * Токен идёт заголовком, а не в адресе: адрес попадает в логи прокси и в
+ * тексты ошибок. Сетевые сбои повторяются тем же порядком, что отправка.
+ */
+export async function graphCall(method, relPath, { query = {}, body = null } = {}) {
+  const cred = await credentials();
+  if (!cred) return { ok: false, error: 'токен Instagram не сохранён (Настройки → Интеграции)' };
+  const target = cred.host.includes('graph.instagram.com') ? 'me' : cred.igId;
+  const p = String(relPath).replace(/^me(?=\/|$)/, target);
+  const qs = new URLSearchParams(query).toString();
+  const url = `https://${cred.host}/${cred.version}/${p}${qs ? `?${qs}` : ''}`;
+  const once = async () => {
+    try {
+      const r = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${cred.token}`,
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(20_000),
+        dispatcher,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const err = data?.error || {};
+        let msg = err.message || `HTTP ${r.status}`;
+        if (err.code === 190) msg = 'токен недействителен или истёк — обновите его в Настройках';
+        return { ok: false, error: msg, code: err.code || r.status, subcode: err.error_subcode };
+      }
+      return { ok: true, data };
+    } catch (e) {
+      return { ok: false, error: `сеть: ${e.cause?.code || e.message}` };
+    }
+  };
+  return withRetry(`Graph ${method} ${p.split('?')[0]}`, once);
+}
+
+/**
  * Профиль собеседника по его IGSID.
  *
  * Webhook присылает только идентификатор, без ника и имени — поэтому в
