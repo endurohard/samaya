@@ -269,10 +269,18 @@ router.post('/reply', serviceOrUser, async (req: ExpressRequest, res, next) => {
     // открытый вопрос (см. isPoliteOnly в price-dialog). Шаблон приветствия
     // «Что вас интересует?» в ответ на «Какой город?» сбивал клиента.
     const greetingOnly = /^\s*(?:здравствуйте|здравствуй|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[\s!.,)🌹🤍❤️]*$/iu.test(text);
+    // Ответ на «В прошлый раз вы указывали… Всё верно?» вместе с новыми
+    // данными: «нет, Каспийск», «нет, теперь 80 кг». Голые «да»/«нет» ловит
+    // slotRe, а с данными ответ уходил классификатору (which_city → черновик)
+    // вместо пересчёта — проба на бою 23 ноября.
+    const confirmPrefix = /^\s*(?:да|нет|неа)(?=$|[^а-яё])[\s,.!—-]*/iu;
+    const confirmWithData = confirmPrefix.test(text) && isSurveyAnswer(
+      text.replace(confirmPrefix, '').replace(/(^|[^а-яё])(?:теперь|уже|сейчас)(?=$|[^а-яё])/giu, '$1 '));
     const slotReply = slotRe.test(text) || (lines.length > 1 && lines.every(l => slotRe.test(l)))
       // Ответ только из города, веса и зон («Москва, вес 73», «Живот и
       // руки»): Jev без вопроса клиники отправлял такие в manual_review.
       || isSurveyAnswer(text)
+      || confirmWithData
       || greetingOnly;
     const leavesPriceSurvey = /(^|[^а-яё])(?:записаться|запишите|запись)(?=$|[^а-яё])/i.test(text);
     const lipoInterest = isLipoInterest(text) || (lines.length > 1 && lines.some(isLipoInterest));
