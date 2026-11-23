@@ -2,13 +2,14 @@
 // в прайсе нет (выключена в ai.price_zones), — это разговор с
 // администратором. Раньше расчёт молча пропускал такую зону, и на «живот и
 // внутренняя поверхность» клиент получил бы цену одного живота как ответ на
-// оба вопроса.
+// оба вопроса. (С 23 ноября части ног сворачиваются в круговую — здесь
+// выключенная зона — лобок, которого нет в тестовом прайсе.)
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 const store = vi.hoisted(() => ({ row: null as any }));
 vi.mock('../db', () => ({ pool: { query: async (sql: string, p: any[]) => {
   if (sql.includes('FROM ai.price_zones')) {
-    // Действующий прайс без внутренней поверхности ног.
+    // Действующий прайс без лобка.
     return { rows: [
       { zone_key: 'belly', title: 'живот', by_weight: true, price_kaspiysk: null, price_moscow: null, note: null },
       { zone_key: 'galife', title: 'галифе', by_weight: false, price_kaspiysk: 250000, price_moscow: 300000, note: null },
@@ -33,16 +34,16 @@ beforeEach(() => { store.row = null; });
 
 describe('зона, которой нет в действующем прайсе', () => {
   it('сразу передаётся администратору, без вопросов о городе', async () => {
-    const out = await say('Внутренняя поверхность бедра', true);
+    const out = await say('Лобок', true);
     expect(out.kind).toBe('handover');
   });
   it('вместе с зоной из прайса — тоже администратору, а не половина цены', async () => {
-    const out = await say('Москва 70 кг живот и внутренняя поверхность бедра', true);
+    const out = await say('Москва 70 кг живот и лобок', true);
     expect(out.kind).toBe('handover');
   });
   it('зона из прайса считается как обычно', async () => {
-    const out = await say('Москва галифе', true);
+    const out = await say('Москва 70 кг живот', true);
     expect(out.kind).toBe('quote');
-    expect(out.reply).toContain('300 000');
+    expect(out.reply).toContain('350 000');
   });
 });

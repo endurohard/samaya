@@ -12,7 +12,7 @@
 import { pool } from '../db';
 import { parseParts } from './parts';
 import type { ReplyPart } from './parts';
-import { parseZones } from './price';
+import { parsePriceZones } from './price';
 import type { ZoneKey } from './price';
 
 /** Тема-хранилище текстов и порядка частей вступления. */
@@ -32,7 +32,7 @@ const LEGS_ZONE: ZoneKey = 'legs_circular';
 
 /** Нужно ли вступление по этому сообщению (зона ног названа). */
 export function mentionsLegs(text: string): boolean {
-  return parseZones(text).includes(LEGS_ZONE);
+  return parsePriceZones(text).includes(LEGS_ZONE);
 }
 
 /**

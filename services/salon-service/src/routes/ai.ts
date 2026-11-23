@@ -17,7 +17,7 @@ import {
   loadZoneCatalog,
   PriceOutcome,
 } from '../ai/price-dialog';
-import { looksLikeServiceInterest, renderPrices, isSurveyAnswer, parseZones } from '../ai/price';
+import { looksLikeServiceInterest, renderPrices, isSurveyAnswer, parsePriceZones } from '../ai/price';
 import { legsIntroFor, markIntroSent, LEGS_INTRO_TOPIC } from '../ai/intro';
 import { humanTakeoverReason } from '../ai/human-takeover';
 import { parseParts } from '../ai/parts';
@@ -67,7 +67,7 @@ const BOOKING_RE = /(?<![а-яё])(?:запис|запиш)[а-яё]*|свобо
  * сообщении только слова цены и ответа на опрос.
  */
 function isBareZone(text: string): boolean {
-  if (!parseZones(text).length) return false;
+  if (!parsePriceZones(text).length) return false;
   const rest = text.replace(/(^|[^а-яё])(?:сколько|стоит|стоимость|цена|цену|по\s+цене|а\s+если)(?=$|[^а-яё])/giu, '$1 ').replace(/[?!.]+/g, ' ');
   return isSurveyAnswer(rest);
 }

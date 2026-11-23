@@ -11,7 +11,7 @@
 // классификатор. Иначе «Москва» ушла бы в manual_review.
 import { pool } from '../db';
 import {
-  City, ZoneKey, parseCity, parseWeight, parseZones, weightNeeded,
+  City, ZoneKey, parseCity, parseWeight, parsePriceZones, foldLegParts, weightNeeded,
   buildQuote, hasUnpricedZone, asksWholeBody, wantsArmpits,
   wantsPubisWithBelly, zoneTitle, CITY_TITLE,
   AskParts, parseAskTemplate, askOnlyNeeded, asksPriceAnew,
@@ -285,7 +285,9 @@ export async function loadState(
   return {
     city: (r.city as City) ?? null,
     weight: r.weight == null ? null : Number(r.weight),
-    zones: (r.zones ?? []) as ZoneKey[],
+    // Состояния, сохранённые до 23 ноября, могут держать галифе/голень
+    // отдельными строками — сворачиваем их так же, как новый ввод.
+    zones: foldLegParts((r.zones ?? []) as ZoneKey[]),
     armpits: r.armpits === true,
     pubisBelly: r.pubis_belly === true,
     quotedAt: r.quoted_at ?? null,
@@ -509,7 +511,7 @@ export async function handleMessage(opts: {
     };
   }
 
-  const newZones = parseZones(text);
+  const newZones = parsePriceZones(text);
   const catalog = await loadZoneCatalog(companyId);
 
   // Бот называет цены только по действующему прайсу. Зона, выключенная в
