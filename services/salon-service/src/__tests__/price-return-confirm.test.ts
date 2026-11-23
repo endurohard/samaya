@@ -94,6 +94,35 @@ describe('возврат клиента: прежние данные подтв�
     expect((await say('+')).reply).toContain('700 000');
   });
 
+  it('«нет, теперь 80 кг» — меняется только вес, город прежний', async () => {
+    await say('Каспийск 70 кг живот', true);
+    vi.advanceTimersByTime(50 * HOUR);
+    expect((await say('а живот сколько?', true)).reply).toContain('70 кг');
+    const out = await say('нет, теперь 80 кг');
+    expect(out.kind).toBe('quote');
+    expect(out.state?.city).toBe('kaspiysk');
+    expect(out.state?.weight).toBe(80);
+    expect(out.reply).toContain('300 000');
+  });
+
+  it('«уже не Москва» — город не подставляется, спрашиваем заново', async () => {
+    await say('Москва ноги', true);
+    vi.advanceTimersByTime(50 * HOUR);
+    await say('сколько стоят ноги?', true);
+    const out = await say('уже не Москва');
+    expect(out.kind).toBe('ask');
+    expect(out.state?.city ?? null).toBeNull();
+  });
+
+  it('голое «нет» — спрашиваем заново', async () => {
+    await say('Каспийск 70 кг живот', true);
+    vi.advanceTimersByTime(50 * HOUR);
+    await say('а живот сколько?', true);
+    const out = await say('нет');
+    expect(out.kind).toBe('ask');
+    expect(out.reply).toContain('Какой город');
+  });
+
   it('через 8 дней прежние данные забыты — обычный вопрос о городе', async () => {
     await say('Москва ноги', true);
     vi.advanceTimersByTime(8 * 24 * HOUR);

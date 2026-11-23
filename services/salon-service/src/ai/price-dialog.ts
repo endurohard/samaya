@@ -545,11 +545,20 @@ export async function handleMessage(opts: {
       confirmAskedAt: null,
     };
   } else if (confirmation === false) {
-    // Данные изменились — забываем прошлые и спрашиваем заново. Если новые
-    // названы прямо здесь («нет, теперь 80»), они подхватятся ниже.
+    // Данные изменились. Если новые названы прямо здесь («нет, теперь
+    // 80 кг», «нет, Каспийск»), меняется только названное, остальное берём
+    // из прежних — вопрос звучал «если изменились — напишите новые». Иначе
+    // на «нет, теперь 80 кг» бот заново спрашивал город (проба 23 ноября).
+    // Голое «нет» — забываем прошлые и спрашиваем заново.
+    const newCity = parseCity(text);
+    const newWeight = parseWeight(text);
+    const named = newCity != null || newWeight != null;
     prev = {
       ...prev,
-      city: null, weight: null,
+      city: named ? (newCity ?? prev.priorCity) : null,
+      weight: named
+        ? (newWeight ?? (weightNeeded(prev.zones, catalog) ? prev.priorWeight : null))
+        : null,
       priorCity: null, priorWeight: null,
       confirmAskedAt: null,
     };
